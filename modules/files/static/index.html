@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="files.page_title">Hub files</title>
+<link rel="icon" type="image/png" sizes="16x16" href="/web/favicon/tab-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/web/favicon/tab-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/web/favicon/tab-48.png">   <!-- the tab: three drawings, one per size (16 and 32 px are not the large mark scaled down) -->
+<script src="/static/theme.js"></script>  <!-- theme: before styles and markup, to avoid a flash -->
+<link rel="stylesheet" href="/web/css/tokens.css">
+<link rel="stylesheet" href="/web/css/base.css">
+<link rel="stylesheet" href="/web/css/feed.css">
+<link rel="stylesheet" href="/web/css/code.css">
+<link rel="stylesheet" href="/web/clean/palette.css">  <!-- Clean, the default theme: its colors and font under html.th-clean (theme.js) -->
+<link rel="stylesheet" href="/static/files.css">
+</head>
+<body>
+<div class="fapp" id="app" data-view="list">
+  <aside class="fside" aria-label="Folder" data-i18n-aria-label="files.folder">
+    <div class="fbrand"><a class="fhome" href="#/" data-i18n="files.home">Files</a><span class="spacer"></span><span id="themes"></span></div>
+    <nav class="flist" id="list" aria-label="Folder contents" data-i18n-aria-label="files.folder_contents"></nav>
+  </aside>
+  <section class="fwin" aria-label="File" data-i18n-aria-label="files.file">
+    <header class="fhead">
+      <nav class="crumbs" id="crumbs" aria-label="Path" data-i18n-aria-label="files.path_nav"></nav>
+      <span class="spacer"></span>
+      <span class="acts" id="acts"></span>
+    </header>
+    <div class="fview" id="view"></div>
+  </section>
+  <aside class="cpanel" id="cpanel" aria-label="Comments on the file" data-i18n-aria-label="files.comments_aria" hidden></aside>
+  <div class="fbanner" id="banner" role="status" aria-live="polite"></div>
+</div>
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/vendor/highlight.min.js"></script>
+<script type="module" src="/static/files.js"></script>
+</body>
+</html>

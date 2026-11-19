@@ -1,0 +1,143 @@
+{
+ "about": "An owner message arrived while the session was handing over: it was typed into the handover turn, and HANDOFF-DONE released the process, so the turn with it died and there was no reply until a follow-up nudge. Now it does not put the session to sleep: the reply comes first, and the hub is told why.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w",
+    "pid": 102
+   }
+  },
+  {
+   "t": 5,
+   "type": "session.close_requested",
+   "entity": "w",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 7,
+   "type": "message.received",
+   "entity": null,
+   "data": {
+    "to": "w",
+    "text": "add a favicon",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 8,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 8,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: site\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m7"
+   }
+  },
+  {
+   "t": 20,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "Favicon added."
+   }
+  },
+  {
+   "t": 20,
+   "type": "turn.stopped",
+   "entity": "w"
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "idle",
+    "closing": "none"
+   }
+  },
+  "messages": {
+   "m5": {
+    "state": "delivered"
+   },
+   "m7": {
+    "session": "w",
+    "state": "delivered"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m5"
+   },
+   {
+    "do": "type",
+    "message": "m7"
+   },
+   {
+    "do": "type",
+    "session": "hub"
+   }
+  ],
+  "rejected": 0
+ }
+}

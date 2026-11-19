@@ -1,0 +1,9 @@
+{
+  "name": "flow",
+  "icon": "icon.svg",
+  "description": "“Flow” — who writes to whom in the fleet: you, the hub, agents and workers as dots, messages and tasks as signals between them; live and replayed over an hour, 6 hours or a day — at speeds from ×¼ to ×4, with pause and seeking",
+  "why": "At a glance you see where work is going on and who waits for whom; the replay shows how the day went",
+  "version": "1.4.0",
+  "hub": "^1.1",
+  "web": "main.js"
+}

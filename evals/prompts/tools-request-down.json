@@ -1,0 +1,68 @@
+{
+ "id": "tools-request-down",
+ "title": "A session that asked again for a granted tool whose MCP server is down is told the cause and the next step: reconnect or reload for a failed server; for one waiting for a login — that the hub knows, go on without it (no login of its own); it does not loop on the request",
+ "note": "bin/hub of one version (main), only the input differs. failed-server: before — `already has it` (main), after — the PR's refusal. waiting-for-login: before — the PR's first commit (run `hub mcp login`), after — its second (the hub has been told; go on without the tool). The refusal reaches the session as the output of its own `hub tools request`; the eval cannot run the core, so the turn's input carries that output. `hub mcp …` is recorded, not run. Names and texts are made up.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "You are the maps session of the agents-hub hub: you run maps (tiles, the geocoder). The hub's commands are `hub` in the shell (Bash). You don't remember their syntax: before typing a hub command, look at the help (`hub --help`, `hub <command> --help`). Do what the owner asks, and end the turn with one line: what you did. Today is 2026-11-06, the owner's time.",
+ "turns": [
+  {
+   "id": "failed-server",
+   "input": {
+    "before": "[hub:m200 from user] Send the weekly tile report to the team through the mail tool.\n\n(What happened earlier in this turn: there were no mcp__mail__ tools in your tool list, so you ran `hub tools request mail \"send the weekly tile report\"`. It printed:\nrejected: tools.requested maps — already has it\nContinue from here.)",
+    "after": "[hub:m200 from user] Send the weekly tile report to the team through the mail tool.\n\n(What happened earlier in this turn: there were no mcp__mail__ tools in your tool list, so you ran `hub tools request mail \"send the weekly tile report\"`. It printed:\nrejected: tools.requested maps — mail is already granted, but its MCP server did not come up in maps: asking again will not help. The core reconnects it by itself; right now: hub mcp reconnect mail --session maps, or restart the session with the same conversation: hub session reload maps. If it fails again, the cause is the server or its settings: tell the hub, do not keep asking for the grant.\nContinue from here.)"
+   },
+   "checks": [
+    {
+     "id": "next_step",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "any_call",
+       "re": "^mcp reconnect mail"
+      },
+      {
+       "type": "any_call",
+       "re": "^session reload maps"
+      },
+      {
+       "type": "any_call",
+       "re": "^send hub "
+      }
+     ]
+    },
+    {
+     "id": "no_loop",
+     "type": "no_call",
+     "re": "^tools (request|grant) "
+    }
+   ]
+  },
+  {
+   "id": "waiting-for-login",
+   "input": {
+    "before": "[hub:m201 from user] Put the new tile style on the team calendar through the calendar tool.\n\n(What happened earlier in this turn: there were no mcp__calendar__ tools in your tool list, so you ran `hub tools request calendar \"add the tile style review\"`. It printed:\nrejected: tools.requested maps — calendar is already granted, but its MCP server is waiting for a login: hub mcp login maps calendar (the login window opens for the owner); the server connects by itself after that.\nContinue from here.)",
+    "after": "[hub:m201 from user] Put the new tile style on the team calendar through the calendar tool.\n\n(What happened earlier in this turn: there were no mcp__calendar__ tools in your tool list, so you ran `hub tools request calendar \"add the tile style review\"`. It printed:\nrejected: tools.requested maps — calendar is already granted, but its MCP server is waiting for a login; the hub has been told. Asking again will not help: go on without calendar, or tell the hub if you cannot.\nContinue from here.)"
+   },
+   "checks": [
+    {
+     "id": "no_login",
+     "type": "no_call",
+     "re": "^mcp login"
+    },
+    {
+     "id": "no_loop",
+     "type": "no_call",
+     "re": "^tools (request|grant) "
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,76 @@
+{
+ "about": "A session the owner drives by hand falls asleep at once (the turn is his); a hub session cannot be put to sleep.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w",
+    "pid": 102
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.take_requested",
+   "entity": "w"
+  },
+  {
+   "t": 3,
+   "type": "session.close_requested",
+   "entity": "w",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.close_requested",
+   "entity": "hub",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "asleep"
+   },
+   "hub": {
+    "state": "idle"
+   }
+  },
+  "rejected": 1
+ }
+}

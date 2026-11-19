@@ -1,0 +1,20 @@
+/* Code highlighting (highlight.js, js/code.js): colors are page tokens, so light and dark themes follow on their own. */
+.hljs-keyword, .hljs-selector-tag, .hljs-built_in, .hljs-literal, .hljs-doctag, .hljs-meta .hljs-keyword { color: var(--code); }
+.hljs-string, .hljs-regexp, .hljs-addition, .hljs-template-tag, .hljs-template-variable { color: var(--success); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-variable.constant_, .hljs-selector-pseudo { color: var(--warning); }
+.hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-section, .hljs-selector-id, .hljs-name { color: var(--primary); }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-class, .hljs-type, .hljs-params { color: var(--hl-attr); }
+.hljs-comment, .hljs-quote, .hljs-meta { color: var(--muted-foreground); font-style: italic; }
+.hljs-deletion { color: var(--destructive); }
+.hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: 600; }
+:root { --hl-attr: oklch(0.52 0.12 200); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --hl-attr: oklch(0.78 0.1 200); } }
+
+/* diff and Read output: a line is a marker + text; edited lines get a colored background, code inside keeps its own colors */
+pre.diff .ln, pre.numbered .ln { display: block; padding-inline-start: 2ch; text-indent: -2ch; }
+pre.numbered .ln { padding-inline-start: 7ch; text-indent: -7ch; }
+pre.numbered .ln.hit { background: color-mix(in srgb, var(--primary) 18%, transparent); }  /* the line from a `file:N` link */
+pre.diff .ln .mk, pre.numbered .ln .mk { user-select: none; color: var(--muted-foreground); }
+pre.diff .del { background: color-mix(in oklch, var(--destructive) 13%, transparent); }
+pre.diff .add { background: color-mix(in oklch, var(--success) 13%, transparent); }
+pre.diff .del .mk { color: var(--destructive); } pre.diff .add .mk { color: var(--success); }

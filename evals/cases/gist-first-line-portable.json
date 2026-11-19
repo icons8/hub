@@ -1,0 +1,76 @@
+{
+ "id": "gist-first-line-portable",
+ "title": "A long result for the owner: the first line is the gist (20–160 characters, not a heading, in his language), without an extra model step",
+ "note": "Guards a part of the core's gist addendum in the \"first line of the result\" variant (hosts/streamjson.py, reducer.result_gist). The number of turn steps (turn.result.turns) before/after — from trace.md.",
+ "real": [
+  "maps"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000006",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "maps",
+   "data": {
+    "cwd": "$work/maps",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000007",
+    "about": "Maps and their checks",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "Write a script words.py in your folder: it counts the words in the text from its argument and prints the most frequent word. Check it on three different examples (one of them an empty string) and report what came out and where the difficulties were.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "first_line",
+   "type": "said",
+   "text": "the result starts with a gist line of 20–160 characters (not a heading, a table, a list, or an intro ending in \":\")",
+   "re": "^(?![#|>]|[-*+] |\\d+[.)] )[^\\n]{19,159}[^:\\n]\\n"
+  },
+  {
+   "id": "first_line_ru",
+   "type": "said",
+   "text": "in the owner's language (English, no Russian words)",
+   "re": "^(?![^\\n]*[\\u0400-\\u04ff]{3})[^\\n]*[a-z]{4,}[^\\n]*\\n"
+  }
+ ]
+}

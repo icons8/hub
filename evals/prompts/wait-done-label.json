@@ -1,0 +1,79 @@
+{
+ "id": "wait-done-label",
+ "title": "A check of one wait ends its own wait (hub wait done <tag>) and not the session's other waits; with one wait the end is as before",
+ "note": "System prompt — the version's plugins/hub-base/skills/hub/SKILL.md; the turn input is the text of a `hub wait` check as each version's bin/hub writes it, with what the session found in the channel. Metric: the command that ends the wait. 'before' has no tag in the check, so the bare command (all waits) is the expected old behaviour; the controls are one wait (any `hub wait done` counts) and no reply (no done call).",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_i_run",
+    "says_to_user"
+   ],
+   "properties": {
+    "commands_i_run": {
+     "type": "string",
+     "description": "the plan of this turn: the exact shell commands you will run, one per line (you have no tools in this answer, so list them here, not as done)"
+    },
+    "says_to_user": {
+     "type": "string"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "two-waits-reply-on-one",
+   "input": {
+    "before": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have two waits set with `hub wait`: one for \"a reply from Sam in the releases chat\" and one for \"the review of MR !12 in GitLab\". The check below belongs to the first. You looked in the releases chat just now: Sam wrote \"merged, thanks\" in the thread.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done` (it removes the other checks) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\".",
+    "after": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have two waits set with `hub wait`: one for \"a reply from Sam in the releases chat\" and one for \"the review of MR !12 in GitLab\". The check below belongs to the first. You looked in the releases chat just now: Sam wrote \"merged, thanks\" in the thread.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done ab12` (it removes the other checks of this wait) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\"."
+   },
+   "checks": [
+    {
+     "id": "ends_its_own",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub wait done\\s+(ab12|[\"']?a reply from Sam|[\"']?reply from Sam|[\"']?Sam)"
+    },
+    {
+     "id": "not_bare",
+     "type": "field",
+     "name": "commands_i_run",
+     "not_re": "(?m)hub wait done[ \\t]*$"
+    }
+   ]
+  },
+  {
+   "id": "one-wait-reply",
+   "input": {
+    "before": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have one wait set with `hub wait`. You looked in the releases chat just now: Sam wrote \"merged, thanks\" in the thread.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done` (it removes the other checks) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\".",
+    "after": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have one wait set with `hub wait`. You looked in the releases chat just now: Sam wrote \"merged, thanks\" in the thread.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done ab12` (it removes the other checks of this wait) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\"."
+   },
+   "checks": [
+    {
+     "id": "ends_the_wait",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub wait done"
+    }
+   ]
+  },
+  {
+   "id": "two-waits-no-reply",
+   "input": {
+    "before": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have two waits set with `hub wait`: one for \"a reply from Sam in the releases chat\" and one for \"the review of MR !12 in GitLab\". The check below belongs to the first. You looked in the releases chat just now: nothing new from Sam.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done` (it removes the other checks) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\".",
+    "after": "Agent maps: works on the maps service. Folder /home/x/maps.\n\nYou have two waits set with `hub wait`: one for \"a reply from Sam in the releases chat\" and one for \"the review of MR !12 in GitLab\". The check below belongs to the first. You looked in the releases chat just now: nothing new from Sam.\n\n[waiting for reply] a reply from Sam in the releases chat. Check now; a reaction to your message (👍, ➕, ✅) is a reply too, read with reactions. If the channel is not among your tools, ask the agent that has it (the list of agents is in your instructions). If there is a reply, run `hub wait done ab12` (it removes the other checks of this wait) and go on with the task. If there is none, do nothing else and end the turn with the single character \"—\"."
+   },
+   "checks": [
+    {
+     "id": "no_done",
+     "type": "field",
+     "name": "commands_i_run",
+     "not_re": "hub wait done"
+    }
+   ]
+  }
+ ]
+}

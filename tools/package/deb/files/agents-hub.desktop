@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Hub by Icons8
+Comment=A fleet of Claude Code sessions in your browser and your phone
+Exec=/opt/agents-hub/bin/agents-hub
+Icon=agents-hub
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=false

@@ -1,0 +1,5 @@
+{
+  "name": "hub-base",
+  "version": "0.2.3",
+  "description": "Base set of every hub session: how to talk to the hub and the owner, how to ask for a tool."
+}

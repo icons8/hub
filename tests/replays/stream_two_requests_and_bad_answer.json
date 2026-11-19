@@ -1,0 +1,113 @@
+{
+ "about": "Two requests in a row: after the first answer the session still waits; a denial goes out with its reason; an answer when nothing is awaited is rejected.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r1",
+    "tool": "Write",
+    "input": {
+     "file_path": "/x"
+    }
+   }
+  },
+  {
+   "t": 3,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r2",
+    "tool": "Bash",
+    "input": {
+     "command": "ls"
+    }
+   }
+  },
+  {
+   "t": 4,
+   "type": "permission.answered",
+   "entity": "a",
+   "data": {
+    "request_id": "r2",
+    "behavior": "deny",
+    "message": "no"
+   }
+  },
+  {
+   "t": 5,
+   "type": "permission.answered",
+   "entity": "a",
+   "data": {
+    "behavior": "allow"
+   }
+  },
+  {
+   "t": 6,
+   "type": "permission.answered",
+   "entity": "a",
+   "data": {
+    "behavior": "allow"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "busy",
+    "pending": []
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "respond",
+    "request_id": "r2",
+    "response": {
+     "behavior": "deny",
+     "message": "no"
+    }
+   },
+   {
+    "do": "respond",
+    "request_id": "r1",
+    "response": {
+     "behavior": "allow",
+     "updatedInput": {
+      "file_path": "/x"
+     }
+    }
+   }
+  ],
+  "rejected": 1
+ }
+}

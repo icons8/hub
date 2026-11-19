@@ -1,0 +1,16 @@
+{
+ "_about": "Language data of Turkish (core/langdata.py): what the core recognises in Turkish text.",
+ "secrets": {
+  "labels": [
+   "şifre",
+   "şifresi",
+   "parola",
+   "parolası",
+   "api anahtarı",
+   "gizli anahtar",
+   "erişim anahtarı",
+   "erişim belirteci",
+   "özel anahtar"
+  ]
+ }
+}

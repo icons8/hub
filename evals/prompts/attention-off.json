@@ -1,0 +1,101 @@
+{
+ "id": "attention-off",
+ "title": "The session clears its own “waiting for you” mark (`hub attention off`) when its turn's result expects nothing from the owner; while a question is open or there is no mark — it does not call it",
+ "note": "bin/hub of one version (main), only the input differs: \"before\" — the message without the \"### For sessions\" item in the core's note, \"after\" — with the item (as the core appends it). The command and its help exist in both versions, so \"before\" is not 0/N: the case measures what the line itself adds. The mark cannot be seeded in the state — the owner mentions it in the message. \"Clear\" — any `hub attention off` call (before it the model may look at `hub status`); \"do not clear\" — not a single such call (help for the command does not count). Names and texts are made up.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "You are the maps session of the agents-hub hub: you run maps (tiles, the geocoder). The hub's commands are `hub` in the shell (Bash). You don't remember their syntax: before typing a hub command, look at the help (`hub --help`, `hub <command> --help`). Do what the owner asks, and end the turn with one line: what you did. Today is 2026-11-06, the owner's time.",
+ "turns": [
+  {
+   "id": "drop-answered-elsewhere",
+   "input": {
+    "before": "[hub:m100 from user] I answered your question about the tile format by voice, it doesn't show in the feed. Your page still has “waiting for you” lit — remove it, there's nothing more to wait for from me.",
+    "after": "[hub:m100 from user] I answered your question about the tile format by voice, it doesn't show in the feed. Your page still has “waiting for you” lit — remove it, there's nothing more to wait for from me.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "attention_off",
+     "type": "any_call",
+     "re": "^attention off$"
+    }
+   ]
+  },
+  {
+   "id": "drop-work-done",
+   "input": {
+    "before": "[hub:m101 from user] You've already published the tiles for the Alps, you have no questions for me, yet in the session list you still show “waiting for you” from the last result. That's not needed, sort it out.",
+    "after": "[hub:m101 from user] You've already published the tiles for the Alps, you have no questions for me, yet in the session list you still show “waiting for you” from the last result. That's not needed, sort it out.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "attention_off",
+     "type": "any_call",
+     "re": "^attention off$"
+    }
+   ]
+  },
+  {
+   "id": "drop-silent",
+   "input": {
+    "before": "[hub:m102 from user] Thanks, I've chosen the tile format — WebP, as you suggested, I wrote you in Telegram. Nothing else is needed. The “waiting for you” mark on your page is left over from the last result.",
+    "after": "[hub:m102 from user] Thanks, I've chosen the tile format — WebP, as you suggested, I wrote you in Telegram. Nothing else is needed. The “waiting for you” mark on your page is left over from the last result.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "attention_off",
+     "type": "any_call",
+     "re": "^attention off$"
+    }
+   ]
+  },
+  {
+   "id": "keep-question-open",
+   "input": {
+    "before": "[hub:m103 from user] I see you have “waiting for you” lit: you're waiting for me to pick the tile format, PNG or WebP? I haven't decided yet, I'll answer tonight. Remind me in one line how they differ in size for the Alps.",
+    "after": "[hub:m103 from user] I see you have “waiting for you” lit: you're waiting for me to pick the tile format, PNG or WebP? I haven't decided yet, I'll answer tonight. Remind me in one line how they differ in size for the Alps.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "no_attention_off",
+     "type": "no_call",
+     "re": "^attention off\\b"
+    }
+   ]
+  },
+  {
+   "id": "keep-asking-now",
+   "input": {
+    "before": "[hub:m104 from user] Estimate the size of the Alps tiles at zoom 5 in PNG and in WebP and end the turn with a question to me: which format do we pick. You need my answer to continue; let the “waiting for you” mark stay.",
+    "after": "[hub:m104 from user] Estimate the size of the Alps tiles at zoom 5 in PNG and in WebP and end the turn with a question to me: which format do we pick. You need my answer to continue; let the “waiting for you” mark stay.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "no_attention_off",
+     "type": "no_call",
+     "re": "^attention off\\b"
+    }
+   ]
+  },
+  {
+   "id": "plain-no-mark",
+   "input": {
+    "before": "[hub:m105 from user] How many tiles are there at zoom 5 in the standard 256-pixel scheme? One line.",
+    "after": "[hub:m105 from user] How many tiles are there at zoom 5 in the standard 256-pixel scheme? One line.\n\n(The hub was updated — what changed for sessions:\n• The owner asks to clear the “waiting for you” mark from your result (he answered elsewhere), or your turn's result expects nothing from him but the mark is on — `hub attention off`: the watcher does not set it again until your next turn. In a turn where you ask the owner something, do not call it — he will not see the question.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "no_attention_off",
+     "type": "no_call",
+     "re": "^attention off\\b"
+    }
+   ]
+  }
+ ]
+}

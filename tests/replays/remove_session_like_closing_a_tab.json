@@ -1,0 +1,165 @@
+{
+ "about": "Remove a session from the list like closing a terminal tab: a live one cannot be removed (put it to sleep first), a sleeping and a crashed one can; a session cannot remove; the owner's words to a removed session go to the hub with a mark (never lost); the name is free afterwards, a new session gets a new id.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/h",
+    "session_id": "h",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "h"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.remove_requested",
+   "entity": "a",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 3,
+   "type": "session.close_requested",
+   "entity": "a",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m6"
+   }
+  },
+  {
+   "t": 5,
+   "type": "turn.result",
+   "entity": "a",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: everything\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   }
+  },
+  {
+   "t": 6,
+   "type": "session.remove_requested",
+   "entity": "a",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 7,
+   "type": "session.remove_requested",
+   "entity": "a",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 8,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "you there?",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 9,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w2",
+    "session_id": "sid-a2",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "starting",
+    "session_id": "sid-a2",
+    "cwd": "/w2"
+   }
+  },
+  "messages": {
+   "m11": {
+    "session": "hub",
+    "state": "queued"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "hub"
+   },
+   {
+    "do": "spawn",
+    "session": "a"
+   },
+   {
+    "do": "type",
+    "message": "m6"
+   },
+   {
+    "do": "release",
+    "session": "a"
+   },
+   {
+    "do": "type",
+    "session": "hub",
+    "message": "m8"
+   },
+   {
+    "do": "end_tree",
+    "session": "a"
+   },
+   {
+    "do": "spawn",
+    "session": "a",
+    "session_id": "sid-a2",
+    "resume": false
+   }
+  ],
+  "rejected": 2
+ }
+}

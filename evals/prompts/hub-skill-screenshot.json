@@ -1,0 +1,95 @@
+{
+ "id": "hub-skill-screenshot",
+ "title": "A session sends the owner a screen capture from a browser tool with --screenshot, and a chart without it",
+ "note": "The system prompt is plugins/hub-base/skills/hub/SKILL.md; after the output comes the \"### For sessions\" tail of the message, as the core appends it. Metric: the --screenshot flag on hub send-file. Without the flag a screen capture from another tool lies in the client among drawn pictures; with the flag on a chart, a chart lies among screenshots.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands",
+    "says"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "every shell command you run in this turn, in order, exactly as you would type it, to the end of the turn"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your result for this turn"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "browser-capture",
+   "input": {
+    "before": "You are the agent of the shop hub: you run an online shop. In this turn you already opened the login page https://shop.example.com/login with a browser tool (the browser MCP) and saved its screen capture to /work/shop/shots/login-phone.png — on a phone the «Sign in» button goes under the keyboard.\n\n[hub:m610 from the owner] Show how the login looks on a phone now.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the agent of the shop hub: you run an online shop. In this turn you already opened the login page https://shop.example.com/login with a browser tool (the browser MCP) and saved its screen capture to /work/shop/shots/login-phone.png — on a phone the «Sign in» button goes under the keyboard.\n\n[hub:m610 from the owner] Show how the login looks on a phone now.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\n• A screenshot taken by something other than `hub shot` (a browser tool, a simulator, the system's screen capture): send it to the owner with the flag, `hub send-file --screenshot <png> \"<caption>\"`, so it lands with the screenshots, not with drawn pictures. `hub shot` frames are marked by themselves; charts, diagrams and generated pictures go without the flag.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "sent",
+     "type": "field",
+     "name": "commands",
+     "re": "hub send-file"
+    },
+    {
+     "id": "flagged",
+     "type": "field",
+     "name": "commands",
+     "re": "hub send-file[^'\\n]*--screenshot"
+    }
+   ]
+  },
+  {
+   "id": "simulator-capture",
+   "input": {
+    "before": "You are the agent of the app hub: you run a mobile app. In this turn you built the app, ran it in the simulator and captured the payment screen with `xcrun simctl io booted screenshot /work/app/pay.png`.\n\n[hub:m611 from the owner] Send how the new payment screen looks.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the agent of the app hub: you run a mobile app. In this turn you built the app, ran it in the simulator and captured the payment screen with `xcrun simctl io booted screenshot /work/app/pay.png`.\n\n[hub:m611 from the owner] Send how the new payment screen looks.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\n• A screenshot taken by something other than `hub shot` (a browser tool, a simulator, the system's screen capture): send it to the owner with the flag, `hub send-file --screenshot <png> \"<caption>\"`, so it lands with the screenshots, not with drawn pictures. `hub shot` frames are marked by themselves; charts, diagrams and generated pictures go without the flag.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "sent",
+     "type": "field",
+     "name": "commands",
+     "re": "hub send-file"
+    },
+    {
+     "id": "flagged",
+     "type": "field",
+     "name": "commands",
+     "re": "hub send-file[^'\\n]*--screenshot"
+    }
+   ]
+  },
+  {
+   "id": "chart-not-screenshot",
+   "input": {
+    "before": "You are the agent of the stats hub: you count sales. In this turn you drew a chart of the month's sales with a matplotlib script and saved it to /work/stats/sales-oct.png.\n\n[hub:m612 from the owner] Send me the sales chart for October.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the agent of the stats hub: you count sales. In this turn you drew a chart of the month's sales with a matplotlib script and saved it to /work/stats/sales-oct.png.\n\n[hub:m612 from the owner] Send me the sales chart for October.\n\n(The hub was updated — what changed for sessions:\n• The answer of another hub to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; do not ask the liaison to pass it on.\n• A screenshot taken by something other than `hub shot` (a browser tool, a simulator, the system's screen capture): send it to the owner with the flag, `hub send-file --screenshot <png> \"<caption>\"`, so it lands with the screenshots, not with drawn pictures. `hub shot` frames are marked by themselves; charts, diagrams and generated pictures go without the flag.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {
+     "id": "sent",
+     "type": "field",
+     "name": "commands",
+     "re": "hub send-file"
+    },
+    {
+     "id": "no_flag",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--screenshot"
+    }
+   ]
+  }
+ ]
+}

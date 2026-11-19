@@ -1,0 +1,104 @@
+{
+ "about": "A person left the session (/exit) — it sleeps and does not come up by itself; SessionEnd with another reason (a reboot) does not put it to sleep; a message wakes it. (There were no turns — it comes up with the same --session-id, without --resume.)",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "b",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-b"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "b",
+   "data": {
+    "session_id": "sid-b",
+    "pid": 102
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.end_other",
+   "entity": "b",
+   "data": {
+    "reason": "other"
+   }
+  },
+  {
+   "t": 3,
+   "type": "session.ended",
+   "entity": "a",
+   "data": {
+    "reason": "prompt_input_exit"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 5,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x",
+    "owner": true,
+    "channel": "web"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "starting"
+   },
+   "b": {
+    "state": "idle"
+   }
+  },
+  "messages": {
+   "m8": {
+    "state": "queued",
+    "origin": " from user"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "a"
+   },
+   {
+    "do": "spawn",
+    "session": "b"
+   },
+   {
+    "do": "spawn",
+    "session": "a",
+    "resume": false
+   }
+  ],
+  "rejected": 0
+ }
+}

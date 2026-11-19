@@ -1,0 +1,149 @@
+{
+ "id": "hub-show-session-question-en",
+ "title": "The same for an English-speaking owner: the hub shows the session's card instead of asking the question again",
+ "note": "12.10, PR #108: the hub asked a session's question again with its own form — the owner had two cards about one thing and closed the extra one himself. Fix: hub question show qN — the same card in the hub's chat, the answer goes to the session; the core's addendum to the owner's words and hub-home/CLAUDE.md say so. The history is invented (events): the hub has no conversation, the owner gave maps a task, it asked him with a form and ended its turn.",
+ "before": "502f25d",
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/home/x/hub-home",
+    "session_id": "0b9d4e2a-6f1c-4c55-9a51-1d7e8f0c3a21",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "0b9d4e2a-6f1c-4c55-9a51-1d7e8f0c3a21"
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "maps",
+   "data": {
+    "cwd": "/home/x/maps",
+    "session_id": "5c2f7a90-3e8b-4d16-b0a4-8e6c2d9f1b07",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.started",
+   "entity": "maps",
+   "data": {
+    "session_id": "5c2f7a90-3e8b-4d16-b0a4-8e6c2d9f1b07"
+   }
+  },
+  {
+   "type": "message.received",
+   "entity": null,
+   "data": {
+    "to": "maps",
+    "text": "Build a route map for the delivery page",
+    "attachments": [],
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "turn.started",
+   "entity": "maps",
+   "data": {
+    "marker": "m5",
+    "prompt_head": "Build a route map for the delivery page"
+   }
+  },
+  {
+   "type": "permission.requested",
+   "entity": "maps",
+   "data": {
+    "request_id": "r1",
+    "tool": "AskUserQuestion",
+    "interactive": true,
+    "input": {
+     "questions": [
+      {
+       "question": "Which tiles should the delivery map use: raster or vector?",
+       "header": "Tiles",
+       "multiSelect": false,
+       "options": [
+        {
+         "label": "Raster",
+         "description": "simpler, work everywhere, but get blurry when zoomed"
+        },
+        {
+         "label": "Vector",
+         "description": "sharp at any zoom, need a style of our own"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "type": "turn.result",
+   "entity": "maps",
+   "data": {
+    "text": "Asked the owner about the tiles (q7), waiting for the answer."
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "model": "opus",
+  "effort": "medium"
+ },
+ "real": [
+  "hub"
+ ],
+ "timeout": 600,
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "hub",
+    "text": "what does maps want from me? let's decide it",
+    "attachments": [],
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "shows_card",
+   "type": "event",
+   "text": "shows the owner the session's open card in its own chat: hub question show q7",
+   "match": {
+    "type": "question.shown",
+    "entity": "maps",
+    "data.id": "q7"
+   }
+  },
+  {
+   "id": "no_second_question",
+   "type": "no_event",
+   "text": "does not ask the same question with a second form (the hub's AskUserQuestion)",
+   "match": {
+    "type": "permission.requested",
+    "entity": "hub",
+    "data.tool": "AskUserQuestion"
+   }
+  },
+  {
+   "id": "owner_language_en",
+   "type": "not_said",
+   "text": "answers in English (no Cyrillic)",
+   "re": "[\u0430-\u0451]{4}"
+  }
+ ]
+}

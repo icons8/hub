@@ -1,0 +1,163 @@
+/* ---- schedule: days as headings, time large on the left — the main thing to see ---- */
+.sched { display: contents; }
+.srow.nav { margin: 0 var(--space-2) var(--space-2); width: calc(100% - 2 * var(--space-2)); }
+.srow.nav .glyph .icon { vertical-align: -3px; }
+.day { margin: var(--space-4) 0 0; font-size: var(--text-sm); font-weight: 600; color: var(--muted-foreground); }
+.day:first-child { margin-top: 0; }
+.day::first-letter { text-transform: uppercase; }
+.day.warn { color: var(--warning); }
+.jobs { list-style: none; margin: 0; padding: 0; display: grid; }
+.retarget { display: flex; gap: var(--space-2); }
+.retarget select { min-height: 30px; border: 1px solid var(--input); border-radius: var(--radius); background-color: var(--card); padding-block: 0; padding-inline-start: var(--space-2); }
+details.ended { margin-top: var(--space-4); }
+details.ended > summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); }
+@media (max-width: 760px) {
+  .job > .fold > summary { gap: var(--space-3); }
+  .job .body { margin-inline-start: calc(6rem + var(--space-3)); }
+}
+/* one task is one item: how it is configured (a line per job) and the upcoming runs */
+/* ---- hub updates ---- */
+.upd { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3) var(--space-4); margin: var(--space-3) 0; }
+/* a release is one line with its date; a press opens its notes; a note is shown whole and wraps */
+.upd-head { font-weight: 600; }
+summary.upd-head { cursor: pointer; list-style: none; display: flex; align-items: center; gap: var(--space-2); }
+summary.upd-head::-webkit-details-marker { display: none; }
+/* a past update with nothing inside is a plain line: no fold sign, its sign and words in line with the rows that fold */
+.upd-list div.upd-head { display: flex; align-items: center; gap: var(--space-2); padding-inline-start: calc(16px + var(--space-2)); }
+.upd-head .icon { width: 16px; height: 16px; flex: none; }
+.upd-head .upd-fold { transform: rotate(-90deg); transition: transform .12s; }
+[dir="rtl"] .upd-head .upd-fold { transform: rotate(90deg); }
+.upd[open] > .upd-head .upd-fold { transform: none; }
+.upd-state { display: inline-flex; }
+.upd-title { min-width: 0; }
+.upd-past { margin-top: var(--space-6); }   /* the past updates sit apart from the releases: a space, no heading */
+.upd ul { margin: var(--space-2) 0 0; padding-inline-start: 1.2em; }
+.upd li { margin: 2px 0; }
+.upd-list .upd li { overflow-wrap: anywhere; }
+.upd-list .upd li:not(.upd-date) { margin: var(--space-1) 0; }   /* a day line keeps its outdent and the space above */
+.upd-list .upd code { font: 0.92em var(--font-mono); }
+.upd .upd-date { list-style: none; margin-inline-start: -1.2em; font-size: var(--text-sm); font-weight: 600; margin-top: var(--space-3); }
+.upd .why { font-size: var(--text-sm); margin-top: var(--space-1); color: var(--muted-foreground); }
+.upd .why.now { color: var(--warning); }   /* only a failure that still holds stands out */
+/* a phone: room under the last line — a floating button (a plugin's) does not cover it */
+@media (max-width: 700px) { .feed-inner.upd-list { padding-bottom: 88px; } }
+.job-note { font: var(--text-xs)/1.6 var(--font-mono); color: var(--muted-foreground); list-style: none; }
+/* overview and "who · when" (the schedule should give a good overview) */
+.sched-overview { margin-bottom: var(--space-4); position: relative; display: flex; align-items: center; gap: var(--space-4); }
+.sched-pick { flex: 1 1 0; min-width: 0; max-width: 320px; }
+.sched-overview > a { flex: none; white-space: nowrap; text-decoration: none; }
+.sched-pick .sched-pick-in { padding-inline-end: 36px; background: light-dark(var(--background), var(--muted)); box-shadow: 0 0 0 1px var(--border), var(--shadow-plate); }   /* the sidebar search plate, with the --border ring: the page background is the plate colour here */
+.sched-pick-x { position: absolute; inset-inline-end: 6px; top: 50%; transform: translateY(-50%); width: 28px; height: 28px; display: grid;
+  place-items: center; border: 0; background: none; border-radius: var(--radius); cursor: pointer; color: var(--foreground); }
+.sched-pick-x:hover { background: var(--accent); }
+.sched-pick-x[hidden] { display: none; }
+.sched-pick-list { position: absolute; z-index: 5; inset-inline-start: 0; top: calc(100% + 4px); width: 320px; max-width: 100%; max-height: 320px;
+  overflow-y: auto; margin: 0; padding: var(--space-1); list-style: none; background: light-dark(var(--background), var(--muted)); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 0 0 1px var(--border), 0 6px 24px light-dark(rgb(0 0 0 / .14), rgb(0 0 0 / .55)); }
+.sched-pick-list[hidden] { display: none; }
+.sched-pick-list button { display: block; width: 100%; text-align: start; padding: var(--space-2); border: 0; background: none; border-radius: var(--radius);
+  font: inherit; font-size: var(--text-md); color: var(--foreground); cursor: pointer; }
+.sched-pick-list button:hover, .sched-pick-list button.on { background: var(--accent); }
+.sched-pick-list .none { padding: var(--space-2); color: var(--foreground); font-size: var(--text-sm); }
+.upd-check { display: grid; gap: var(--space-2); justify-items: start; margin: var(--space-3) 0; }
+.upd-check .hint { margin: 0; }
+/* the red band about the hub's own edits of the core (updates.js localEditsBand): above every tab of "Settings" */
+.local-edits { display: grid; gap: var(--space-2); justify-items: start; margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--destructive) 45%, var(--border)); border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--destructive) 12%, var(--card)); color: var(--destructive); }
+html.glass .local-edits { background: color-mix(in srgb, var(--destructive) 12%, var(--background)); }
+.local-edits .le-head { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.local-edits .le-files { font-size: var(--text-sm); max-width: 100%; }
+.local-edits .le-zones { margin: 0; padding-inline-start: 1.2em; font-size: var(--text-sm); max-width: 100%; }
+.local-edits .le-zone { overflow-wrap: anywhere; }
+.local-edits .le-checks { margin: 0; padding-inline-start: 1.2em; font-size: var(--text-sm); max-width: 100%; }
+.local-edits .le-checks li { overflow-wrap: anywhere; }
+.local-edits .le-files > summary { cursor: pointer; width: fit-content; }
+.local-edits .le-files ul { margin: var(--space-1) 0 0; padding-inline-start: 1.2em; color: var(--foreground); max-height: 16em; overflow: auto; }
+.local-edits .le-files li { overflow-wrap: anywhere; }
+.local-edits .le-st { color: var(--muted-foreground); font-size: var(--text-xs); }
+.local-edits .hint { color: var(--muted-foreground); }
+/* the own edits taken off and not put back yet (updates.js backupLine): a calm line in "About the hub" with "Put back" */
+.le-backup { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-2) 0; overflow-wrap: anywhere; }
+.upd-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.upd-actions a.btn { text-decoration: none; }   /* "Download the app" (the app, installer S3): a link that looks like the buttons beside it */
+.upd-notes { margin: 0; padding-inline-start: 1.2em; color: var(--muted-foreground); font-size: var(--text-sm); }
+
+/* "Show reply checks" (schedule.js) */
+.sched-waits { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-6) 0 var(--space-2); font-size: var(--text-sm); color: var(--foreground); cursor: pointer; }
+
+/* a job is one row: time, title, cadence; the rest unfolds (schedule.js jobRow) */
+.job { border-bottom: 1px solid var(--border); }
+.job:last-child { border-bottom: 0; }
+.job > .fold > summary { display: grid; grid-template-columns: 6rem minmax(0, 1fr) auto; gap: var(--space-4); align-items: start;
+  padding: var(--space-3) 0; cursor: pointer; list-style: none; }
+.job > .fold > summary::-webkit-details-marker { display: none; }
+.job > .fold > summary::after { content: ""; width: 8px; height: 8px; margin: 8px 4px 0 0; border: solid var(--muted-foreground);
+  border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform var(--dur-fast) var(--ease-out); }
+.job > .fold[open] > summary::after { transform: rotate(45deg); }
+[dir="rtl"] .job > .fold:not([open]) > summary::after { transform: rotate(135deg); }   /* the closed row points the way the text reads */
+.job .when { display: grid; white-space: nowrap; }
+.job .when .t { font-size: var(--text-lg); font-weight: 600; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.job .when .rel { font-size: var(--text-sm); color: var(--muted-foreground); }
+.job .prompt { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.job .cad { font-size: var(--text-sm); color: var(--muted-foreground); }
+.job .cad .bad { color: var(--destructive); }
+.job .body { display: grid; gap: var(--space-2); justify-items: start; padding: 0 0 var(--space-3); margin-inline-start: calc(6rem + var(--space-4)); min-width: 0; }
+.job .body p, .job .body code { margin: 0; max-width: 100%; overflow-wrap: anywhere; }
+.job .body .full { white-space: pre-wrap; }
+.job .body code { display: block; white-space: pre-wrap; font-size: var(--text-sm); background: var(--muted); padding: var(--space-1) var(--space-2); border-radius: var(--radius); }
+.job .body .by, .job .body .runs, .job .body .plan { font-size: var(--text-sm); color: var(--muted-foreground); }
+.job .body .why { font-size: var(--text-sm); color: var(--warning); }
+.job .body .why.muted { color: var(--muted-foreground); }
+.job .body .who { color: var(--foreground); font-size: var(--text-sm); text-decoration: none; }
+.job .body .who:hover { text-decoration: underline; }
+.job .plan { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.job .plan li { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.job .btn.remove { color: var(--muted-foreground); }
+.job .btn.remove:hover, .job .btn.remove:focus-visible { color: var(--destructive); }
+.sched-overview:empty { display: none; }
+.head a.btn { text-decoration: none; }
+.job .btn.small { font-size: var(--text-sm); }
+/* the header stays one row on a phone: back, title, "Open session"; the stopped-clock line goes under them */
+.head:has(> .sched-title) { flex-wrap: wrap; padding-inline: max(var(--space-6), calc((100% - 800px) / 2)); }   /* the title sits over the list column: one left edge */
+.head:has(> .sched-title) h2 { flex: 1 1 0; min-width: 0; }
+.head:has(> .sched-title) > .pill { font-size: var(--text-sm); order: 9; flex: 1 1 100%; white-space: normal; }
+
+/* Settings → Modules → Browsers for sessions: its rows are not schedule jobs and have their own rules */
+.brow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--space-4); align-items: start; padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.brow:last-child { border-bottom: 0; }
+.brow .when { display: grid; }
+.brow .when .t { font: 500 var(--text-lg)/1.3 var(--font-mono); font-variant-numeric: tabular-nums; }
+.brow .when .rel { font-size: var(--text-xs); color: var(--muted-foreground); }
+.brow .bname { margin: 0; font-size: var(--text-md); overflow-wrap: anywhere; }
+.brow .meta { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.brow .meta .id { font-family: var(--font-mono); }
+.brow .meta a { color: inherit; }
+.brow .why { font-size: var(--text-xs); color: light-dark(color-mix(in srgb, var(--warning) 60%, black), var(--warning)); margin-top: var(--space-1); }
+.brow .why.muted { color: var(--muted-foreground); }
+.brow[data-s="active"] .when .t { color: var(--success); }
+.brow[data-s="paused"] .when .t { color: var(--destructive); }
+@media (max-width: 760px) { .brow { grid-template-columns: 72px minmax(0, 1fr); } }
+
+/* "Skills and MCP" of a session (kit.js): a name and where it comes from, the calls, the last call */
+.kit-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; }
+.kit-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 6.5rem; gap: var(--space-4); align-items: baseline;
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.kit-row.unused { color: var(--muted-foreground); }
+.kit-row.bad { grid-template-columns: minmax(0, 1fr); color: var(--destructive); }
+.kit-what { min-width: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; }
+.kit-name { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.kit-server .kit-name { font-weight: 600; }
+.kit-tool { padding-inline-start: var(--space-4); }
+.kit-sub { color: var(--muted-foreground); font-size: var(--text-xs); }
+.kit-args { flex-basis: 100%; color: var(--muted-foreground); font: var(--text-xs)/1.5 var(--font-mono); overflow-wrap: anywhere; }
+.kit-n { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
+.kit-last { color: var(--muted-foreground); font-size: var(--text-xs); text-align: end; }
+.kit-tag { font-size: var(--text-xs); padding: 0 var(--space-1); border-radius: var(--radius-sm); background: var(--muted); }
+.kit-tag.on { color: var(--primary); }
+.kit-tag.warn { color: var(--warning); }
+.kit-fold > summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); padding: var(--space-2) 0; }
+.kit-note { margin: 0 0 var(--space-1); font-size: var(--text-sm); }
+.kit-cols { margin-top: var(--space-4); font-size: var(--text-xs); text-align: end; }
+/* a phone: the period goes under the title (the session name is the point of the title) */
+@media (max-width: 640px) { :root main > .head.kit-head { flex-wrap: wrap; padding-block-end: var(--space-2); } :root main > .head.kit-head > .spacer { flex: 1 0 100%; height: 0; } }   /* :root — above a theme's own nowrap header */

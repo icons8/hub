@@ -1,0 +1,860 @@
+{
+ "T1": {
+  "tests/fakes/procs.py": {
+   "096529a17507": 1
+  },
+  "tests/test_accounts.py": {
+   "9aea42a1dc93": 2,
+   "cbe455db88a5": 1
+  },
+  "tests/test_agent_file.py": {
+   "040a4299169f": 1,
+   "50374b47d16b": 2,
+   "75da02802389": 1,
+   "9c3fc935a919": 1,
+   "d1fd29b8882e": 1
+  },
+  "tests/test_bad_settings.py": {
+   "2abdc78be440": 2
+  },
+  "tests/test_carry_transcript.py": {
+   "0f27a623c63e": 2
+  },
+  "tests/test_exec_profile.py": {
+   "b130d50c768d": 1
+  },
+  "tests/test_fork_subagents.py": {
+   "b14792bb3072": 1,
+   "c09ec1b21acc": 1
+  },
+  "tests/test_forms.py": {
+   "61ac7899fd57": 1
+  },
+  "tests/test_gateway.py": {
+   "2abdc78be440": 2
+  },
+  "tests/test_hub_rules.py": {
+   "581eba259cda": 1
+  },
+  "tests/test_modapi_hooks.py": {
+   "13e57a3b52dc": 1,
+   "62ecbee8c0ff": 1,
+   "a7a1a3cf8dc7": 1
+  },
+  "tests/test_modapi_prompt.py": {
+   "26666b1a7af4": 1,
+   "bf0bb772cea1": 1
+  },
+  "tests/test_old_forks.py": {
+   "070e3673ea5a": 1
+  },
+  "tests/test_profiles.py": {
+   "a1fbd7c65f1e": 1,
+   "d242f350821a": 4
+  },
+  "tests/test_proof.py": {
+   "631a1f66b91d": 1
+  },
+  "tests/test_session_env_values.py": {
+   "2abdc78be440": 1
+  }
+ },
+ "T2": {
+  "tests/fakes/can.py": {
+   "2d118793a816": 2
+  },
+  "tests/fakes/cleanup.py": {
+   "6f5664ab501e": 1
+  },
+  "tests/test_admit.py": {
+   "cc6de45e4c24": 1
+  },
+  "tests/test_agent_file.py": {
+   "768d88897d86": 1
+  },
+  "tests/test_archive_compact.py": {
+   "50b7278a0706": 1,
+   "f0e2fddabc0f": 1
+  },
+  "tests/test_archive_readers.py": {
+   "50b7278a0706": 1
+  },
+  "tests/test_background_watch.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_board.py": {
+   "ac017a8a0e8e": 1
+  },
+  "tests/test_boards.py": {
+   "ac017a8a0e8e": 1
+  },
+  "tests/test_browser.py": {
+   "b33c259c5e3a": 3,
+   "cd3239b1d235": 2
+  },
+  "tests/test_browser_update.py": {
+   "8ac65fdc1756": 3,
+   "f0cadbb27983": 1
+  },
+  "tests/test_catalog_secrets.py": {
+   "3b932fd8013a": 1,
+   "9a518cd538f6": 1
+  },
+  "tests/test_chrome_litter.py": {
+   "04a7203631ee": 1,
+   "ca73362f9223": 4
+  },
+  "tests/test_claude_dir.py": {
+   "19e4dbafb68c": 1
+  },
+  "tests/test_claudeinstall.py": {
+   "1d26e490e8e1": 2,
+   "b33c259c5e3a": 1
+  },
+  "tests/test_cloudflare.py": {
+   "3b932fd8013a": 1,
+   "e82af4537938": 1
+  },
+  "tests/test_cloudflare_setup.py": {
+   "3b932fd8013a": 3,
+   "52b7afb878dc": 1,
+   "77d518a6fe28": 1,
+   "9ddcfbbc16e5": 1,
+   "e82af4537938": 1
+  },
+  "tests/test_coach.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_compact_idle.py": {
+   "b16fe6b9c739": 1
+  },
+  "tests/test_deb_v2.py": {
+   "853ab247e19b": 1,
+   "b380b21481e9": 3,
+   "ed3fc17a33e1": 2,
+   "fd57510d846f": 1
+  },
+  "tests/test_deleg_archive.py": {
+   "3b2d34437835": 2,
+   "768d88897d86": 1
+  },
+  "tests/test_directions.py": {
+   "0b274341331c": 2,
+   "312f8c32bd61": 1,
+   "65677b7eacc3": 1,
+   "71d9d4aa6b9e": 1,
+   "a8ecb786ee6a": 1,
+   "ac017a8a0e8e": 1
+  },
+  "tests/test_evals.py": {
+   "2361ccc87291": 1,
+   "387b9ef2c8ea": 1,
+   "4bf271a732d4": 4,
+   "9915fcc5a495": 2
+  },
+  "tests/test_event_order.py": {
+   "768d88897d86": 1,
+   "cc6de45e4c24": 1
+  },
+  "tests/test_external_plugins.py": {
+   "19710b4689d5": 1
+  },
+  "tests/test_file_comments.py": {
+   "50b7278a0706": 1
+  },
+  "tests/test_file_links.py": {
+   "50b7278a0706": 1,
+   "cd3239b1d235": 1
+  },
+  "tests/test_files.py": {
+   "50b7278a0706": 1,
+   "775a3bfb4e19": 1,
+   "c2444b008aac": 1,
+   "eb6bb252b926": 2,
+   "f8ea04977cea": 1
+  },
+  "tests/test_files_e2e.py": {
+   "50b7278a0706": 1,
+   "70770ee7dbc7": 1
+  },
+  "tests/test_find_python.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_flow.py": {
+   "82f344789cd1": 1,
+   "d386a08a8fc9": 1
+  },
+  "tests/test_fork_subagents.py": {
+   "d581221cd89b": 1
+  },
+  "tests/test_gateway_live.py": {
+   "19e4dbafb68c": 1,
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_git_isolation.py": {
+   "ac017a8a0e8e": 1
+  },
+  "tests/test_history.py": {
+   "50b7278a0706": 2
+  },
+  "tests/test_hook.py": {
+   "b380b21481e9": 1,
+   "e26671f64215": 1
+  },
+  "tests/test_hosts_common.py": {
+   "c64e5ae76465": 1
+  },
+  "tests/test_httpd.py": {
+   "19e4dbafb68c": 1,
+   "71d9d4aa6b9e": 1
+  },
+  "tests/test_hubbus_l3.py": {
+   "046cd38c7b3d": 1,
+   "19e4dbafb68c": 1,
+   "3ce0e7a182a6": 1
+  },
+  "tests/test_hubmod.py": {
+   "d581221cd89b": 3
+  },
+  "tests/test_hubmod_voice.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_i18n.py": {
+   "19e4dbafb68c": 1,
+   "611014ef558f": 4
+  },
+  "tests/test_interrupt_cli.py": {
+   "19e4dbafb68c": 1
+  },
+  "tests/test_journal_mask.py": {
+   "19e4dbafb68c": 1,
+   "3b932fd8013a": 1,
+   "d581221cd89b": 1
+  },
+  "tests/test_lab_copy.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_link_commands.py": {
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_linux_install.py": {
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_linux_old_layout.py": {
+   "1c3911ce2bd4": 2,
+   "d581221cd89b": 1
+  },
+  "tests/test_local_hooks.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_mac_app.py": {
+   "0d33849bc8c0": 1,
+   "14f580a4fe77": 1
+  },
+  "tests/test_mac_install.py": {
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_mac_shell.py": {
+   "32ce8bac0cc4": 1,
+   "556e30ae30b1": 1,
+   "64d76e673354": 1,
+   "c9dc0276c4a1": 2
+  },
+  "tests/test_marketplace.py": {
+   "3b932fd8013a": 1,
+   "775a3bfb4e19": 2,
+   "b380b21481e9": 1
+  },
+  "tests/test_mcp_env.py": {
+   "3b2d34437835": 1
+  },
+  "tests/test_mcp_login_live.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_mermaid_render.py": {
+   "b16fe6b9c739": 1,
+   "ee92379c0713": 2
+  },
+  "tests/test_mine.py": {
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_minihub.py": {
+   "11b24bbfc229": 1,
+   "7112865452b6": 1,
+   "ca73362f9223": 1,
+   "f98a2f46c729": 1,
+   "fd9b5bfde486": 2
+  },
+  "tests/test_minihub_live.py": {
+   "1c3911ce2bd4": 1
+  },
+  "tests/test_modapi_claims.py": {
+   "19e4dbafb68c": 2,
+   "d581221cd89b": 3
+  },
+  "tests/test_modapi_dev.py": {
+   "19e4dbafb68c": 5,
+   "d581221cd89b": 1
+  },
+  "tests/test_modapi_fact_servable.py": {
+   "cc6de45e4c24": 1
+  },
+  "tests/test_modapi_files.py": {
+   "cc6de45e4c24": 1
+  },
+  "tests/test_modapi_hooks.py": {
+   "3e6847c430f5": 1
+  },
+  "tests/test_modapi_http.py": {
+   "d581221cd89b": 1
+  },
+  "tests/test_modapi_model.py": {
+   "3b932fd8013a": 2,
+   "d581221cd89b": 1
+  },
+  "tests/test_modapi_sources.py": {
+   "52fa1f652759": 1,
+   "962550b91943": 2,
+   "c2444b008aac": 1
+  },
+  "tests/test_modapi_state.py": {
+   "807b9c02b89b": 1,
+   "b16fe6b9c739": 1,
+   "d581221cd89b": 1
+  },
+  "tests/test_modrun_env.py": {
+   "19e4dbafb68c": 2
+  },
+  "tests/test_nested_claude.py": {
+   "b16fe6b9c739": 1
+  },
+  "tests/test_net.py": {
+   "b16fe6b9c739": 1
+  },
+  "tests/test_old_page_server.py": {
+   "011ce22ff3f2": 1,
+   "962550b91943": 1,
+   "b380b21481e9": 2,
+   "d581221cd89b": 1
+  },
+  "tests/test_oom.py": {
+   "19e4dbafb68c": 1,
+   "1c3911ce2bd4": 1,
+   "4fe36c308dce": 1,
+   "7e0caee2de9a": 1
+  },
+  "tests/test_package_build.py": {
+   "3d56e9f4cde8": 2,
+   "c9dc0276c4a1": 2
+  },
+  "tests/test_package_mac.py": {
+   "c9dc0276c4a1": 2
+  },
+  "tests/test_packaged.py": {
+   "c9dc0276c4a1": 1
+  },
+  "tests/test_parallel_runner.py": {
+   "b380b21481e9": 1
+  },
+  "tests/test_parts_proxy.py": {
+   "ed3fc17a33e1": 1
+  },
+  "tests/test_perms.py": {
+   "04e1693d0e69": 1,
+   "19e4dbafb68c": 3,
+   "3b932fd8013a": 1,
+   "9a518cd538f6": 1,
+   "b16fe6b9c739": 2,
+   "d581221cd89b": 3,
+   "e0eb39df954f": 1,
+   "e82af4537938": 1
+  },
+  "tests/test_platforms.py": {
+   "3b932fd8013a": 1,
+   "b16fe6b9c739": 1
+  },
+  "tests/test_plugin_mcp.py": {
+   "03588593ad94": 1,
+   "9988abfb23d0": 1,
+   "eafc38d2af72": 1
+  },
+  "tests/test_priority.py": {
+   "19e4dbafb68c": 1
+  },
+  "tests/test_private_modules.py": {
+   "612da8674cf0": 1,
+   "8e287f3a4344": 1
+  },
+  "tests/test_prompt_evals.py": {
+   "1d14040d3315": 1,
+   "3b932fd8013a": 1
+  },
+  "tests/test_proxy_access.py": {
+   "19e4dbafb68c": 1,
+   "3b932fd8013a": 1,
+   "9a518cd538f6": 1,
+   "b16fe6b9c739": 1,
+   "d581221cd89b": 1
+  },
+  "tests/test_publish.py": {
+   "c9dc0276c4a1": 1
+  },
+  "tests/test_publish_allow.py": {
+   "b16fe6b9c739": 1
+  },
+  "tests/test_quiet_lines.py": {
+   "f45c542a967f": 1
+  },
+  "tests/test_quiet_wakeups.py": {
+   "ed3fc17a33e1": 1
+  },
+  "tests/test_release_background.py": {
+   "cd3239b1d235": 1,
+   "d581221cd89b": 1
+  },
+  "tests/test_restart.py": {
+   "768d88897d86": 1
+  },
+  "tests/test_rotate.py": {
+   "50b7278a0706": 1
+  },
+  "tests/test_said_whole.py": {
+   "ed3fc17a33e1": 1
+  },
+  "tests/test_schedule.py": {
+   "19e4dbafb68c": 2,
+   "cd3239b1d235": 1
+  },
+  "tests/test_schedule_check.py": {
+   "2d383fa3e99a": 1,
+   "a533c7c4ef95": 1,
+   "cd3239b1d235": 1
+  },
+  "tests/test_schedule_job_word.py": {
+   "19e4dbafb68c": 1
+  },
+  "tests/test_scrub.py": {
+   "19e4dbafb68c": 2,
+   "d581221cd89b": 3
+  },
+  "tests/test_send_client_id.py": {
+   "a5434bee47c6": 1
+  },
+  "tests/test_send_file.py": {
+   "034d85290284": 1,
+   "cc6de45e4c24": 1,
+   "f45c542a967f": 1
+  },
+  "tests/test_send_receipt.py": {
+   "b16fe6b9c739": 1
+  },
+  "tests/test_session_env_values.py": {
+   "d581221cd89b": 1
+  },
+  "tests/test_session_parallel.py": {
+   "cd3239b1d235": 1,
+   "ed3fc17a33e1": 1
+  },
+  "tests/test_session_settings.py": {
+   "19710b4689d5": 1
+  },
+  "tests/test_shown.py": {
+   "cc6de45e4c24": 1
+  },
+  "tests/test_snapshot.py": {
+   "061dddaaa34d": 1
+  },
+  "tests/test_spool_core.py": {
+   "cc6de45e4c24": 1
+  },
+  "tests/test_stops_audit.py": {
+   "962550b91943": 4,
+   "e4d5b575b8a0": 1
+  },
+  "tests/test_stream_hubd.py": {
+   "cd3239b1d235": 1
+  },
+  "tests/test_stream_lean.py": {
+   "a5434bee47c6": 1
+  },
+  "tests/test_subagents.py": {
+   "14619850c97a": 1,
+   "5fb0790e4f99": 1,
+   "ca73362f9223": 1,
+   "cd3239b1d235": 1
+  },
+  "tests/test_tail_core_state.py": {
+   "50b7278a0706": 1
+  },
+  "tests/test_telegram.py": {
+   "50b7278a0706": 1
+  },
+  "tests/test_telegram_hubs.py": {
+   "3b2d34437835": 1,
+   "f45c542a967f": 2
+  },
+  "tests/test_testchrome.py": {
+   "19710b4689d5": 1
+  },
+  "tests/test_testsel.py": {
+   "ad69ba50a2d2": 1,
+   "c9dc0276c4a1": 1,
+   "f1881bd46be7": 1
+  },
+  "tests/test_testtmp.py": {
+   "118a61349b8a": 1,
+   "c9dc0276c4a1": 1
+  },
+  "tests/test_theme_art.py": {
+   "ac017a8a0e8e": 1
+  },
+  "tests/test_tools.py": {
+   "061dddaaa34d": 1,
+   "cd3239b1d235": 1
+  },
+  "tests/test_update_app.py": {
+   "118a37a02953": 1,
+   "71d9d4aa6b9e": 1,
+   "c9dc0276c4a1": 3
+  },
+  "tests/test_upload_raw.py": {
+   "cd3239b1d235": 1
+  },
+  "tests/test_usage.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_user_env.py": {
+   "19e4dbafb68c": 1,
+   "50b7278a0706": 1
+  },
+  "tests/test_voice_reply.py": {
+   "3b2d34437835": 1,
+   "50b7278a0706": 1,
+   "63376f861afd": 1,
+   "a693f8e11bdb": 2
+  },
+  "tests/test_waiting.py": {
+   "19e4dbafb68c": 1
+  },
+  "tests/test_watch_eval.py": {
+   "3b932fd8013a": 1
+  },
+  "tests/test_web.py": {
+   "87185b158fd6": 1,
+   "c2444b008aac": 1,
+   "cd3239b1d235": 1,
+   "f45c542a967f": 10
+  },
+  "tests/test_web_e2e.py": {
+   "70770ee7dbc7": 1,
+   "71d9d4aa6b9e": 1,
+   "873cd61c8226": 1,
+   "d6bb2853cd43": 1,
+   "f45c542a967f": 1,
+   "fd9b5bfde486": 1
+  },
+  "tests/test_web_inline_icons.py": {
+   "32eebbcb9c76": 2
+  },
+  "tests/test_web_light.py": {
+   "cd3239b1d235": 1
+  },
+  "tests/test_web_reader_wait.py": {
+   "cd3239b1d235": 1
+  },
+  "tests/test_web_replay.py": {
+   "b16fe6b9c739": 4,
+   "d581221cd89b": 1
+  },
+  "tests/test_web_stream_shared.py": {
+   "cd3239b1d235": 1
+  },
+  "tests/test_windows_app.py": {
+   "b16fe6b9c739": 2,
+   "b33e8c185a47": 1,
+   "c9dc0276c4a1": 1
+  }
+ },
+ "T4": {
+  "tests/test_deb_v2.py": {
+   "97fe3728c125": 1
+  },
+  "tests/test_mac_shell.py": {
+   "3f1adaccbf6f": 1
+  },
+  "tests/test_package_build.py": {
+   "84773e7d4bba": 1
+  },
+  "tests/test_shown.py": {
+   "51e0dea28fe6": 1
+  },
+  "tests/test_update_app.py": {
+   "1ec02b7de6f1": 1,
+   "506b3729f2bd": 1,
+   "a9a137dc931d": 1
+  },
+  "tests/test_web.py": {
+   "a41be26a7ee2": 1
+  }
+ },
+ "T5": {
+  "tests/test_find_python.py": {
+   "013d5fb7c49e": 1,
+   "4019d6058c6e": 1,
+   "5e94327e7c23": 1,
+   "6f159f054735": 1,
+   "804757a3c70a": 1,
+   "9c09d5c0af9c": 1
+  },
+  "tests/test_linux_install.py": {
+   "0fd72ddf4722": 1,
+   "3bb3ae52b07a": 1,
+   "a3dd3b7e8365": 1
+  },
+  "tests/test_mac_app.py": {
+   "05f8f3ea2e4e": 1,
+   "edfc6e667aad": 1
+  },
+  "tests/test_modrun_env.py": {
+   "c8e33efbfbdc": 1
+  },
+  "tests/test_package_mac.py": {
+   "e424c2bb7b59": 1
+  }
+ },
+ "T6": {
+  "tests/fakes/cleanup.py": {
+   "529f9a2ba773": 1
+  },
+  "tests/fakes/fake_http_module.py": {
+   "e79be9947c5f": 2
+  },
+  "tests/fakes/fake_module.py": {
+   "e79be9947c5f": 2
+  },
+  "tests/test_boards.py": {
+   "7b5b00158c98": 1
+  },
+  "tests/test_browser.py": {
+   "e6b0ca03beb2": 1
+  },
+  "tests/test_history.py": {
+   "7b5b00158c98": 1
+  },
+  "tests/test_hub_stop.py": {
+   "9a2d2f00ee41": 1,
+   "e6b0ca03beb2": 1
+  },
+  "tests/test_hub_up_extensions.py": {
+   "2cc43816201d": 1
+  },
+  "tests/test_hubbus_l3.py": {
+   "7b5b00158c98": 2
+  },
+  "tests/test_hubbus_s2.py": {
+   "90ad12329b33": 1
+  },
+  "tests/test_hubd.py": {
+   "1e70a3923e6b": 1
+  },
+  "tests/test_linux_old_layout.py": {
+   "3edafa2f3fc5": 1
+  },
+  "tests/test_mcp_login_cli.py": {
+   "ab8877c05fe1": 1
+  },
+  "tests/test_mcp_login_link.py": {
+   "7b5b00158c98": 1
+  },
+  "tests/test_mcp_login_live.py": {
+   "ab8877c05fe1": 1,
+   "e6b0ca03beb2": 1
+  },
+  "tests/test_modapi_hubup.py": {
+   "3cf4c84fbf67": 1,
+   "da66d9759ec6": 1
+  },
+  "tests/test_modapi_sources.py": {
+   "7b5b00158c98": 1
+  },
+  "tests/test_old_page_server.py": {
+   "6141d9bdc701": 1
+  },
+  "tests/test_proof.py": {
+   "529f9a2ba773": 1,
+   "7ce0f56ca85a": 1
+  },
+  "tests/test_restart.py": {
+   "05cf27fd4ea3": 1
+  },
+  "tests/test_session_leftovers.py": {
+   "ab8877c05fe1": 3
+  },
+  "tests/test_stop.py": {
+   "9a2d2f00ee41": 1
+  },
+  "tests/test_tmux_host.py": {
+   "ab8877c05fe1": 3,
+   "f0f3c90a1eb8": 1
+  },
+  "tests/test_web_e2e.py": {
+   "e6b0ca03beb2": 1
+  },
+  "tests/test_web_timeline.py": {
+   "f33daed05e0d": 1
+  }
+ },
+ "T7": {
+  "tests/test_accounts.py": {
+   "0ef711ea80d9": 1
+  },
+  "tests/test_command_refusals.py": {
+   "3ef96b9ac486": 2,
+   "dbdd59ce7b2c": 1
+  },
+  "tests/test_corewrite_hubd.py": {
+   "e3d5403eebd1": 1,
+   "e60fcd83868e": 1
+  },
+  "tests/test_cron_fast.py": {
+   "f2b1cd802ecd": 1
+  },
+  "tests/test_daemon_tick.py": {
+   "81da1a82fdda": 1
+  },
+  "tests/test_history.py": {
+   "4755ef73a372": 1,
+   "5a433883bde9": 1
+  },
+  "tests/test_httpd.py": {
+   "4a9634acdd4a": 1,
+   "5cf7e996539d": 1,
+   "72781a8604d3": 1
+  },
+  "tests/test_hubbus_s2.py": {
+   "87a1c041dd40": 1
+  },
+  "tests/test_hubmod_voice.py": {
+   "6f97fb6de9a1": 2
+  },
+  "tests/test_mermaid_render.py": {
+   "8f8dec3fff20": 1,
+   "ce2d50a2c892": 1
+  },
+  "tests/test_modapi_hooks.py": {
+   "3b95445ec86d": 1
+  },
+  "tests/test_modapi_http.py": {
+   "0ecd4acccc42": 2,
+   "0ef711ea80d9": 3,
+   "c1d3601f66ed": 1
+  },
+  "tests/test_modapi_process.py": {
+   "c45ce80bc0cb": 1,
+   "ed5295d0fe57": 1,
+   "f28ae6b068db": 1
+  },
+  "tests/test_modapi_prompt.py": {
+   "267511d55d25": 1
+  },
+  "tests/test_platforms.py": {
+   "03ad05df55b5": 2,
+   "5a433883bde9": 1,
+   "655cf7e3758f": 1,
+   "949f8a18a59c": 1
+  },
+  "tests/test_proof.py": {
+   "5f6067394bc5": 1,
+   "cc14db82cc5e": 1
+  },
+  "tests/test_redact.py": {
+   "27eb55f0bfb9": 1,
+   "a453779e47a7": 1
+  },
+  "tests/test_release_background.py": {
+   "1672a3052e77": 1
+  },
+  "tests/test_send_receipt.py": {
+   "b0e70bc3f728": 1
+  },
+  "tests/test_session_leftovers.py": {
+   "5a433883bde9": 1
+  },
+  "tests/test_spawn_waits_for_login.py": {
+   "27bb47316a32": 1
+  },
+  "tests/test_stop.py": {
+   "24233dc0df21": 1,
+   "5a433883bde9": 1
+  },
+  "tests/test_update_net.py": {
+   "77b1827a9646": 2
+  },
+  "tests/test_web_reader_wait.py": {
+   "2a54522530c8": 2
+  },
+  "tests/test_web_stream_shared.py": {
+   "385e205035ec": 2,
+   "4a9634acdd4a": 1
+  }
+ },
+ "T8": {
+  "tests/test_accounts.py": {
+   "6c7d54593a07": 1,
+   "6f4a8a73e1db": 1,
+   "9ae50cbdbe74": 1
+  },
+  "tests/test_archive_compact.py": {
+   "89e83ae987fc": 1,
+   "d103b69537ea": 1
+  },
+  "tests/test_carry_transcript.py": {
+   "a3ab969de8a9": 1
+  },
+  "tests/test_deb_v2.py": {
+   "1457ce8d3145": 1,
+   "7b10aed8f323": 1
+  },
+  "tests/test_linux_old_layout.py": {
+   "7b1a1081268f": 1
+  },
+  "tests/test_modapi_dev.py": {
+   "93d3b8249ca1": 1
+  },
+  "tests/test_modapi_model.py": {
+   "17c49033bd3e": 1,
+   "add4b88b3326": 1
+  },
+  "tests/test_modapi_owner_sessions.py": {
+   "1a9f1400d4d6": 1,
+   "bbd9e78042aa": 1
+  },
+  "tests/test_modapi_views.py": {
+   "97da9db068f0": 1,
+   "ad8c50411484": 1,
+   "fa6ac381dac0": 1
+  },
+  "tests/test_profiles.py": {
+   "128eeae8c879": 1
+  },
+  "tests/test_scrub.py": {
+   "ba44209f9c6b": 1
+  },
+  "tests/test_tailnet.py": {
+   "4473723c57d9": 1
+  },
+  "tests/test_telegram.py": {
+   "1015cb34ed82": 1,
+   "1a9f1400d4d6": 1,
+   "651626acac44": 1,
+   "ee2ecf3bfe32": 1
+  },
+  "tests/test_update_app.py": {
+   "71f6498603a2": 1,
+   "88cbcf60e0e0": 1
+  },
+  "tests/test_web_e2e.py": {
+   "f70e4647c4ac": 1
+  }
+ }
+}

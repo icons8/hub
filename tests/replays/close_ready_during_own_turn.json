@@ -1,0 +1,149 @@
+{
+ "about": "A live check: a session writes `hub close-ready` in the middle of its own turn (it is busy) — this means \"when my turn ends, put me to sleep\". The core remembers the request and starts the handover as soon as the turn is over. It cannot be done for another session: someone else's close-ready for a busy session is refused. The handover starts on the turn result (it does not wait for the Stop hook).",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "w",
+    "text": "do it and go to sleep",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.close_ready",
+   "entity": "w",
+   "data": {
+    "summary": "done: everything",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 5,
+   "type": "session.close_ready",
+   "entity": "w",
+   "data": {
+    "summary": "done: everything / open: none",
+    "channel": "session",
+    "owner": false,
+    "sender": "w"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "done"
+   }
+  },
+  {
+   "t": 7,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 8,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m9"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: everything\nOpen: nothing"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "asleep",
+    "closing": "none"
+   }
+  },
+  "messages": {
+   "m9": {
+    "session": "w",
+    "state": "delivered"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m5"
+   },
+   {
+    "do": "type",
+    "session": "w",
+    "message": "m9"
+   },
+   {
+    "do": "release",
+    "session": "w"
+   },
+   {
+    "do": "type",
+    "session": "hub"
+   }
+  ],
+  "rejected": 1
+ }
+}

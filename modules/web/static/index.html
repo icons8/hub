@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="web.hub.default_title">Session hub</title>
+<link rel="icon" type="image/png" sizes="16x16" href="/static/favicon/tab-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon/tab-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/static/favicon/tab-48.png">   <!-- the tab: three drawings, one per size (16 and 32 px are not the large mark scaled down) -->
+<!-- the page as an app on the phone home screen (needs https); no service worker and no viewport-fit=cover (safe-area is not handled everywhere) -->
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">   <!-- with credentials: behind a login proxy the manifest would not be served otherwise -->
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#f4f4f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#161619" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/sidebar.css">
+<link rel="stylesheet" href="/static/css/feed.css">
+<link rel="stylesheet" href="/static/css/code.css">
+<link rel="stylesheet" href="/static/css/dock.css">
+<link rel="stylesheet" href="/static/css/schedule.css">
+<link rel="stylesheet" href="/static/css/lightbox.css">
+<link rel="stylesheet" href="/static/css/accounts.css">
+<link rel="stylesheet" href="/static/css/hubs.css">
+<link rel="stylesheet" href="/static/clean/palette.css">   <!-- Clean, the default theme: only under html.th-clean (js/themes.js) -->
+<link rel="stylesheet" href="/static/clean/clean.css">
+<script src="/static/js/first-paint.js"></script>   <!-- the chosen look before the first paint (not a module: they run after it) -->
+</head>
+<body>
+<!-- hub-icon-sprite -->
+<div class="app" id="app" data-view="list">
+  <aside aria-label="Sessions" data-i18n-aria-label="web.sidebar.sessions">
+    <div id="slot-sidebar-tiles" class="slot-host"></div>
+    <div class="search-row">
+    <label class="search">
+      <svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-search"/></svg>
+      <span class="sr" data-i18n="web.sidebar.find">Find a session</span>
+      <input type="text" id="filter" placeholder="Find a session" data-i18n-placeholder="web.sidebar.find" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd>
+    </label><button type="button" class="wpill" id="wpill" hidden></button><div id="slot-sidebar-header" class="slot-host"></div><button type="button" class="navmenu" id="navmenu" aria-label="Sections" title="Settings and sections: schedule, flow, plugin views" data-i18n-aria-label="web.index.sections" data-i18n-title="web.index.sections_title" aria-expanded="false" aria-controls="nav-extra"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-menu"/></svg><span class="dot" data-s="wait" aria-hidden="true"></span></button>
+    </div>
+    <div class="banner connection-side" id="connection-side" role="status" aria-live="polite"></div>
+    <div class="away-strip" id="away" role="status" hidden></div>
+    <div class="away-strip paused" id="queue-paused" role="status" hidden></div>
+    <div id="slot-sidebar-top" class="slot-host"></div>
+    <div id="nav-extra" class="nav-pop" role="group" aria-label="Sections" data-i18n-aria-label="web.index.sections" hidden><button type="button" class="srow nav" id="conn" aria-label="Settings · connecting" title="Settings · connecting" data-i18n-aria-label="web.index.settings_connecting" data-i18n-title="web.index.settings_connecting"><span class="glyph"><svg class="icon" aria-hidden="true"><use href="/static/icons.svg#i-account"/></svg><span class="dot" data-s="wait" aria-hidden="true"></span></span><span class="txt"><span class="nm" data-i18n="web.settings.tab.general">Settings</span><span class="lb"></span></span></button></div>
+    <nav class="list" id="list" aria-label="Session list" data-i18n-aria-label="web.sidebar.list"></nav>
+    <div class="aside-foot" id="aside-foot"></div>
+  </aside>
+  <main id="main">
+    <div class="banner" id="banner" role="status" aria-live="polite" data-wait="Connecting to the hub…" data-i18n-data-wait="web.api.no_conn"></div>
+    <div class="drop" aria-hidden="true" data-i18n="web.index.drop">Drop to attach</div>
+  </main>
+</div>
+
+<dialog id="confirm-dlg" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <p class="hint" id="confirm-text"></p>
+    <div class="btns">
+      <button class="btn" value="keep" data-i18n="web.index.keep">Keep</button>
+      <button class="btn danger" value="ok" id="confirm-ok"></button>
+    </div>
+  </form>
+</dialog>
+<input type="file" id="file-input" multiple hidden>
+
+<script src="/vendor/marked.min.js"></script>
+<script src="/vendor/purify.min.js"></script>
+<script src="/vendor/highlight.min.js"></script>
+<script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

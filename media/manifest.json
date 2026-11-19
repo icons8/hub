@@ -1,0 +1,46 @@
+{
+ "tool": "tools/dev/readme_demo.py forbidden() over the visible text of each frame source page",
+ "pictures": {
+  "hero.png": {
+   "sha256": "bec1c1f06a61807c9b3d1c506f98beb4a713fd3a77948ed832c0121cf6368118",
+   "scan": "clean",
+   "pages": {
+    "hub: waiting question": "f066f93f97c35d9012d48eabd9884cd0a0359576c526ffcd9bc397412dd01024",
+    "phone: recap": "6813675e4f0481930e1957be5a4d7447c35228054232cc3f272292ecb19f17ae",
+    "hero": "27192114f254950c99e755dab939e1dde56337d21775b168481172a0467791a7"
+   }
+  },
+  "social-preview.png": {
+   "sha256": "1d48b467ef6e14e107024a579c6f977b9877d2fcf4afec4540753b91d6f5597e",
+   "scan": "clean",
+   "pages": {
+    "hub: waiting question": "f066f93f97c35d9012d48eabd9884cd0a0359576c526ffcd9bc397412dd01024",
+    "phone: recap": "6813675e4f0481930e1957be5a4d7447c35228054232cc3f272292ecb19f17ae",
+    "social preview": "d69c631b089e0117ee50bdf3b80f8772dd1235a6c3f2a803b216842587662833"
+   }
+  },
+  "feed.png": {
+   "sha256": "6b34ac3ba4d7cc11c296cce857de3f1e1b68c6f2e20e2823938e2c5c82c1080d",
+   "scan": "clean",
+   "pages": {
+    "hub: chat with the dispatcher": "957ea96f872d594606e3c810b5bf9a0a6f135800a1ff2ae03c08954cbc1d9de8",
+    "feed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  "now.png": {
+   "sha256": "b0fd1e9008742dd240841f75bc7713981180398f1fe7095d8b296acb1c97c016",
+   "scan": "clean",
+   "pages": {
+    "hub: Now tab": "3184e89b7df4496787ba0793fb9564cc7799a24e67cb8c55f4d0c9f4badc151b",
+    "now": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   }
+  },
+  "telegram.png": {
+   "sha256": "8a773514ef0aa782dc54dc1d14124d78e2be16e09bf5680b69a32efadd670530",
+   "scan": "clean",
+   "pages": {
+    "telegram illustration": "55e7030b607e259930015f2ffa26ff90d7bdb68ef18a3debf57f1e1067a3d6bd"
+   }
+  }
+ }
+}

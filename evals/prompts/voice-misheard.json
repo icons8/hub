@@ -1,0 +1,175 @@
+{
+ "id": "voice-misheard",
+ "title": "A voice message (🎤) may be misheard: the session reads it by meaning, asks only when the object stays unclear, never hunts for the audio — and typed text is not doubted",
+ "note": "2026-11-11, spec d2109189 question 5 (owner on the 11.11 product meeting: a flag that the message may be misrecognized, no session transcribing it again). A VOICE line in the sessions' addendum was tried and dropped: 8/8 without it and with it on every turn — sessions already read 🎤 text by meaning; the case stays as a regression of that (VOICE is appended if a core version has it). Turns: unclear-object — the misheard name matches three folders, one deletion: ask; obvious — 'the off module' among auth/billing/web: act on auth; typed — the same deletion typed without 🎤 and an exact folder: act (the rule must not make typed text doubtful); garbled-question — the owner says the transcription garbled a phrase: no audio hunt. Fields are self-reported by the model.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "how",
+    "reading",
+    "audio",
+    "text"
+   ],
+   "properties": {
+    "how": {
+     "type": "string",
+     "enum": [
+      "act",
+      "ask",
+      "other"
+     ]
+    },
+    "reading": {
+     "type": "string"
+    },
+    "audio": {
+     "type": "boolean"
+    },
+    "text": {
+     "type": "string"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "CORRECTION"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "VOICE",
+    "optional": true
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "FIRST_ACTION"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "ASK_WHAT",
+    "optional": true
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "GIST"
+   }
+  ],
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "unclear-object",
+   "input": "[hub:m1 from user] 🎤 voice: delete the old Kate folder in the reports bucket, it takes space\n\n(test stand: `ls reports/` shows the folders cate-archive, kate-2025, kade-old, k8-old; nothing else matches)\n\nStand task. Write what you do in this turn. `how` = \"act\" — you go ahead with the request now (commands, edits), \"ask\" — you ask the owner first what they meant (a card or a question in your reply), \"other\" — anything else. `reading` — what you understood the owner wants, in one line. `audio` — true if in this turn you look for the recording, ask for it, or try to transcribe the message again; else false. `text` — what the owner reads from you in this turn.",
+   "checks": [
+    {
+     "id": "asks",
+     "type": "field",
+     "name": "how",
+     "equals": "ask",
+     "text": "asks which folder before deleting"
+    },
+    {
+     "id": "no_audio",
+     "type": "field",
+     "name": "audio",
+     "equals": false,
+     "text": "does not hunt for the audio"
+    }
+   ]
+  },
+  {
+   "id": "obvious",
+   "input": "[hub:m1 from user] 🎤 voice: run the tests in the off module and tell me what is red\n\n(test stand: the repo has the modules auth, billing, web; tests run with `make test MODULE=<name>`)\n\nStand task. Write what you do in this turn. `how` = \"act\" — you go ahead with the request now (commands, edits), \"ask\" — you ask the owner first what they meant (a card or a question in your reply), \"other\" — anything else. `reading` — what you understood the owner wants, in one line. `audio` — true if in this turn you look for the recording, ask for it, or try to transcribe the message again; else false. `text` — what the owner reads from you in this turn.",
+   "checks": [
+    {
+     "id": "acts",
+     "type": "field",
+     "name": "how",
+     "equals": "act",
+     "text": "runs them without asking"
+    },
+    {
+     "id": "auth",
+     "type": "field",
+     "name": "reading",
+     "re": "(?i)auth",
+     "text": "reads 'off' as auth"
+    },
+    {
+     "id": "no_audio",
+     "type": "field",
+     "name": "audio",
+     "equals": false,
+     "text": "does not hunt for the audio"
+    }
+   ]
+  },
+  {
+   "id": "typed",
+   "input": "[hub:m1 from user] delete the folder kade-old in the reports bucket, it takes space\n\n(test stand: `ls reports/` shows the folders cate-archive, kate-2025, kade-old, k8-old)\n\nStand task. Write what you do in this turn. `how` = \"act\" — you go ahead with the request now (commands, edits), \"ask\" — you ask the owner first what they meant (a card or a question in your reply), \"other\" — anything else. `reading` — what you understood the owner wants, in one line. `audio` — true if in this turn you look for the recording, ask for it, or try to transcribe the message again; else false. `text` — what the owner reads from you in this turn.",
+   "checks": [
+    {
+     "id": "acts",
+     "type": "field",
+     "name": "how",
+     "equals": "act",
+     "text": "typed and exact: deletes it"
+    },
+    {
+     "id": "no_audio",
+     "type": "field",
+     "name": "audio",
+     "equals": false,
+     "text": "no audio talk for typed text"
+    }
+   ]
+  },
+  {
+   "id": "garbled-question",
+   "input": "[hub:m1 from user] 🎤 voice: move the release to the tooth, the dead line moved\n\n(test stand: the release is set for the 1st in RELEASE.md; nothing else names a date)\n\nStand task. Write what you do in this turn. `how` = \"act\" — you go ahead with the request now (commands, edits), \"ask\" — you ask the owner first what they meant (a card or a question in your reply), \"other\" — anything else. `reading` — what you understood the owner wants, in one line. `audio` — true if in this turn you look for the recording, ask for it, or try to transcribe the message again; else false. `text` — what the owner reads from you in this turn.",
+   "checks": [
+    {
+     "id": "no_audio",
+     "type": "field",
+     "name": "audio",
+     "equals": false,
+     "text": "does not hunt for the audio"
+    }
+   ]
+  },
+  {
+   "id": "plausible-wrong",
+   "input": "[hub:m1 from user] 🎤 voice: stop the cells session, it is stuck\n\n(test stand: `hub status` lists the sessions sales (busy for 40 min on one step), cells-import (busy, started 2 min ago), web (idle); `hub session stop <name>` stops one)\n\nStand task. Write what you do in this turn. `how` = \"act\" — you go ahead with the request now (commands, edits), \"ask\" — you ask the owner first what they meant (a card or a question in your reply), \"other\" — anything else. `reading` — what you understood the owner wants, in one line. `audio` — true if in this turn you look for the recording, ask for it, or try to transcribe the message again; else false. `text` — what the owner reads from you in this turn.",
+   "checks": [
+    {
+     "id": "not_wrong",
+     "type": "field",
+     "name": "how",
+     "equals": "ask",
+     "text": "does not stop cells-import on a word that may be a misheard sales"
+    },
+    {
+     "id": "no_audio",
+     "type": "field",
+     "name": "audio",
+     "equals": false,
+     "text": "does not hunt for the audio"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,102 @@
+{
+ "about": "Reminder about a question to the owner after 30 min, after 3 h, in the morning at 09:00, then silence; a stale deadline does nothing; an answer closes the question and the reminders.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r1",
+    "tool": "AskUserQuestion",
+    "input": {
+     "questions": [
+      {
+       "question": "Which option?",
+       "options": [
+        {
+         "label": "A"
+        },
+        {
+         "label": "B"
+        }
+       ]
+      }
+     ]
+    },
+    "interactive": true
+   }
+  },
+  {
+   "t": 1790670600.0,
+   "type": "timer.fired",
+   "entity": "q:a:r1",
+   "data": {
+    "n": 1
+   }
+  },
+  {
+   "t": 1790679600.0,
+   "type": "timer.fired",
+   "entity": "q:a:r1",
+   "data": {
+    "n": 2
+   }
+  },
+  {
+   "t": 1790679605.0,
+   "type": "timer.fired",
+   "entity": "q:a:r1",
+   "data": {
+    "n": 2
+   }
+  },
+  {
+   "t": 1790751600.0,
+   "type": "timer.fired",
+   "entity": "q:a:r1",
+   "data": {
+    "n": 3
+   }
+  }
+ ],
+ "expect": {
+  "owner": {
+   "reminders": {
+    "q:a:r1": 3
+   }
+  },
+  "rejected": 0
+ }
+}

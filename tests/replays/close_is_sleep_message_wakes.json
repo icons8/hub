@@ -1,0 +1,131 @@
+{
+ "about": "\"Close\" = put to sleep after handing over the work: the process is released, the conversation stays; a message wakes the session through --resume and is delivered.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 4,
+   "type": "session.close_requested",
+   "entity": "a",
+   "data": {
+    "channel": "cli",
+    "owner": true
+   }
+  },
+  {
+   "t": 5,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "a",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: everything\nOpen: nothing\nHanded over: to nobody\nBackground: none"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 8,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 9,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "wake up",
+    "channel": "session",
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 12,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 202
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "session_id": "sid-a",
+    "pid": 202,
+    "closing": "none"
+   }
+  },
+  "messages": {
+   "m10": {
+    "state": "typing",
+    "origin": " from hub"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false
+   },
+   {
+    "do": "type",
+    "message": "m5"
+   },
+   {
+    "do": "release",
+    "session": "a"
+   },
+   {
+    "do": "spawn",
+    "resume": true,
+    "session_id": "sid-a"
+   },
+   {
+    "do": "type",
+    "message": "m10",
+    "text": "[hub:m10 from hub] wake up"
+   }
+  ],
+  "rejected": 0
+ }
+}

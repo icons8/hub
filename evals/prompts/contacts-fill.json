@@ -1,0 +1,54 @@
+{
+ "id": "contacts-fill",
+ "title": "On the first message the hub hands filling the address book to whoever holds the owner's channels (read only, no messages); without such a holder it skips it",
+ "note": "Owner decision 2026-11-06: the hub fills `hub contacts` from the owner's channels at its first launch (ONBOARDING.md, step 6). hub_cli as `hub-core`: the system prompt is hub-home/CLAUDE.md and ONBOARDING.md of the version; the agent list is in the input. A hand-off counts by the real call (`hub send <agent>` or `hub task new|run`) whose text names `hub contacts`.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "hub-core"
+ },
+ "prompt": {
+  "file": "hub-home/CLAUDE.md",
+  "append": [
+   {
+    "file": "hub-home/CLAUDE.md"
+   },
+   {
+    "file": "hub-home/ONBOARDING.md"
+   }
+  ]
+ },
+ "system": "Bench: you are the hub session (`hub-core`) of a hub; your instructions follow (hub-home/CLAUDE.md, then ONBOARDING.md, which lies next to it). The hub's commands are `hub` in the shell (Bash). Today is 2026-11-06.",
+ "turns": [
+  {
+   "id": "first-with-teams",
+   "input": "[hub:m1 from user, first message — introduce per ONBOARDING.md] Hi! I'm new here, what is this?\n\n(bench: the agent list — teams: the owner's Teams, reads their chats and channels, writes to people on the owner's word; seo: SEO of the site. `hub tools list` shows no Telegram or mail tools.)",
+   "checks": [
+    {
+     "id": "hands_fill",
+     "type": "any_call",
+     "re": "^(send teams|task (new|run) teams?\\b)[\\s\\S]*contacts",
+     "text": "the teams agent gets the filling"
+    },
+    {
+     "id": "no_people",
+     "type": "no_call",
+     "re": "^send (?!teams\\b)\\S+[\\s\\S]*contacts"
+    }
+   ]
+  },
+  {
+   "id": "first-without-channels",
+   "input": "[hub:m1 from user, first message — introduce per ONBOARDING.md] Hi! I'm new here, what is this?\n\n(bench: the agent list — seo: SEO of the site; backend: the API code. `hub tools list` shows no Teams, Telegram or mail tools.)",
+   "checks": [
+    {
+     "id": "no_fill",
+     "type": "no_call",
+     "re": "^(send|task (new|run))\\b[\\s\\S]*contacts",
+     "text": "no channel holder — no hand-off"
+    }
+   ]
+  }
+ ]
+}

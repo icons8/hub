@@ -1,0 +1,21 @@
+{
+ "_about": "Language data of Korean (core/langdata.py): what the core recognises in Korean text.",
+ "secrets": {
+  "labels": [
+   "비밀번호",
+   "패스워드",
+   "토큰",
+   "액세스 토큰",
+   "api 키",
+   "시크릿",
+   "비밀 키",
+   "개인 키",
+   "비밀번호는",
+   "비밀번호가",
+   "비밀번호를",
+   "암호는",
+   "토큰은",
+   "토큰이"
+  ]
+ }
+}

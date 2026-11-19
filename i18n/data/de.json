@@ -1,0 +1,16 @@
+{
+ "_about": "Language data of German (core/langdata.py): what the core recognises in German text.",
+ "secrets": {
+  "labels": [
+   "passwort",
+   "kennwort",
+   "api-schlüssel",
+   "geheimer schlüssel",
+   "zugriffsschlüssel",
+   "zugangsschlüssel",
+   "zugriffstoken",
+   "zugangstoken",
+   "privater schlüssel"
+  ]
+ }
+}

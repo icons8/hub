@@ -1,0 +1,212 @@
+{
+ "about": "The hub tidies up declaratively: `hub schedule apply` is the wanted set of its jobs; extra ones are removed, changed ones are updated, identical ones are left alone. A session cannot remove someone else's job; a malformed job and an end earlier than the start are refused.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "schedule.applied",
+   "data": {
+    "jobs": [
+     {
+      "id": "j1",
+      "session": "a",
+      "every": "1h",
+      "prompt": "p1"
+     },
+     {
+      "id": "j2",
+      "session": "a",
+      "cron": "*/30 * * * *",
+      "prompt": "p2"
+     }
+    ],
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 1790668850.0,
+   "type": "schedule.applied",
+   "data": {
+    "jobs": [
+     {
+      "id": "j1",
+      "session": "a",
+      "every": "1h",
+      "prompt": "p1"
+     },
+     {
+      "id": "j2",
+      "session": "a",
+      "cron": "*/30 * * * *",
+      "prompt": "p2"
+     }
+    ],
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 1790668900.0,
+   "type": "schedule.applied",
+   "data": {
+    "jobs": [
+     {
+      "id": "j2",
+      "session": "a",
+      "cron": "0 * * * *",
+      "prompt": "p2"
+     },
+     {
+      "id": "j3",
+      "session": "hub",
+      "every": "2h",
+      "prompt": "p3"
+     }
+    ],
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 1790668910.0,
+   "type": "schedule.remove_requested",
+   "entity": "j3",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668920.0,
+   "type": "schedule.set",
+   "entity": "j4",
+   "data": {
+    "session": "a",
+    "every": "1m",
+    "prompt": "x",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668930.0,
+   "type": "schedule.set",
+   "entity": "j5",
+   "data": {
+    "session": "a",
+    "cron": "61 * * * *",
+    "prompt": "x",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668940.0,
+   "type": "schedule.remove_requested",
+   "entity": "j3",
+   "data": {
+    "channel": "cli",
+    "owner": true
+   }
+  },
+  {
+   "t": 1790668950.0,
+   "type": "schedule.ended",
+   "entity": "j2",
+   "data": {}
+  },
+  {
+   "t": 1790668960.0,
+   "type": "schedule.set",
+   "entity": "short",
+   "data": {
+    "session": "a",
+    "every": "1h",
+    "until": "2026-09-29",
+    "prompt": "x",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790722800.0,
+   "type": "schedule.ended",
+   "entity": "short",
+   "data": {}
+  }
+ ],
+ "expect": {
+  "schedule": {
+   "j1": {
+    "state": "removed"
+   },
+   "j2": {
+    "state": "active",
+    "cron": "0 * * * *",
+    "created": 1790668900.0,
+    "by": "hub"
+   },
+   "j3": {
+    "state": "removed"
+   },
+   "short": {
+    "state": "expired",
+    "by": "a"
+   }
+  },
+  "schedule_absent": [
+   "j4",
+   "j5"
+  ],
+  "rejected": 4
+ }
+}

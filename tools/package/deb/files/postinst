@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+ROOT=/opt/agents-hub
+if [ "$1" = configure ]; then
+  # the first package carried Chrome for Testing in /opt/agents-hub/chrome with a profile named for that path; the file is
+  # replaced below when this system asks for a profile, and goes when the path it names is gone
+  P=/etc/apparmor.d/agents-hub-chrome
+  if [ -e "$P" ] && grep -q ' /opt/agents-hub/chrome/chrome ' "$P"; then
+    if command -v apparmor_parser >/dev/null 2>&1 && [ -d /sys/kernel/security/apparmor ]; then
+      apparmor_parser -R "$P" 2>/dev/null || true
+    fi
+    rm -f "$P"
+  fi
+  # Ubuntu 23.10+ gives Chrome's sandbox only to a program with an AppArmor profile, and a profile may name only a path a
+  # user cannot write: where the system asks for it, Chrome goes into /opt with its profile now (the person typed a
+  # password for this install anyway). Elsewhere the hub's Setup page downloads it into the user's folder.
+  # Never fails the install: the retry is one command.
+  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] &&
+     [ -z "${AGENTS_HUB_NO_CHROME:-}" ]; then
+    echo "Hub by Icons8: downloading Chrome for the agents' browser (about 200 MB) into $ROOT/chrome..."
+    # bounded: the package manager is held meanwhile (a slow or filtered network must not hold it for good)
+    rc=0
+    timeout 1200 "$ROOT/runtime/python/bin/python3" -I "$ROOT/lib/chrome_root.py" || rc=$?
+    if [ "$rc" = 124 ]; then
+      echo "Hub by Icons8: Chrome did not download in 20 minutes; later: sudo agents-hub chrome (the download resumes)" >&2
+    elif [ "$rc" != 0 ]; then
+      echo "Hub by Icons8: Chrome is not installed (the cause is above); later: sudo agents-hub chrome" >&2
+    fi
+  fi
+  echo "Hub by Icons8 is installed in $ROOT. To start it: Hub by Icons8 in the applications menu or the agents-hub command (as your own user, not root)"
+fi
+exit 0

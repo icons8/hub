@@ -1,0 +1,220 @@
+/* "Files" in the style of the hub page (its tokens/base/feed/code from /web/): grey shell, the folder on the left on the shell, like the list of
+   sessions, a white window with the file on the right, comments as a third window, like a plugin panel; on a phone, one of the two.
+   Colors only through tokens: light, dark and theme plugins work without their own code. */
+.fapp { --left-w: 296px; --right-w: clamp(300px, 28vw, 400px); --gap: 8px; display: grid;
+  grid-template-columns: var(--left-w) minmax(0, 1fr); column-gap: var(--gap); padding-block: var(--gap); padding-inline: 0 var(--gap);
+  height: 100vh; height: 100dvh; }
+.fapp.commenting { grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w); }
+.spacer { flex: 1; }
+
+/* ---- on the left: the folder on the shell, items like rows of the session list ---- */
+.fside { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.fbrand { display: flex; align-items: center; gap: var(--space-2); min-height: 56px; flex: none;
+  padding-block: var(--space-1); padding-inline: var(--space-4) var(--space-3); }
+.fhome { font-size: var(--text-md); font-weight: 700; letter-spacing: -0.01em; color: var(--foreground); text-decoration: none; }
+.fhome:hover { color: var(--primary); }
+/* theme picker (theme.js): quiet, like the hub's .btn.small button */
+/* own arrow: the system one has no right padding and stuck to the border (08.10) */
+.theme-pick { min-height: 26px; max-width: 150px; padding-block: 0; padding-inline: var(--space-2) 22px; font-size: var(--text-xs);
+  color: var(--muted-foreground); background: transparent; border: 1px solid var(--input); border-radius: var(--radius);
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-size: 4px 4px; background-repeat: no-repeat;
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; }
+[dir="rtl"] .theme-pick { background-position: 8px 50%, 12px 50%; }   /* the arrow at the line end */
+.theme-pick:hover { color: var(--foreground); background-color: var(--accent); }   /* not background: it would erase the arrow */
+.flist { flex: 1; overflow-y: auto; padding: 0 var(--space-2) var(--space-3); display: grid; align-content: start; gap: 1px; }
+.flist a { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--space-2); align-items: center; padding: 6px var(--space-2);
+  border-radius: var(--radius); color: var(--foreground); text-decoration: none; font-size: var(--text-sm); }
+.flist a:hover { background: color-mix(in oklch, var(--foreground) 5%, transparent); }
+.flist a[aria-current="true"] { background: var(--background); box-shadow: var(--shadow-plate); }
+.flist a .k { display: grid; place-items: center; color: var(--muted-foreground); }
+.flist a.dir .k { color: var(--foreground); }
+.flist a .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flist a.dir .n { font-weight: 500; }
+.flist .hint { color: var(--muted-foreground); padding: var(--space-2); margin: 0; font-size: var(--text-sm); }
+
+/* ---- file window: a header with the path and actions, the file below ---- */
+.fwin { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--background); border-radius: var(--radius-xl); box-shadow: var(--shadow-plate); }
+.fhead { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-6); min-height: 56px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap; min-width: 0; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-1); min-width: 0;
+  font: var(--text-sm)/1.4 var(--font-mono); }
+.crumbs a { color: var(--muted-foreground); text-decoration: none; border-radius: var(--radius-sm); }
+.crumbs a:hover { color: var(--foreground); text-decoration: underline; text-underline-offset: 3px; }
+.crumbs .sep { color: var(--muted-foreground); opacity: 0.6; }
+.crumbs .here { color: var(--foreground); font-weight: 600; overflow-wrap: anywhere; }
+.acts { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+a.btn { color: var(--foreground); text-decoration: none; }
+.fview { overflow: auto; padding: var(--space-5) var(--space-6); min-width: 0; min-height: 0; }
+.fview .meta { color: var(--muted-foreground); font-size: var(--text-xs); margin-bottom: var(--space-4); overflow-wrap: anywhere; }
+.fview .meta .path { font-family: var(--font-mono); }
+.fview .hint { color: var(--muted-foreground); }
+/* markdown as a document, like replies in the hub feed: interface font, line no wider than --measure, centered column */
+.fview .doccol { max-width: var(--measure); margin-inline: auto; font-size: var(--text-md); }
+.fview .md.doc { font: var(--text-md)/var(--leading) var(--font); max-width: var(--measure); }
+.fview .md.doc pre { max-height: none; }
+.fview .md.doc img { max-width: 100%; border-radius: var(--radius); }
+/* code in Geist Mono with line numbers (code.js numbered) */
+.fview pre.src { margin: 0; font: var(--text-sm)/1.6 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+/* image, video, audio, pdf (files.js mediaView): over the whole window area, entire; an image on click goes 1:1 with scrolling */
+.fview[data-mode="image"], .fview[data-mode="video"], .fview[data-mode="audio"], .fview[data-mode="pdf"] { display: flex; flex-direction: column; }
+.fview .stage { flex: 1; min-height: 0; display: grid; place-items: center; grid: minmax(0, 1fr) / minmax(0, 1fr); border-radius: var(--radius-lg); overflow: hidden;
+  background: color-mix(in oklch, var(--foreground) 4%, transparent); }
+.fview .stage > img, .fview .stage > video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.fview .stage > img { cursor: zoom-in; outline: 1px solid var(--outline-image); }
+.fview .stage.zoom { overflow: auto; place-items: start; }
+.fview .stage.zoom > img { max-width: none; max-height: none; cursor: zoom-out; }
+.fview .stage > video { width: 100%; height: 100%; background: black; }
+.fview .stage > audio { width: min(560px, 100%); }
+.fview[data-mode="audio"] .stage { flex: none; padding: var(--space-8) var(--space-4); }
+.fview .stage > iframe.pdf { width: 100%; height: 100%; border: 0; }
+/* a file the browser does not show: what it is and a large "Download" */
+.fview .nothing { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-5); border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent); color: var(--muted-foreground); }
+.fview .nothing p { margin: 0; }
+/* header buttons: "Download" with an icon, < > and the cross are icon only */
+.acts .btn .icon { width: 16px; height: 16px; }
+.acts .btn.icon-only { padding: 0 6px; }
+.acts .btn.next .icon { transform: scaleX(-1); }
+.acts .btn[aria-disabled="true"] { opacity: 0.35; pointer-events: none; }
+/* edit: a field over the whole window height */
+.fview[data-mode="edit"] { display: flex; flex-direction: column; }
+.fview textarea { flex: 1; width: 100%; min-height: 0; resize: none; font: var(--text-sm)/1.6 var(--font-mono); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--input); border-radius: var(--radius-lg); background: var(--card); color: var(--foreground); tab-size: 4; }
+.fview textarea:focus { outline: 0; border-color: var(--ring); box-shadow: 0 0 0 4px var(--front-soft); }
+
+/* message at the bottom: a badge, like the hub's popups */
+.fbanner { position: fixed; z-index: var(--z-menu); bottom: var(--space-4); left: 50%; transform: translateX(-50%); max-width: min(560px, 90vw);
+  padding: var(--space-2) var(--space-4); border-radius: var(--radius-lg); background: var(--card); color: var(--foreground);
+  box-shadow: var(--shadow-lift); font-size: var(--text-sm); display: none; }
+.fbanner.on { display: block; animation: fade-in var(--dur-fast) var(--ease-out); }
+.fbanner.err { color: var(--destructive); }
+
+/* ---- file comments (comments.js): a third window on the right, a button near the selection, an input window; pieces are highlighted ---- */
+.cpanel { min-width: 0; min-height: 0; overflow-y: auto; padding: var(--space-4); display: grid; gap: var(--space-3); align-content: start;
+  background: var(--background); border-radius: var(--radius-xl); box-shadow: var(--shadow-plate); animation: fade-in var(--dur-fast) var(--ease-out); }
+.cpanel h3 { margin: 0; font-size: var(--text-sm); font-weight: 650; }
+.clist { display: grid; gap: var(--space-2); }
+.citem { position: relative; border-radius: var(--radius-lg); padding: var(--space-3); background: var(--card); box-shadow: var(--shadow-plate);
+  font-size: var(--text-sm); }
+.citem .cq { all: unset; display: block; cursor: pointer; color: var(--muted-foreground); font-size: var(--text-xs);
+  border-inline-start: 3px solid color-mix(in srgb, var(--warning) 70%, transparent); padding-inline-start: var(--space-2); overflow-wrap: anywhere; }
+.citem .cq:hover { color: var(--foreground); }
+.citem .cq:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.citem .cq.gone { text-decoration: line-through; }
+.citem .ct { margin-top: 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cpanel textarea, .ccompose textarea, .cpanel select, .ccompose select { width: 100%; font: inherit; font-size: var(--text-sm); color: var(--foreground);
+  background-color: var(--background); border: 1px solid var(--input); border-radius: var(--radius); padding-block: 6px;
+  padding-inline-start: var(--space-2); }
+.cpanel textarea, .ccompose textarea { padding-inline-end: var(--space-2); }   /* select keeps room on the right for the arrow (base.css) */
+.cpanel textarea:focus { outline: 0; border-color: var(--ring); box-shadow: 0 0 0 3px var(--front-soft); }
+.cbtn { position: fixed; z-index: var(--z-menu); box-shadow: var(--shadow-lift); }
+.cbtn.bottom { left: 50%; transform: translateX(-50%); bottom: var(--space-4); top: auto !important; }
+.ccompose { position: fixed; z-index: var(--z-menu); inset-inline-end: var(--space-4); bottom: var(--space-4); width: min(420px, calc(100vw - 32px));
+  background: var(--card); border: 1px solid var(--input); border-radius: var(--radius-xl); box-shadow: var(--shadow-lift);
+  padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-2); animation: fade-in var(--dur-fast) var(--ease-out); }
+.ccompose textarea:focus { outline: 0; }
+.ccompose:focus-within { border-color: var(--ring); box-shadow: 0 0 0 4px var(--front-soft), var(--shadow-lift); }
+.ccompose .cq { color: var(--muted-foreground); font-size: var(--text-xs); border-inline-start: 3px solid color-mix(in srgb, var(--warning) 70%, transparent);
+  padding-inline-start: var(--space-2); max-height: 8em; overflow: auto; white-space: pre-wrap; }
+.ccompose .crow { display: flex; gap: var(--space-2); }
+.ccompose .hint, .fview .chint { color: var(--muted-foreground); font-size: var(--text-xs); }
+::highlight(fcom) { background-color: color-mix(in srgb, var(--warning) 28%, transparent); }
+::highlight(fcom-on) { background-color: color-mix(in srgb, var(--warning) 60%, transparent); }
+/* threads: owner and session messages, waiting for a reply, closed */
+.cmsg { margin-top: var(--space-2); }
+.cmsg .cwho { font-size: var(--text-xs); color: var(--muted-foreground); font-weight: 600; }
+.cmsg .md { font: var(--text-sm)/1.5 var(--font); overflow-wrap: anywhere; }
+.cmsg .md p { margin: 2px 0; }
+.cwait { margin-top: var(--space-2); font-size: var(--text-xs); color: var(--muted-foreground); font-style: italic; }
+.citem textarea { margin-top: var(--space-2); }
+.citem .crow { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
+.citem.resolved { opacity: 0.7; }
+.cdone > summary { cursor: pointer; color: var(--muted-foreground); font-size: var(--text-xs); }
+.btn.quiet { color: var(--muted-foreground); }
+.btn.quiet:hover { color: var(--foreground); }
+
+/* medium windows get smaller margins, as in the hub */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .fapp { --left-w: 248px; }
+  .fhead, .fview { padding-inline: var(--space-4); }
+}
+/* phone: folder or file, one of the two; windows are full screen without rounded corners */
+@media (max-width: 760px) {
+  .fapp, .fapp.commenting { grid-template-columns: minmax(0, 1fr); padding: 0; column-gap: 0; }
+  .fwin, .cpanel { border-radius: 0; box-shadow: none; }
+  .fapp[data-view="file"] .fside { display: none; }
+  .fapp[data-view="list"] .cpanel, .fapp[data-view="list"] .fview { display: none; }
+  /* a folder has only the window header with the path, above the list */
+  .fapp[data-view="list"] { grid-template-rows: auto minmax(0, 1fr); }
+  .fapp[data-view="list"] .fwin { order: -1; grid-template-rows: auto; background: var(--shell); }
+  .fapp[data-view="list"] .fhome { display: none; }  /* "Files" is already first in the path */
+  .fapp[data-view="list"] .fbrand { min-height: 0; padding-block: var(--space-2); }
+  .fapp[data-view="list"] .fbrand:has(#themes:empty) { display: none; }
+  .fhead { padding: var(--space-2) var(--space-3); gap: var(--space-2); }
+  .fhead .spacer { display: none; }
+  .crumbs { flex-basis: 100%; }
+  .acts { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .acts .btn, .acts .seg button { padding-inline: var(--space-2); white-space: nowrap; }
+  .fview { padding: var(--space-3); }
+  .fapp[data-view="file"].commenting { grid-template-rows: minmax(0, 1fr) auto; }
+  .cpanel { border-top: 1px solid var(--border); max-height: 45dvh; }
+}
+
+/* file rewritten before the reader's eyes (magic.js): deleted text flashes red and collapses, added text fades in green */
+.mg-del { color: var(--destructive); text-decoration: line-through; background: color-mix(in srgb, var(--destructive) 22%, transparent);
+  border-radius: 3px; animation: mg-del 1.5s ease-in both; }
+.mg-add { border-radius: 3px; animation: mg-add 2.4s ease-out both; }
+@keyframes mg-del {
+  0% { opacity: 1; font-size: 1em; }
+  45% { opacity: 1; font-size: 1em; }
+  100% { opacity: 0; font-size: 0; }
+}
+@keyframes mg-add {
+  0% { opacity: 0; background: color-mix(in srgb, var(--success) 70%, transparent); filter: blur(3px); }
+  18% { opacity: 1; filter: none; background: color-mix(in srgb, var(--success) 55%, transparent); }
+  100% { background: color-mix(in srgb, var(--success) 14%, transparent); }
+}
+.mg-del.still, .mg-add.still { animation: none; }
+.mg-add.still { background: color-mix(in srgb, var(--success) 25%, transparent); }
+.mg-del.block { display: block; white-space: pre-wrap; animation-name: mg-del-block; }
+li.mg-del { animation-name: mg-del-block; }
+@keyframes mg-del-block {
+  0%, 45% { opacity: 1; max-height: 20em; }
+  100% { opacity: 0; max-height: 0; margin: 0; padding: 0; }
+}
+.mg-del.block, li.mg-del { overflow: hidden; }
+
+/* html file as a page (files.js, /render): iframe over the whole viewing area; background is a white canvas, like the browser's:
+   a document without its own styles is drawn black by default, in the hub's dark theme too */
+.fview[data-mode="frame"] { display: flex; flex-direction: column; }
+.fview .frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: var(--radius-lg); background: white; color-scheme: light;
+  box-shadow: var(--shadow-plate); }
+/* embedded window (right panel on the hub page): the file only, no folder list */
+.fapp[data-embed] .fside { display: none; }
+.fapp[data-embed] .fview { padding: var(--space-3) var(--space-4); }
+@media (min-width: 761px) {  /* a narrow window is one column anyway (phone rules above) */
+  .fapp[data-embed] { grid-template-columns: minmax(0, 1fr); padding: var(--gap); }
+  .fapp[data-embed].commenting { grid-template-columns: minmax(0, 1fr) var(--right-w); }
+}
+/* a right-to-left page (Arabic) mirrors through the logical properties; file contents, code and paths stay left to right */
+[dir="rtl"] :is(pre, code, kbd, #view[data-mode="edit"] textarea) { direction: ltr; unicode-bidi: isolate; }
+[dir="rtl"] pre { text-align: left; }
+/* the hub page draws the window header (embed=1&chrome=hub, md-panel): here the file only, flat, without a window inside the
+   panel window; the comment hint is one line; "Save" and "Cancel" under the field */
+.fapp[data-chrome] { padding: 0; column-gap: 0; }
+.fapp[data-chrome] .fhead { display: none; }
+.fapp[data-chrome] .fwin { grid-template-rows: minmax(0, 1fr); border-radius: 0; box-shadow: none; }
+.fapp[data-chrome] .cpanel { border-radius: 0; box-shadow: none; border-inline-start: 1px solid var(--border); }
+.fapp[data-chrome] .fview .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: var(--space-3); }
+.fapp[data-chrome] .fview .meta:empty { display: none; }
+.fapp[data-chrome] .ebar { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+@media (max-width: 760px) {
+  .fapp[data-chrome] .cpanel { border-inline-start: 0; }
+}
+/* an executor's spec (core/specmode.py): who writes it and "Accept" / "Drop" — above the text, in a card-coloured row */
+.specbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.specbar > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }

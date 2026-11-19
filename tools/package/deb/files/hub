@@ -1,0 +1,16 @@
+#!/bin/sh
+# The hub command of the packaged hub: its own Python and tools come first in PATH; the code is the clone in the user's
+# state folder (first_run.py makes it at the first `agents-hub`)
+ROOT=/opt/agents-hub
+export PATH="$ROOT/bin:$HOME/.local/bin:$PATH"
+STATE=${HUB_STATE_DIR:-}
+# the mark of the default state folder: where the hub reads its settings ($XDG_CONFIG_HOME) first, then ~/.config
+for MARK in "${XDG_CONFIG_HOME:-$HOME/.config}/hub-core/state-dir" "$HOME/.config/hub-core/state-dir"; do
+  if [ -z "$STATE" ] && [ -r "$MARK" ]; then STATE=$(head -n 1 "$MARK"); fi
+done
+STATE=${STATE:-$HOME/.hub-core}
+if [ ! -f "$STATE/code/bin/hub" ]; then
+  echo "The hub has not started yet: run agents-hub first (or Hub by Icons8 in the applications menu)" >&2
+  exit 1
+fi
+exec "$ROOT/runtime/python/bin/python3" "$STATE/code/bin/hub" "$@"

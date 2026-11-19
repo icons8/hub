@@ -1,0 +1,78 @@
+{
+ "id": "hub-schedule-user-time-en-portable",
+ "title": "The same for an English-speaking owner: the jobs on the first try, the answer in English",
+ "note": "The history and settings are in the case (next to it is hub-schedule-owner-time on the hub's journal). The owner's time zone is deliberately not the machine's; it is chosen far from midnight for the run — otherwise \"until the end of today\" is ambiguous. Only the hub's jobs count: the core sets its own too.",
+ "real": [
+  "hub"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000003",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "America/New_York",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "hub",
+    "text": "In 3 minutes remind me to check that the schedule works. And set yourself a job every 5 minutes until the end of today: write in one line how many sessions are alive.",
+    "channel": "cli",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "set_ok",
+   "type": "event",
+   "text": "the hub sets both jobs",
+   "match": {
+    "type": "schedule.set",
+    "data.sender": "hub"
+   },
+   "min": 2
+  },
+  {
+   "id": "no_rejected_set",
+   "type": "no_event",
+   "text": "the core rejected no schedule.set",
+   "match": {
+    "type": "core.rejected",
+    "data.type": "schedule.set"
+   }
+  },
+  {
+   "id": "owner_language_en",
+   "type": "not_said",
+   "text": "answers in English (no Cyrillic)",
+   "re": "[\u0430-\u0451]{4}"
+  }
+ ]
+}

@@ -1,0 +1,306 @@
+{
+ "id": "fyi-rule",
+ "title": "An agent following the hub skill sends as \"FYI\" (--fyi) only what does not change the addressee's next step",
+ "note": "The system prompt is plugins/hub-base/skills/hub/SKILL.md of the version. The inputs are `hub send --fyi` messages from the hub journal for 16–19.10 (27 of them), anonymized: a review, CI or QA result, a status change of the addressee's task, a request, an answer to what it is waiting for — `plain-*` (a normal message: --fyi waits until its next turn, and a mini-hub waiting for an executor takes a turn once in hours); a confirmation, an observation, a \"thanks\", a finished errand with no next step — `fyi-*`. Model and effort — as for hub sessions.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "command"
+   ],
+   "properties": {
+    "command": {
+     "type": "string",
+     "description": "the exact `hub send …` command you run now to tell the addressee this"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "plain-review-approved",
+   "input": "You are agent gitlab: you watch GitLab — MRs, reviews, comments; to hub sessions — whatever concerns their MRs. MR !49 in the monolith repo is run by session maps (its task maps-41). The reviewer has just left a review: no remarks, approved the snapshot change, the pipeline is green. Tell maps this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?maps\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-qa-passed-its-task",
+   "input": "You are agent jira: you watch the tracker, move task statuses along after merge and rollout, colleagues' comments — to the session that runs the task. Task maps-60 is run by session auth. QA ran stage: ✅29 · ❌0 · 🔍1 manually (comment 41): switching between domains works. The QA STAGE → WFR move is done by QA; version 2.3 is already in prod. Tell auth this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?auth\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-status-moved-its-task",
+   "input": "You are agent jira: you watch the tracker, move task statuses along after merge and rollout, colleagues' comments — to the session that runs the task. Task maps-60 is run by session auth. QA moved it QA STAGE → WFR, the code is in prod since version 2.3 — you moved it WFR → QA PROD and left a comment for QA. Next is the prod check QA → DONE. Tell auth this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?auth\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-ci-green",
+   "input": "You are agent front: you run the frontend repos. Session ads is waiting for !22 to roll out (its task maps-86) and asked why the pipeline failed. You figured it out: the old pipeline 301 failed (a commit with a package, a private registry for CI); the next commit brought back the local type. The current pipeline 302: build, deploy, typecheck — success; only the optional test_branch is still running. The MR is approved, the task is in QA BRANCH. Tell ads this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?ads\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-qa-question",
+   "input": "You are agent jira: you watch the tracker, colleagues' comments — to the session that runs the task. Task maps-75 is run by session svg-fix. QA sent a plan (comment 52) and 2 questions (53, they do not affect acceptance): attributes in single quotes are not recolored by the color parameter — a separate task or a known limitation? A string without an <svg> tag — what does it return? The session has to answer itself, with a comment in the tracker. Tell svg-fix this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?svg\\-fix\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-merged-move-yourself",
+   "input": "You are agent jira: you watch the tracker, move task statuses along. Task maps-61 is run by session verifier. Its MR !17 is merged (10:39), the tracker status is still CODE REVIEW — after the rollout to stage it has to be moved to QA STAGE (the session does that itself with a tracker command). Tell verifier this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?verifier\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-answer-it-waits",
+   "input": "You are agent front: you run the frontend repos. Session ads asked earlier: \"write to me when the tag with !21 and !22 goes to prod\". Now v3.4 is in prod (deployed 08:40 UTC): it has !21 but NOT !22 — that one is still with QA. Tell ads this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?ads\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "plain-status-with-request",
+   "input": "You are agent ads: you run ad campaigns. Session promo makes videos for the campaign and is waiting until they can be put in. All 6 videos are uploaded to prod and ready (07:00 UTC). You are the one who puts the videos into the live campaigns, after the site rollout — for that you need to know when the site tag goes out, and promo releases it. Tell promo this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?promo\\b"
+    },
+    {
+     "id": "sends",
+     "type": "field",
+     "name": "command",
+     "re": "hub send"
+    },
+    {
+     "id": "plain",
+     "type": "field",
+     "name": "command",
+     "not_re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "fyi-ack",
+   "input": "You are agent hub-dev: development of the hub core. Session ops (the server) wrote to you: \"writes to the system disk are large — tools/test.py writes temp data to disk\". You took it on: put an executor on it, and you will send the before/after write measurement yourself when you have it. Nothing is needed from ops now. Tell ops you have taken it.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?ops\\b"
+    },
+    {
+     "id": "fyi",
+     "type": "field",
+     "name": "command",
+     "re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "fyi-errand-done",
+   "input": "You are agent teams: you run the owner's Teams. Session org (members and invitations to the organization on GitHub) earlier asked you to remind a colleague to accept an invitation — and you already told it \"will do\". You wrote to the colleague in Teams to accept the invitation. Session org does not need to do anything about it: the invitation is already sent, and it waits for the colleague's answer in GitHub. Tell org that you wrote.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?org\\b"
+    },
+    {
+     "id": "fyi",
+     "type": "field",
+     "name": "command",
+     "re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "fyi-observation",
+   "input": "You are agent recsys: recommendations and search. You noticed: since 13.10 the query \"maps\" on the collection page grew from ~65 to 270–365 people a day (ordinary browsers, there are results). Nothing is broken, nothing needs doing; if it is a site map change by session seo — let it just know. Tell seo.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?seo\\b"
+    },
+    {
+     "id": "fyi",
+     "type": "field",
+     "name": "command",
+     "re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "fyi-thanks-no-change",
+   "input": "You are agent hub-dev. Agent builder checked your cards to the owner and sent three points. The answer: p.1 — the rule is already in your file, no change needed, noted; p.2 — the owner's decision, not needed now; p.3 — noted. A second check on 21.10 — ok. Nothing is needed from builder. Tell it this.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?builder\\b"
+    },
+    {
+     "id": "fyi",
+     "type": "field",
+     "name": "command",
+     "re": "--fyi"
+    }
+   ]
+  },
+  {
+   "id": "fyi-closed-not-needed",
+   "input": "You are agent backend. Earlier you opened MR !9 in agent builder's repo (a change about working copies) — it has not started reviewing it. You are closing the MR without merging: the owner said \"no longer relevant\". Nothing is needed from builder. Tell it.",
+   "checks": [
+    {
+     "id": "addressee",
+     "type": "field",
+     "name": "command",
+     "re": "hub send\\s+(--fyi\\s+)?['\\\"]?builder\\b"
+    },
+    {
+     "id": "fyi",
+     "type": "field",
+     "name": "command",
+     "re": "--fyi"
+    }
+   ]
+  }
+ ]
+}

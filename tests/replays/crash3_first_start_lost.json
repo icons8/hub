@@ -1,0 +1,50 @@
+{
+ "about": "Failure 3: the first launch did not happen (the process died before SessionStart); start again with the same --session-id, not --resume.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 5,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "ever_started": true
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false,
+    "session_id": "sid-a"
+   },
+   {
+    "do": "spawn",
+    "resume": false,
+    "session_id": "sid-a"
+   }
+  ],
+  "rejected": 0
+ }
+}

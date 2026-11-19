@@ -1,0 +1,345 @@
+/* ---- side list ---- */
+aside { position: relative; display: flex; flex-direction: column; min-height: 0; background: transparent;   /* on the gray shell */
+  /* one height for the search row and the "All | Now" tabs: derived from the font (respects "Text size"), in whole
+     pixels; under a finger — at least 40 */
+  --ctl-h: round(calc(2.4 * var(--text-sm)), 2px);
+  /* row plate (search, ☰, selected tab): in the dark theme on the gray shell the background is --muted with a --border
+     ring, otherwise the field gets lost; light theme — the usual --background and --shadow-plate */
+  --row-plate: light-dark(var(--background), var(--muted));
+  --row-plate-shadow: 0 0 0 1px light-dark(transparent, var(--border)), var(--shadow-plate); }   /* the --border ring over the plate's ring */
+@media (pointer: coarse) { aside { --ctl-h: max(40px, round(calc(2.4 * var(--text-sm)), 2px)); } }
+/* panel top is a single row: search, the "Waiting for you" pill, the slot for sidebar.header plugins and ☰ (Settings
+   and sections); there is no hub-name row — the name sits on the hub row in the list */
+.search-row { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-2); flex: none; container-type: inline-size;
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-3); }
+/* plugin icons take at most 40% of the row's inner width and wrap into lines (a plugin's node and the slot are both wrapping
+   flex boxes, so the node keeps its own box), so six icons do not squeeze the search field to nothing: the row grows by one more
+   line of icons instead */
+#slot-sidebar-header { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--space-1) var(--space-2); flex: none; max-width: 40cqw; }
+#slot-sidebar-header > .slot { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; }
+#slot-sidebar-header:empty { display: none; }
+/* ☰ sits at the right of the search row, a button with the same plate and height as the field; the menu overlays the
+   list, the list does not move; the connection light works as for "Settings" in the menu */
+.navmenu { flex: none; position: relative; display: grid; place-items: center; width: var(--ctl-h); height: var(--ctl-h); padding: 0; border: 0;
+  border-radius: var(--radius); background: var(--row-plate); box-shadow: var(--row-plate-shadow); color: var(--muted-foreground); cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out); }
+.navmenu .icon { width: 20px; height: 20px; }
+.navmenu:hover, .navmenu[aria-expanded="true"] { color: var(--foreground); background: light-dark(var(--accent), var(--muted-2)); }   /* dark: the plate is already --muted */
+.navmenu[aria-current="true"] { color: var(--primary); }
+.nav-pop { position: absolute; z-index: var(--z-menu); top: 52px; inset-inline-start: var(--space-2); inset-inline-end: var(--space-2);
+  max-height: calc(100% - 64px); overflow-y: auto; padding: var(--space-2) 0 0; border-radius: var(--radius); background: var(--background); box-shadow: 0 14px 40px -10px rgb(0 0 0 / .4), 0 0 0 1px var(--border); }
+.nav-pop[hidden] { display: none; }
+/* the "Settings" light: on ☰ and on the menu item icon. Green — connected, yellow — something to know, red — no
+   connection. On ☰ it sits at the icon corner inside the button, outlined in the plate's color (not a dot hanging at
+   the edge) */
+.navmenu .dot, #conn .dot { position: absolute; width: 10px; height: 10px; border-radius: 9999px; border: 2px solid var(--background);
+  background: var(--muted-foreground); }
+.navmenu .dot { left: calc(50% + 4px); top: calc(50% + 2px); transition: border-color var(--dur-hover) var(--ease-out); }   /* physical: on the icon, which does not mirror */
+.navmenu:hover .dot, .navmenu[aria-expanded="true"] .dot { border-color: var(--accent); }
+#conn .glyph { position: relative; }
+#conn .glyph .dot { inset-inline-end: -3px; bottom: -2px; }
+#conn .icon.kit-img { width: 20px; height: 20px; }
+.navmenu .dot[data-s="ok"], #conn .dot[data-s="ok"] { background: var(--success); }
+.navmenu .dot[data-s="warn"], #conn .dot[data-s="warn"] { background: var(--warning); }
+.navmenu .dot[data-s="off"], #conn .dot[data-s="off"] { background: var(--destructive); }
+/* "away" mode: session questions pile up without cards — always visible, one button to come back */
+.away-strip { margin: 0 var(--space-3) var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius);
+  display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs);
+  background: color-mix(in oklch, var(--warning) 16%, var(--background)); border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent); }
+.away-strip[hidden] { display: none; }
+.away-strip .t { flex: 1; min-width: 0; }
+/* executor queue pause (hub task pause): who and why on one line, how to lift it below */
+.away-strip.paused .t > span { display: block; }
+.away-strip button { flex: none; padding: 4px 10px; border-radius: var(--radius); border: 1px solid color-mix(in oklch, var(--warning) 60%, transparent);
+  background: var(--background); color: inherit; font: inherit; cursor: pointer; }
+.search { flex: 1 1 auto; min-width: 0; position: relative; display: block; }
+.search > .icon { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); color: var(--muted-foreground); }
+.search input { width: 100%; height: var(--ctl-h); padding-block: 0; padding-inline: 32px 40px; text-overflow: ellipsis; border: 0; border-radius: var(--radius); background: var(--row-plate); box-shadow: var(--row-plate-shadow); }
+.search input:focus { outline: 0; box-shadow: 0 0 0 1px var(--ring), 0 0 0 4px var(--front-soft); }
+.search kbd { position: absolute; inset-inline-end: 8px; top: 50%; transform: translateY(-50%); font: var(--text-xs) var(--font-mono); color: var(--muted-foreground); }
+.list { flex: 1; overflow-y: auto; padding: 0 var(--space-2) var(--space-3); }
+.list ul { list-style: none; margin: 0; padding: 0; }
+.srow { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-auto-flow: column; grid-auto-columns: auto; gap: var(--space-2); align-items: center; width: 100%;
+  padding: 7px var(--space-2); border: 0; border-radius: var(--radius); background: transparent; text-align: start; cursor: pointer; }
+.srow:hover { background: color-mix(in oklch, var(--foreground) 5%, transparent); }
+/* selected — a white plate with a shadow, like a card */
+.srow[aria-current="true"] { background: var(--background); box-shadow: var(--shadow-plate); }
+.srow .nm { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .lb { color: var(--muted-foreground); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* open tasks on the direction board — a quiet number on the right */
+.srow .count { margin-inline-start: auto; align-self: center; min-width: 20px; padding: 0 6px; border-radius: 9999px;
+  background: color-mix(in oklch, var(--foreground) 8%, transparent); color: var(--muted-foreground); font: 500 var(--text-xs) var(--font); text-align: center;
+  font-variant-numeric: tabular-nums; }
+.srow .nav-count { margin-inline-start: auto; align-self: center; flex: none; padding-inline-start: 8px; color: var(--foreground); font: 500 var(--text-xs) var(--font); font-variant-numeric: tabular-nums; }
+.srow .nav-count[hidden] { display: none; }
+.srow .txt { display: grid; min-width: 0; }
+.glyph { font-family: var(--font-mono); width: 18px; text-align: center; color: var(--muted-foreground); }
+.glyph[data-s="busy"], .glyph[data-s="starting"] { color: var(--st-work); }
+.glyph[data-s="idle"] { color: var(--st-free); }
+.glyph[data-s="dialog"] { color: var(--warning); }
+.glyph[data-s="failed"] { color: var(--st-wait); }
+.tag { font-size: var(--text-xs); font-weight: 600; padding: 1px var(--space-2); border-radius: 9999px; background: var(--destructive); color: var(--on-solid); white-space: nowrap; }
+.tag.dismiss { cursor: pointer; }
+.tag.dismiss:hover { color: var(--foreground); text-decoration: line-through; }
+.tag.soft { background: transparent; border: 1px dashed color-mix(in srgb, var(--warning) 45%, var(--border)); color: var(--muted-foreground); }
+/* groups by role: agents, directions, executors */
+.sgroup-h { margin: var(--space-3) 0 var(--space-1); padding: 4px var(--space-2); color: var(--foreground); font-size: var(--text-sm); font-weight: 650;
+  display: flex; align-items: center; gap: 4px; width: 100%; border: 0; background: none; cursor: pointer; text-align: start; }
+.sgroup-h:hover { color: var(--foreground); }
+.sgroup-h .chev { width: 14px; font-size: calc(15px * var(--ui-scale, 1)); line-height: 1; text-align: center; }  /* slightly larger on purpose */
+.sgroup-h .fdot { width: 7px; height: 7px; border-radius: 9999px; background: var(--primary); margin-inline-start: 4px; }
+.sgroup-h .fdot.wants { background: var(--warning); }
+/* a plugin subgroup inside a group (hub.addSubgroups, 1.31): the header is quieter and closer to the rows */
+.sgroup-h.ssub-h { margin: var(--space-2) 0 2px; font-size: var(--text-xs); font-weight: 600; color: var(--muted-foreground); }
+.sgroup-h.ssub-h:hover { color: var(--foreground); }
+.sgroup ul { margin: 0; padding: 0; list-style: none; }
+.srow .avatar { font-size: calc(14px * var(--ui-scale, 1)); }
+/* executors sit under whoever raised them, indented */
+.forks > ul { margin-block: 0; margin-inline: var(--space-6) 0; padding: 0; list-style: none; border-inline-start: 1px solid var(--border); }
+/* unread: the name is bolder and brighter, a dot on the right */
+.srow.unread .nm { font-weight: 700; color: var(--foreground); }
+.srow.unread .lb { color: var(--foreground); }
+.srow .lb .waiting-stale { color: var(--muted-foreground); opacity: .65; }   /* "was waiting": the word is stale */
+.srow .dot { width: 8px; height: 8px; border-radius: 9999px; background: var(--primary); justify-self: end; }
+details.resting > summary { list-style: none; }
+details.resting > summary::-webkit-details-marker { display: none; }
+details.resting > .btn { margin: var(--space-1) var(--space-2); }
+.aside-foot { padding: var(--space-2) var(--space-3) var(--space-3); color: var(--muted-foreground); font-size: var(--text-xs); }
+.aside-foot .srow.foot { margin: 0 0 var(--space-1); width: 100%; }
+.aside-foot .counts { padding: 0 var(--space-2); display: flex; flex-wrap: wrap; gap: 2px var(--space-3); }
+.aside-foot .counts span::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-inline-end: 5px; border-radius: 9999px; background: var(--st-rest); }
+.aside-foot .counts [data-s="wait"]::before { background: var(--st-wait); }
+.aside-foot .counts [data-s="work"]::before { background: var(--st-work); }
+.aside-foot .counts [data-s="free"]::before { background: var(--st-free); }
+.aside-foot .counts [data-s="fail"]::before { background: var(--st-wait); }   /* same as the failed session icon (.glyph failed) */
+.aside-foot .counts span { white-space: nowrap; }
+/* Claude limits, like /usage: name and share, a bar, when it resets */
+.settings-sec { display: grid; gap: var(--space-2); }
+/* Settings -> Modules -> Voice (js/voicehelp.js): the models of the hub's language, a press on a row takes it */
+.voice-local { display: grid; gap: var(--space-2); justify-items: start; }
+.voice-local > p { margin: 0; }
+.voice-models { justify-self: stretch; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); max-width: 720px; min-width: 0; }
+.voice-model { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: var(--space-1) var(--space-3); align-items: center;
+  width: 100%; padding: var(--space-2) var(--space-3); border: 0; background: none; color: inherit; font: inherit; text-align: start; }
+.voice-model + .voice-model { border-top: 1px solid var(--border); }
+button.voice-model { cursor: pointer; }
+button.voice-model:hover { background: var(--accent); }
+button.voice-model:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.voice-model-mark { width: 14px; height: 14px; border-radius: 9999px; border: 1.5px solid var(--muted-foreground); }
+.voice-model.on .voice-model-mark { border: 4px solid var(--primary); }
+.voice-model-who { display: grid; gap: 2px; min-width: 0; }
+.voice-model-name { font-weight: 600; }
+.voice-model-role { margin-inline-start: var(--space-1); padding: 1px var(--space-2); border-radius: 9999px; font-size: var(--text-xs); font-weight: 500;
+  background: color-mix(in oklch, var(--primary) 14%, var(--card)); color: var(--primary); }
+.voice-model-facts { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.voice-model-state { grid-column: 2; display: grid; gap: 4px; justify-items: start; font-size: var(--text-xs); color: var(--muted-foreground); }
+.voice-model-state:empty { display: none; }
+.voice-model.on .voice-model-state { color: var(--success); }
+.voice-model-bar { width: 120px; height: 4px; border-radius: 2px; background: var(--muted); overflow: hidden; }
+.voice-model-bar i { display: block; height: 100%; background: var(--primary); }
+.feed-opts { display: grid; gap: var(--space-2); max-width: 640px; }   /* "Settings" tab: core and plugin checkboxes */
+/* Settings -> Main -> Hubs on this computer (js/instances.js): a row per hub, "Add a hub" in the block's "More" */
+.instances .hint { margin: 0; }
+.inst-list { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); max-width: 640px; min-width: 0; }
+.inst-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: var(--space-2) var(--space-3); align-items: center;
+  padding: var(--space-2) var(--space-3); }
+.inst-row + .inst-row { border-top: 1px solid var(--border); }
+/* under the rows: a hub without a password opens the others (core/pagepass.unprotected) */
+.inst-open { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--border); }
+.inst-dot { width: 8px; height: 8px; border-radius: 9999px; background: var(--success); }
+.inst-row.off .inst-dot { background: var(--muted-foreground); opacity: .5; }
+.inst-who { min-width: 0; }
+.inst-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.inst-name b { overflow-wrap: anywhere; }
+.inst-meta { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.inst-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.inst-acts a.btn, .inst-job a.btn { text-decoration: none; }
+.inst-acts a.btn { color: var(--foreground); }
+.inst-confirm { grid-column: 2 / -1; display: grid; gap: var(--space-2); }
+.inst-line { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); min-width: 0; }
+.inst-field { display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+.inst-field > span { color: var(--muted-foreground); font-size: var(--text-xs); }
+.inst-input { font: inherit; font-size: var(--text-sm); box-sizing: border-box; width: 12em; max-width: 100%; padding: 5px 9px;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+.inst-add { display: grid; gap: var(--space-2); margin-top: var(--space-2); max-width: 640px; }
+.inst-add .seg button { min-height: 30px; }
+.inst-job { display: grid; gap: var(--space-2); justify-items: start; max-width: 640px; padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.inst-job p { margin: 0; }
+.inst-job.failed, .inst-job.lost { border-color: color-mix(in oklab, var(--warning) 70%, var(--border)); }
+.inst-log { margin: 0; max-width: 100%; overflow-x: auto; font: var(--text-xs)/1.5 var(--font-mono); white-space: pre-wrap;
+  overflow-wrap: anywhere; color: var(--muted-foreground); }
+.settings-groups { display: grid; gap: var(--space-6); }
+/* executors: a toggle on the right of the raiser's row; collapsed — a dot if one is waiting for you or there is news */
+li.has-forks { position: relative; }
+li.has-forks > .srow { padding-inline-end: var(--space-1); }
+/* invisible twin of the executor counter: the row reserves exactly its width (same font and padding) */
+li.has-forks > .srow::after { content: attr(data-fw); visibility: hidden; white-space: nowrap; font: 500 var(--text-xs) var(--font-mono);
+  padding: 1px 6px; }
+li.has-forks > .srow.fw-dot::after { padding-inline-end: calc(6px + 3px + 7px); }
+/* narrow list or large text: the "waiting for you" tag becomes a red dot so the session name does not disappear (the
+   red row edge and the "Waiting for you" pill at the top remain; the full text is in the tooltip) */
+.srow { container: srow / inline-size; }
+@container srow (max-width: 12em) {
+  .srow .tag:not(.soft) { font-size: 0; width: 9px; height: 9px; min-width: 9px; padding: 0; }
+}
+.fork-toggle { position: absolute; inset-inline-end: var(--space-1); top: 50%; transform: translateY(-50%); display: inline-flex;
+  align-items: center; gap: 3px; border: 0; border-radius: 9999px; background: var(--background); box-shadow: var(--shadow-plate);
+  color: var(--muted-foreground); font: 500 var(--text-xs) var(--font-mono); padding: 1px 6px; cursor: pointer; }
+.fork-toggle:hover { color: var(--foreground); border-color: var(--ring); }
+.fork-toggle.wants { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); color: var(--foreground); }
+.fork-toggle .fdot { width: 7px; height: 7px; border-radius: 9999px; background: var(--primary); }
+.fork-toggle .fdot.wants { background: var(--warning); }
+.fork-toggle .chev { font-size: var(--text-xs); line-height: 1; }
+.jev-features { margin: 0; padding-inline-start: var(--space-6); display: grid; gap: var(--space-1); font-size: var(--text-sm); }
+.jev-state { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.jev-state.on { color: var(--success); }
+.module-cmd { display: block; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--muted, transparent); font: var(--text-sm) var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+
+/* group counter and attention pill; red only means "stuck without you" */
+.gcount { min-width: 20px; height: 20px; padding: 0 7px; display: inline-grid; place-items: center; border-radius: 9999px;
+  background: color-mix(in oklch, var(--foreground) 9%, transparent); color: var(--muted-foreground); font-size: var(--text-xs); font-weight: 500; }
+/* "Waiting for you" is a search-row button: same height and corner radius as the field and ☰ */
+.wpill { flex: none; max-width: 45%; min-width: var(--ctl-h); overflow: hidden; display: inline-flex; align-items: center; justify-content: center; height: var(--ctl-h);
+  padding: 0 var(--space-3); border: 0; border-radius: var(--radius); font-size: var(--text-sm); font-weight: 600;
+  white-space: nowrap; cursor: pointer; transition: background-color var(--dur-fast) var(--ease-out); }
+.wpill .wn { flex: none; font-variant-numeric: tabular-nums; }
+/* the pill is not squeezed by the search field (otherwise it is cut down to the number); a label longer than the space
+   (another language, a large theme font) is ellipsized within max-width */
+.wpill .wl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wpill .ws { padding-inline: 0.2em; }   /* spaces around the dot do not survive in a flex pill — spacing via padding */
+/* little space (em is relative to the row font, so it accounts for "Text size" and the list width): a round badge with
+   the number remains; the label goes to aria-label and title. Threshold — search no narrower than ~10em next to
+   "Waiting for you · N" and ☰ */
+@container (max-width: 22em) { .wpill.alarm .wl, .wpill.alarm .ws { display: none; } .wpill.alarm { padding: 0 var(--space-1); }
+  /* ⌘K next to the pill eats a narrow field — the hint is hidden, the field gets its space */
+  .search-row:has(.wpill:not([hidden])) .search kbd { display: none; }
+  .search-row:has(.wpill:not([hidden])) .search input { padding-inline-end: var(--space-2); } }
+.wpill.alarm { background: var(--destructive); color: var(--on-solid); box-shadow: 0 2px 8px -3px color-mix(in oklch, var(--destructive) 55%, transparent); }
+.wpill.alarm:hover { background: color-mix(in oklch, var(--destructive) 85%, var(--foreground)); }
+/* rows by state (one sign — one meaning): "waiting for you" — a colored edge, loud red only here; "turn finished" —
+   bold name and a blue dot, no plate; asleep — muted */
+.srow { border-radius: var(--radius); }
+.srow.blocked { box-shadow: inset 3px 0 0 var(--st-wait); }
+.srow.blocked[aria-current="true"] { box-shadow: inset 3px 0 0 var(--st-wait), var(--shadow-plate); }
+.srow.rest:not([aria-current="true"]) { box-shadow: inset 0 0 0 1px transparent; opacity: 0.85; }
+[dir="rtl"] .srow.blocked { box-shadow: inset -3px 0 0 var(--st-wait); }   /* the colored edge at the line start */
+[dir="rtl"] .srow.blocked[aria-current="true"] { box-shadow: inset -3px 0 0 var(--st-wait), var(--shadow-plate); }
+.srow.rest .nm { font-weight: 450; }
+.sgroup-h .gt { margin-inline-end: 2px; }
+.srow.blocked .glyph { color: var(--st-wait); }
+
+/* icon, green dot, blue dot and tags align with the first line (the name), not the middle of a two-line row */
+.srow { align-items: start; }
+.srow .glyph { display: grid; align-items: center; height: 1lh; line-height: inherit; }
+.srow .glyph .icon { vertical-align: baseline; }
+.srow .dot { align-self: start; margin-top: calc((1lh - 8px) / 2); }
+/* a tag or a counter is smaller than the name: its own box (line + padding, + the dashed border of the soft one) is centered on the name line */
+.srow, li.has-forks { --first-line: calc(var(--text-md) * var(--leading)); }
+.srow .tag { align-self: start; margin-top: calc((var(--first-line) - 1lh - 2px) / 2); }
+.srow .tag.soft { margin-top: calc((var(--first-line) - 1lh - 4px) / 2); }
+.srow .count { align-self: start; margin-top: calc((var(--first-line) - 1lh) / 2); }
+li.has-forks > .fork-toggle { top: calc(7px + var(--first-line) / 2); }   /* middle of the name: row padding + half a name line */
+
+/* ---- free groups and custom icons (groups.js, docs/spec-session-groups.md) ---- */
+.sgroup-hw { position: relative; margin: var(--space-3) 0 var(--space-1); }   /* the header's own margin collapses out of the wrapper: the button would not sit on its line */
+.sgroup-hw .sgroup-h { margin: 0; padding-inline-end: 30px; }
+.gmore { position: absolute; inset-inline-end: 4px; top: 0; bottom: 0; margin: auto 0; width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 6px;
+  background: none; color: var(--muted-foreground); font-size: calc(15px * var(--ui-scale, 1)); line-height: 1; cursor: pointer; opacity: 0; }
+.gdots { width: .14em; height: .14em; border-radius: 50%; background: currentColor; box-shadow: -.32em 0 currentColor, .32em 0 currentColor; }
+.sgroup-hw:hover .gmore, .gmore:focus-visible, .gmore[aria-expanded="true"] { opacity: 1; }
+.gmore:hover { background: color-mix(in oklch, var(--foreground) 8%, transparent); color: var(--foreground); }
+@media (pointer: coarse) { .gmore { opacity: .7; } }
+.sgroup-h .gt { min-width: 0; }
+.gt-edit { font: inherit; font-weight: 650; color: inherit; width: 100%; min-width: 6em; padding: 1px 6px; border: 0; border-radius: 6px; background: var(--background); box-shadow: 0 0 0 1px var(--ring); outline: 0; }
+.g-empty { padding: 10px var(--space-3); margin: 2px 0; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted-foreground); font-size: var(--text-xs); text-align: center; }
+.g-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); padding: 0 var(--space-1); }
+.g-tools .btn { color: var(--muted-foreground); font-size: var(--text-sm); }
+.g-tools .btn:hover { color: var(--foreground); }
+.g-auto-note { flex-basis: 100%; margin: 0; font-size: var(--text-sm); }   /* what "Auto" got, under the button (sidebar.js) */
+.g-auto-note:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }   /* nothing to say: no room taken, still a status line for a screen reader */
+.g-tools-note { margin: var(--space-3) 0 0; padding: 0 var(--space-1); font-size: var(--text-sm); }   /* while searching: no buttons, a line */
+.srow .avatar, .head-av { cursor: pointer; border-radius: 6px; }
+.srow .nm .avatar:hover, .head-av:hover { background: color-mix(in oklch, var(--foreground) 10%, transparent); }
+.head-av { font-size: .9em; padding: 0 2px; }
+.list { position: relative; -webkit-touch-callout: none; }
+.srow, .sgroup-h { -webkit-user-select: none; user-select: none; }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; }
+li.dragging, .sgroup.dragging { opacity: .35; }
+.drag-ghost { position: fixed; z-index: 90; pointer-events: none; margin: 0; background: var(--background); box-shadow: 0 10px 28px -8px rgb(0 0 0 / .35), var(--shadow-plate); border-radius: var(--radius); opacity: .95; transform: rotate(-1deg); }
+.drop-line { position: absolute; inset-inline-start: var(--space-2); inset-inline-end: var(--space-2); height: 3px; border-radius: 2px; background: var(--primary); pointer-events: none; z-index: 5; }
+.drop-line::before { content: ""; position: absolute; inset-inline-start: -4px; top: -3px; width: 9px; height: 9px; border-radius: 9999px; background: var(--primary); }
+.sgroup.drop-target { background: color-mix(in oklch, var(--primary) 7%, transparent); border-radius: var(--radius); box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 35%, transparent); }
+/* menu and palette */
+.gpop { position: fixed; z-index: 100; min-width: 220px; max-width: 320px; padding: var(--space-1); border-radius: var(--radius); background: var(--background); color: var(--foreground);
+  box-shadow: 0 14px 40px -10px rgb(0 0 0 / .4), 0 0 0 1px var(--border); font-size: var(--text-sm); }
+.gpop-t { padding: 6px var(--space-2); color: var(--muted-foreground); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gpop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.gpop-i { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; padding: 7px var(--space-2); border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.gpop-i:hover { background: var(--accent); }
+.gpop-i.danger { color: var(--destructive); }
+.gi-m { color: var(--muted-foreground); }
+.palette { width: 272px; }
+.pal-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 2px; padding: 2px; min-height: min(34vh, 176px); max-height: min(50vh, 320px); overflow-y: auto; align-content: start; }   /* a theme with many pictures scrolls, the field and the reset stay in view; the least height keeps the palette from growing and running off the screen when the search fills it */
+.pal-e { aspect-ratio: 1; padding: 0; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; font-size: calc(18px * var(--ui-scale, 1)); cursor: pointer; }
+.pal-e:hover { background: var(--accent); }
+.pal-av.kit-img { width: 1.15em; height: 1.15em; }   /* the theme replaced the emoji with an image — it has no size of its own */
+.pal-e.on { box-shadow: 0 0 0 2px var(--primary); }
+.pal-find { padding: var(--space-2) var(--space-2) var(--space-1); }
+.pal-find input { width: 100%; box-sizing: border-box; }
+.pal-none { grid-column: 1 / -1; padding: var(--space-4) var(--space-2); color: var(--muted-foreground); text-align: center; }
+.pal-own { display: flex; gap: var(--space-2); padding: var(--space-2); }
+.pal-own input { flex: 1; }
+.pal-own input, .pal-find input { min-width: 0; padding: 6px 8px; border: 0; border-radius: var(--radius); background: var(--muted, var(--accent)); color: inherit; font: inherit; box-shadow: var(--shadow-plate); }
+.pal-reset { width: 100%; padding: 7px var(--space-2); border: 0; border-top: 1px solid var(--border); background: none; color: var(--muted-foreground); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.pal-reset:disabled { opacity: .5; cursor: default; }
+@media (max-width: 760px) {   /* phone: a full-width bottom sheet */
+  .gpop { inset-inline-start: 0 !important; inset-inline-end: 0; top: auto !important; bottom: 0; max-width: none; border-radius: 16px 16px 0 0; padding: var(--space-2) var(--space-2) calc(var(--space-4) + env(safe-area-inset-bottom)); }
+  .gpop-i { padding: 13px var(--space-3); font-size: var(--text-md); }
+  .palette { width: auto; }
+  .pal-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+  .pal-e { font-size: calc(22px * var(--ui-scale, 1)); }
+}
+/* rows outside groups (and the hub) go on top, without a header */
+.sgroup.bare > ul { margin-top: 0; }
+/* direction badge at the start of the second line */
+.dir-badge { margin-inline-end: var(--space-1); opacity: .8; }
+/* the theme replaced 🧭 with an image — it has no size of its own */
+.dir-badge.kit-img { width: 1em; height: 1em; vertical-align: -0.15em; }
+/* a mini-hub executor waiting in the queue (a row without a session) and queued rework — faded */
+.srow.queued { opacity: 0.55; }
+div.srow.queued { cursor: default; }
+div.srow.queued:hover { background: none; }
+/* "All · N | Now · M" above the list; "N more" below it. Height matches the search row; the track is recessed, the
+   selected tab is a plate of the same material as the search field; the tab's corner is concentric with the track
+   (radius minus padding) */
+.active-bar { margin: 0 var(--space-3) var(--space-2); display: flex; gap: var(--space-1); height: var(--ctl-h); padding: var(--space-1);
+  border-radius: var(--radius); background: color-mix(in oklab, var(--foreground) 6%, transparent); }
+.active-bar button { flex: 1; min-width: 0; border: 0; background: none; padding: 0 var(--space-2); border-radius: calc(var(--radius) - var(--space-1)); color: var(--muted-foreground); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background-color var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out); }
+.active-bar button:hover { color: var(--foreground); background: color-mix(in oklab, var(--foreground) 5%, transparent); }
+.active-bar button:focus-visible { outline-offset: 0; }   /* the ring follows the tab edge and does not overlap the neighbor */
+.active-bar button[aria-pressed="true"] { color: var(--foreground); font-weight: 600; background: var(--row-plate); box-shadow: var(--row-plate-shadow); }
+/* "Now" by state: sections; the row caption takes up to three lines (the question, the start of the summary, what
+   it is working on) so the text is not cut off */
+.sgroup-h.alarm, .sgroup-h.alarm:hover { color: var(--st-wait); }
+.srow.two { align-items: start; }
+/* "Now": the caption is two lines at most (it was up to six: eight sessions filled a phone screen); the whole text is in
+   the tooltip and in the session */
+.srow.two .lb { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+/* "Now": how long it waits, when the answer came — right of the name */
+.srow .now-ago { color: var(--muted-foreground); font-size: var(--text-xs); white-space: nowrap; }
+/* "Mark all read" on the "Sent on their own" heading: a quiet button on its line */
+.sgroup-hw:has(> .read-all) { display: flex; align-items: center; }
+.sgroup-hw:has(> .read-all) > .sgroup-h { flex: 1; min-width: 0; width: auto; padding-inline-end: 0; }
+.sgroup-hw > .read-all { flex: none; border: 0; background: none; padding: 0 var(--space-2); color: var(--muted-foreground);
+  font-size: var(--text-xs); cursor: pointer; white-space: nowrap; }
+.sgroup-hw > .read-all:hover { color: var(--foreground); }
+/* the caption spans the full row width under the name, and under the "waiting for you" tag, counter and dot (in the
+   desktop panel the text column next to the tag is ~15 characters wide); how many columns are on the right —
+   --lb-span from sessionRow */
+.srow.two { row-gap: 0; }
+.srow.two .txt { display: contents; }
+.srow.two > *, .srow.two .nm, li.has-forks > .srow.two::after { grid-row: 1; }
+.srow.two .lb { grid-row: 2; grid-column: 2 / var(--lb-span, span 1); }
+.asec[data-sec="near"] .srow:not([aria-current="true"]) .nm { color: var(--muted-foreground); font-weight: 400; }

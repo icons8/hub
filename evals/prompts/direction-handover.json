@@ -1,0 +1,70 @@
+{
+ "id": "direction-handover",
+ "title": "A result for the owner that came to a direction from an executor — the direction hands it over itself in this turn; the change does not touch the \"ok\" gate on a spec",
+ "note": "The system prompt is the skill modules/directions/plugin/skills/direction/SKILL.md. Case: an executor handed the direction a summary for the owner, and it did not reach the owner (\"see above\"). Control — the direction waits for an \"ok\" on the spec: it does not hand work out to executors, does not write code and does not resend yesterday's summary to the owner. Judged by the commands and the reply text (there are no tools).",
+ "prompt": {
+  "file": "modules/directions/plugin/skills/direction/SKILL.md"
+ },
+ "model": "opus",
+ "effort": "medium",
+ "turns": [
+  {
+   "id": "summary-from-executor",
+   "input": "Direction shop. The owner asked for a summary of the week's payment errors (task-4). You gave it to the executor shop-report; it handed it in to you as its result: \"The summary is ready. 37 errors, of them 21 — gateway timeout, 9 — bank decline, 7 — wrong address. The peak is Tuesday, after the 2.3 rollout. The main thing: the timeouts went away after the rollback.\" The executor sent nothing to the owner. Finish the turn: the exact commands and the full text the owner will see.",
+   "checks": [
+    {
+     "id": "hands_it_over",
+     "type": "said",
+     "re": "37[\\s\\S]{0,300}(21|time ?out)|(21|time ?out)[\\s\\S]{0,300}37"
+    },
+    {
+     "id": "not_see_above",
+     "type": "not_said",
+     "re": "(?i)(?<![«\\\"„“'])((see|look) above)|(?<![«\\\"„“'])(shop-report|shop-audit|(the )?executor)[^.;\\n«»\\\"]{0,30}(?<!not )(?<!n't )(already )?(sent|delivered|passed|forwarded|shared|handed(?! in))(?![^.\\n]{0,15}\\b(me|us)\\b)(?![^.\\n]{0,25}\\bnothing\\b)"
+    }
+   ]
+  },
+  {
+   "id": "report-file-from-executor",
+   "input": "Direction shop. The executor shop-audit handed in to you: \"The report for the owner on the catalogue audit is ready — /work/shop/reports/audit.md, 4 pages\". The owner is waiting for it (task-7), the executor sent them nothing. Finish the turn: the exact commands and what the owner will see.",
+   "checks": [
+    {
+     "id": "sends_file",
+     "type": "said",
+     "re": "hub send-file [\"']?/work/shop/reports/audit\\.md"
+    },
+    {
+     "id": "not_see_above",
+     "type": "not_said",
+     "re": "(?i)(?<![«\\\"„“'])((see|look) above)|(?<![«\\\"„“'])(shop-report|shop-audit|(the )?executor)[^.;\\n«»\\\"]{0,30}(?<!not )(?<!n't )(already )?(sent|delivered|passed|forwarded|shared|handed(?! in))(?![^.\\n]{0,15}\\b(me|us)\\b)(?![^.\\n]{0,25}\\bnothing\\b)"
+    }
+   ]
+  },
+  {
+   "id": "spec-gate-control",
+   "input": "Direction shop, a repo with a project rule: code — only after the owner's \"ok\" on the spec. You wrote the spec for slice 5 and asked the owner with a form \"ok?\"; no answer yet. Yesterday's summary of payment errors you already gave them yesterday. The executor shop-dev is free. What do you do in this turn? The exact commands and a line to the owner.",
+   "checks": [
+    {
+     "id": "no_dispatch",
+     "type": "not_said",
+     "re": "(?m)^\\s*(\\$ )?hub task run"
+    },
+    {
+     "id": "no_send_file",
+     "type": "not_said",
+     "re": "(?m)^\\s*(\\$ )?hub send-file"
+    },
+    {
+     "id": "no_code_now",
+     "type": "not_said",
+     "re": "(?i)(?<!not )(?<!n't )(?<!would )(?<!no )\\b(writ(e|ing)|start(ing)?|begin(ning)?|proceed(ing)?|get(ting)? (to|on))\\b[^.\\n]{0,20}(cod|implement)(?![^.\\n]{0,40}(after|once|when|until|before))"
+    },
+    {
+     "id": "waits_for_ok",
+     "type": "said",
+     "re": "(?i)(wait|await|hub waiting)[\\s\\S]{0,80}(\\bok(ay)?\\b|spec)"
+    }
+   ]
+  }
+ ]
+}

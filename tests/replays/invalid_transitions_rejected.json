@@ -1,0 +1,57 @@
+{
+ "about": "An invalid transition is not applied and counts as rejected.",
+ "events": [
+  {
+   "t": 0,
+   "type": "turn.stopped",
+   "entity": "zz"
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "dialog.closed",
+   "entity": "a"
+  },
+  {
+   "t": 3,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a2"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "session_id": "sid-a"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   }
+  ],
+  "rejected": 3
+ }
+}

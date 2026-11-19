@@ -1,0 +1,399 @@
+/* ---- bottom: questions, tasks, input box, status ---- */
+.dock { padding: 0 var(--space-6) var(--space-3); }
+.dock-inner { max-width: var(--column); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.card { border: 1px solid var(--attention-line); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  display: grid; gap: var(--space-2); background: var(--card); color: var(--foreground);
+  overflow: hidden; }   /* the background is flat — the red signal is not a background under text; overflow makes
+  the header corners follow the card corners, whatever the theme made them */
+/* the question card goes last in the feed, inside its scroll (so the context before it can be seen) */
+.feed .card { margin: var(--space-4) 0 var(--space-2); }
+.card h3 { margin: 0; font-size: var(--text-sm); font-weight: 600; }
+/* card header: the title (and × — close without answering, on questions only). The button is moved toward the corner
+   by 4px: 8px to the card edge, radius 12 − 8 = 4 (--radius-sm) — concentric with the card corner */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.card-why { margin: var(--space-2) 0 0; color: var(--muted-foreground); font-size: 0.9em; }
+/* the header is a full-width strip of the --attention color on every "session waits for you" card (question, tool and
+   permission cards share the style): negative margins cancel the card padding, its own padding fills the whole
+   strip. It has no corners of its own: the card is clipped by overflow (a square theme card used to get a rounded
+   header, and with a header radius taken from --radius-lg the background showed through at the corners) */
+.card .card-head { margin: calc(var(--space-3) * -1) calc(var(--space-4) * -1) 0; padding: var(--space-3) var(--space-4);
+  background: var(--attention); color: var(--foreground); }
+.card-x { display: grid; place-items: center; width: 28px; height: 28px; flex: none; margin: calc(var(--space-1) * -1);
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--foreground); cursor: pointer; }
+.card-x:hover { background: color-mix(in srgb, var(--foreground) 15%, transparent); color: var(--foreground); }
+.card fieldset { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: var(--space-1); }   /* minmax: a wide sketch scrolls in its block, it does not stretch the card */
+/* several questions in one card — an explicit boundary between them, a red line across the full card width, not just
+   the content width — an <hr>, not a fieldset border (which breaks at the <legend>); negative margins — the same
+   gap as for the header */
+.card hr.q-sep { border: 0; border-top: 1px solid var(--attention-line); margin: var(--space-2) calc(var(--space-4) * -1); }
+.card .q-of { font-size: var(--text-xs); color: var(--muted-foreground); margin-bottom: var(--space-1); }   /* no caps:
+  hierarchy by size and color */
+.card legend { font-weight: 400; padding: 0; margin-bottom: var(--space-1); }   /* like regular text: 500 next to
+  the options (400) read as bold */
+.card textarea.other { width: 100%; min-height: 32px; max-height: 40vh; resize: none; font: inherit; color: inherit; line-height: 1.4;
+  padding: 6px var(--space-3); border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); }
+.card input[type=text] { padding: 6px var(--space-3); border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); }
+/* the choice circle sits at the first line of an option, not centered on a two-line one (radio buttons align with
+   the option's first line) */
+.opt { display: flex; gap: var(--space-2); align-items: flex-start; padding: 6px var(--space-2); border-radius: var(--radius); border: 1px solid var(--border); background: var(--card); cursor: pointer; }
+.opt input { flex: none; margin: calc((1lh - 1em) / 2) 0 0; }
+/* an option of a single question is just a row button: a tap answers, no circle */
+.opt.pick input { position: absolute; opacity: 0; pointer-events: none; }
+.opt.pick { position: relative; }
+.opt.pick:has(input:focus-visible) { outline: 2px solid var(--ring); outline-offset: 2px; }   /* no circle — focus goes on the row */
+.other-row { display: flex; gap: var(--space-2); align-items: flex-start; }
+.other-row textarea.other { flex: 1; min-width: 0; width: 0; }   /* width 0 — without it the field kept ~195 px, and with the microphone "Reply" went past the card edge on a phone */
+.other-row .btn { flex: none; }
+.opt:hover { background: var(--accent); }
+.opt small { display: block; color: var(--muted-foreground); }
+/* an option's preview (cards.js previewEl): an ASCII sketch as written, scrolling sideways inside the option; or a picture.
+   Not the theme's monospace: box-drawing characters and Cyrillic fall back to another font there and the columns drift */
+.opt.has-preview > span { flex: 1 1 auto; min-width: 0; }
+.opt-preview { margin: var(--space-2) 0 0; padding: var(--space-2); max-height: 50vh; overflow: auto; white-space: pre;
+  font: var(--text-xs)/1.2 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-variant-ligatures: none; tab-size: 4; color: var(--foreground); background: var(--background);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: text; }
+.opt-preview:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.opt-shot { margin-top: var(--space-2); }
+.opt-img { display: block; max-width: 100%; max-height: 50vh; width: auto; height: auto; object-fit: contain;
+  border-radius: var(--radius-sm); outline: 1px solid var(--border); background: var(--muted); }
+.opt-missing { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+/* a path to a file that is not a picture (cards.js fileEl): its icon and name, a link to a new tab; an html report also
+   shows itself above the name, laid out wide and scaled down to the option, inert (the click goes to the link) */
+.opt-file { margin-top: var(--space-2); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+.opt-file-link { display: flex; flex-direction: column; gap: var(--space-1); max-width: 100%; color: inherit; text-decoration: none; }
+.opt-file-link[href] { cursor: pointer; }
+.opt-file-link:has(.opt-file-shot) { width: 100%; }
+.opt-file-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+.opt-file-shot { display: block; width: 100%; aspect-ratio: 16 / 10; max-height: 50vh; overflow: hidden; border-radius: var(--radius-sm);
+  outline: 1px solid var(--border); background: #fff; }
+.opt-file-shot iframe { display: block; width: 1280px; height: 800px; border: 0; transform-origin: 0 0; pointer-events: none; }
+.opt-file-face { display: flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; }
+.opt-file-face .icon { flex: none; width: 16px; height: 16px; fill: currentColor; color: var(--muted-foreground); }
+.opt-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
+.opt-file-link[href] .opt-file-name { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
+.opt-file-miss { font-size: var(--text-xs); color: var(--muted-foreground); }
+@media (hover: hover) and (pointer: fine) {
+  .opt-file-link[href]:hover .opt-file-name { text-decoration-color: currentColor; }
+  .opt-file-link[href]:hover .opt-file-shot { outline-color: var(--primary); }
+}
+.card .code { font: var(--text-xs) var(--font-mono); background: var(--card); border-radius: var(--radius-sm); padding: var(--space-2); white-space: pre-wrap; max-height: 140px; overflow: auto; }
+.btns { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+/* the question was withdrawn but the card holds the user's own typed text (dock.js freeze): the card is not "waiting
+   for you" — header and border lose the attention color, the question and options are muted; the typed text keeps
+   full brightness, since it gets moved to the input box */
+.card.frozen { border-color: var(--border); }
+.card.frozen .card-head { background: var(--muted); color: var(--muted-foreground); }
+.card.frozen hr.q-sep { border-top-color: var(--border); }
+.card.frozen legend, .card.frozen .opt, .card.frozen .card-why, .card.frozen .code, .card.frozen .hint { opacity: 0.55; }
+.card.frozen .opt { cursor: default; }
+.card.frozen .opt:hover { background: var(--card); }
+.frozen-bar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.frozen-bar .frozen-note { flex: 1 1 12em; font-size: var(--text-sm); color: var(--muted-foreground); }
+/* the answer has been sent (cards.js deliver): the card is a single row with the answer, without the "waiting for you"
+   header and the options, until the core withdraws the question; the border has no attention color */
+.card.sent { border-color: var(--border); padding-block: var(--space-2); }
+.card.sent > :not(.sent-line) { display: none; }
+.sent-line { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.todos { font-family: var(--font-mono); font-size: var(--text-sm); display: grid; gap: 2px; padding: 0 var(--space-1); }
+.todos:empty { display: none; }
+.todos .t-done { color: var(--muted-foreground); text-decoration: line-through; }
+.todos .t-now { color: var(--primary); }
+.composer { border: 1px solid var(--input); border-radius: 14px; background: var(--card); box-shadow: var(--shadow-lift); padding-block: var(--space-3) var(--space-2); padding-inline: var(--space-4) var(--space-3);
+  display: grid; gap: var(--space-2); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out); }
+/* focus: a blue border and a soft ring outside */
+.composer:focus-within { border-color: var(--ring); box-shadow: 0 0 0 4px var(--front-soft), var(--shadow-lift); }
+/* dragging a file over the box: dashes and a light fill in the accent color, a caption in the center */
+.composer.dragging { border-style: dashed; border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary), var(--shadow-lift);
+  background: color-mix(in oklch, var(--primary) 8%, var(--card)); }
+.composer.dragging::after { content: attr(data-drop); position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit;
+  background: color-mix(in oklch, var(--primary) 8%, var(--card) 92%); color: var(--foreground); font-size: var(--text-sm); font-weight: 600; pointer-events: none; }
+/* a file was added (paste, paperclip): border and ring for ~0.7 s, the transition is switched off by the global prefers-reduced-motion */
+.composer.flash { border-color: var(--primary); box-shadow: 0 0 0 4px var(--front-soft), var(--shadow-lift); }
+/* "To:" above the box — an accent dot and the recipient's name */
+.to-line { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted-foreground); }
+.to-line b { font-weight: 600; color: var(--foreground); }
+/* × on the chip: the message is addressed away from this session (a reply, a card) — one press takes that off */
+.to-x { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted-foreground);
+  display: inline-grid; place-items: center; }
+.to-x .icon { width: 12px; height: 12px; }
+.to-x:hover { color: var(--foreground); background: var(--accent); }
+.to-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); flex: none; }
+.composer { cursor: text; position: relative; }  /* the whole block is the input: a click puts the caret; the paperclip is in the top-right corner */
+.composer > .attach { position: absolute; top: var(--space-2); inset-inline-end: var(--space-2); }
+/* shortcut badge "to the box": visible while the caret is outside the box; like ⌘K in search; left of the paperclip (34px + gap) */
+.kbd-hint { display: none; position: absolute; top: calc(var(--space-2) + 17px); inset-inline-end: calc(var(--space-2) + 34px + var(--space-1)); transform: translateY(-50%);
+  align-items: center; padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: 4px; font: var(--text-xs) var(--font-mono);
+  color: var(--muted-foreground); line-height: 1.5; cursor: default; }
+.composer:not(:focus-within) .kbd-hint { display: inline-flex; }
+.composer.rec .kbd-hint { display: none; }
+@media (hover: none) { .composer .kbd-hint, .composer:not(:focus-within) .kbd-hint { display: none; } }
+@media (max-width: 760px) { .composer .kbd-hint, .composer:not(:focus-within) .kbd-hint { display: none; } }
+.composer.hk .to-line { padding-inline-end: 110px; min-width: 0; }
+.composer.hk .to-line b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* narrow screen: no "To:" — the recipient is already in the header (hiding it saves height); the box doesn't run under the paperclip */
+@media (max-width: 760px) { .composer .to-line { display: none; } .composer > .prompt { padding-inline-end: 36px; } }
+/* and in a window shorter than 900 CSS px (the visible part of a browser: ~720 on a laptop) — the "To:" row ate the feed's height */
+@media (max-height: 900px) { .composer .to-line { display: none; } .composer > .prompt { padding-inline-end: 36px; } }
+.composer button, .composer a, .composer .pchip { cursor: pointer; }
+.prompt { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.prompt .g { display: none; }   /* ❯ is a terminal sign; the recipient is shown by "To:" */
+.prompt textarea { border: 0; outline: 0; resize: none; background: transparent; width: 100%; min-height: 26px; max-height: 40vh; font-size: var(--text-md); line-height: var(--leading); padding: 2px 0; }
+.bar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.bar .spacer { flex: 1; }
+/* input box in the style of a messenger: round icons, on the right a microphone or "send"; recording is a strip instead of the box */
+.btn.round { width: 34px; height: 34px; min-height: 34px; padding: 0; justify-content: center; border-radius: 9999px; }
+.btn.round .icon { width: 20px; height: 20px; }
+.btn.round.quiet { border-color: transparent; background: transparent; color: var(--muted-foreground); }
+.btn.round.quiet:hover { color: var(--foreground); background: var(--accent); }
+/* the microphone has a large tap target (the whole zone is clickable), comfortable to hold */
+.btn.round.mic { border-color: transparent; background: transparent; color: var(--muted-foreground);
+  width: 48px; height: 48px; margin-block: -7px; margin-inline: 0 -7px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.btn.round.mic .icon { width: 22px; height: 22px; }
+.btn.round.mic:hover { color: var(--primary); background: var(--accent); }
+.btn.round.send { background: var(--primary); color: var(--primary-foreground); border-color: transparent; width: 38px; height: 38px; border-radius: 10px; transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.btn.round.send:hover { background: color-mix(in oklch, var(--primary) 85%, var(--foreground)); }
+.btn.round.send:active { transform: scale(0.94); }
+.btn.round.stop { background: var(--destructive); color: var(--primary-foreground); border-color: transparent; }
+/* the action icon stays at the right edge when a long hint fills the row and the icon wraps to its own line: the spacer sits on the first line then */
+.bar > .btn.round { margin-inline-start: auto; }
+.composer.rec .prompt, .composer.rec .bar > .hint, .composer.rec .bar > .btn.quiet, .composer.rec .bar > .dictate { display: none; }
+/* the paperclip stays while recording, in its usual corner: a screenshot can be added to the voice message (it goes out with it).
+   The stop button stays at the right end of the timer row in every state: when the strip would be the card's first row,
+   it moves down a row and leaves the corner to the paperclip, so a finger on "stop" never lands on the paperclip */
+.composer { --rec-drop: calc(34px + var(--space-2) + var(--space-1) - var(--space-3)); }
+@media (max-width: 760px) { .composer { --rec-drop: calc(40px + var(--space-2) + var(--space-1) - var(--space-3)); } }   /* phone: 40px round buttons */
+html:not(.th-clean) .composer.rec:has(> .attach):not(:has(> .to-line, > .reply-bar, > .pending)) .bar { margin-top: var(--rec-drop); }
+/* on short and narrow screens "To" is hidden: the strip would be the first row then too */
+@media (max-width: 760px), (max-height: 900px) {
+  html:not(.th-clean) .composer.rec:has(> .attach):not(:has(> .reply-bar, > .pending)) .bar { margin-top: var(--rec-drop); } }
+.composer.rec .bar > .spacer { display: none; }   /* the strip takes the free width itself: × stays next to the stop button, not in the middle */
+.recstrip { display: flex; align-items: center; gap: var(--space-2); flex: 1; font: var(--text-sm) var(--font-mono); }
+.recstrip .spacer { flex: 1; }
+.recstrip .t { white-space: nowrap; }
+.recstrip .rec-wait { color: var(--muted-foreground); }
+/* "Done": stop and put the words into the field (the × beside it cancels, the red button sends) */
+.recstrip .rec-done { flex: none; gap: var(--space-1); }
+.recstrip .rec-done .icon { width: 14px; height: 14px; }
+@media (max-width: 760px) { .recstrip .rec-done { min-height: 40px; } }
+.rec-dot { width: 10px; height: 10px; border-radius: 9999px; background: var(--destructive); animation: rec-pulse 1.2s ease-in-out infinite; }
+@keyframes rec-pulse { 50% { opacity: 0.25; } }
+.spin-dot { width: 14px; height: 14px; border-radius: 9999px; border: 2px solid var(--muted-foreground); border-top-color: transparent;
+  animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rec-dot, .spin-dot { animation: none; } }
+@media (max-width: 760px) { .btn.round { width: 40px; height: 40px; } .bar > .hint { display: none; } }
+/* reply to a message: the quote is one line with an ellipsis, as wide as the box, "Cancel" beside it, not under the
+   paperclip; the box column is no wider than its cell — otherwise a long quote stretched the box under the right
+   threads panel */
+.composer { grid-template-columns: minmax(0, 1fr); }
+.reply-bar { flex-wrap: nowrap; min-width: 0; padding-inline-end: 36px; }
+.reply-chip { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the cross of a card in the field (an attachment, the quote): a visible disc in the card's corner, as the apps'
+   CornerRemove — 20 with a mouse, 22 on a touch screen, concentric to the corner (inset: radius − disc/2, at least 4).
+   A transparent zone centered on it takes the press: 28 with a mouse (the apps' minimum on a Mac), 44 on a touch
+   screen. The card keeps room at its end (inset + disc + 4): a long name or quote stops before the disc */
+.composer { --x-disc: 20px; --x-hit: 28px; --x-inset: max(4px, calc(var(--radius) - var(--x-disc) / 2)); --x-room: calc(var(--x-inset) + var(--x-disc) + 4px); }
+@media (pointer: coarse) { .composer { --x-disc: 22px; --x-hit: 44px; } }
+.composer :is(.pchip, .reply-bar) > .x { position: relative; display: grid; place-items: center; flex: none; box-sizing: border-box; width: var(--x-disc); height: var(--x-disc);
+  padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: var(--foreground);
+  background: color-mix(in oklch, var(--background) 80%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  box-shadow: 0 0 0 0.5px var(--border), 0 1px 2px rgb(0 0 0 / 0.12); }
+.composer :is(.pchip, .reply-bar) > .x .icon { width: 10px; height: 10px; }
+.composer :is(.pchip, .reply-bar) > .x::after { content: ""; position: absolute; top: calc(50% - var(--x-hit) / 2); right: calc(50% - var(--x-hit) / 2); width: var(--x-hit); height: var(--x-hit); }   /* physical: centered on the disc */
+@media (hover: hover) and (pointer: fine) { .composer :is(.pchip, .reply-bar) > .x:hover { background: var(--background); } }
+.composer :is(.pchip, .reply-bar.quote) > .x { position: absolute; top: var(--x-inset); inset-inline-end: var(--x-inset); }
+/* a quote is a card: up to two lines of it (a title line above when the words go to another session), the ✕ in its corner */
+.reply-bar.quote { position: relative; align-items: flex-start; }
+.reply-bar.quote .reply-chip { flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; padding-block: 6px; padding-inline: var(--space-3) var(--x-room); white-space: normal;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--muted); color: var(--foreground); }
+.composer .reply-bar.quote > .x { inset-inline-end: calc(36px + var(--x-inset)); }   /* the card ends where the bar's room for the paperclip starts */
+.reply-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-quote { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+/* the "reply" button of a question card aims the session's field at it: the pressed button is filled and the card takes
+   the focus ring colour (no layout change); a card that no longer takes an answer has no button */
+.card-head .card-aim { display: grid; place-items: center; width: 28px; height: 28px; flex: none;
+  margin: calc(var(--space-1) * -1); margin-inline-start: auto;
+  border: 0; border-radius: var(--radius-sm); background: none; color: var(--foreground); cursor: pointer; }
+.card-aim:hover { background: color-mix(in srgb, var(--foreground) 15%, transparent); }
+.card-aim[aria-pressed="true"] { background: var(--foreground); color: var(--background); }
+.card.sent .card-aim, .card.frozen .card-aim { display: none; }
+/* on the aimed card a tap only marks the option (it goes with the comment) — the marked row is shown */
+.card.aimed .opt.pick:has(input:checked) { border-color: var(--ring); box-shadow: inset 0 0 0 1px var(--ring); background: color-mix(in srgb, var(--ring) 10%, transparent); }
+.card.ask-card.aimed { border-color: var(--ring); box-shadow: 0 0 0 1px var(--ring); }
+.pending { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.pchip { position: relative; box-sizing: border-box; min-height: calc(2 * var(--x-inset, 0px) + var(--x-disc, 0px)); display: inline-flex; align-items: center; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); padding-block: 2px; padding-inline: 2px var(--x-room, var(--space-1)); font-size: var(--text-xs); max-width: 260px; }
+.pchip img { width: 32px; height: 32px; object-fit: cover; border-radius: var(--radius-sm); }
+.pchip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a long paste: the start of its text in a 32 px square, the size of an image's preview */
+.pchip .ptile { box-sizing: border-box; flex: none; width: 32px; height: 32px; padding: 3px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--background); color: var(--muted-foreground); font: calc(4px * var(--ui-scale, 1) / var(--ui-base, 1))/calc(5px * var(--ui-scale, 1) / var(--ui-base, 1)) var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* the ✕ zones (above): the chip is position: relative, so the next chip lies over a zone's overhang and a click on it
+   stays its own; with a mouse a click on the end of a file name does not reach the zone (the chip's room at its end) */
+.composer > .attach { z-index: 1; }   /* the paperclip sits over the chips and their ✕ zones: a second-row chip's zone reaches into its bottom */
+.composer.dragging::after { z-index: 2; }   /* the "drop to attach" caption goes over the paperclip too */
+.status { font: var(--text-xs) var(--font); color: var(--muted-foreground); padding: 0 var(--space-1); overflow-wrap: anywhere; }
+.status:empty { display: none; }
+.status { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); align-items: center; justify-content: space-between; }
+.stat-left { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+/* one line: the left part shrinks with an ellipsis, the limits on the right don't wrap; the percentages stay */
+.status { flex-wrap: nowrap; container: status / inline-size; }
+.status > .stat-left { flex: 1 1 auto; overflow: hidden; }
+.status > .stat-left > * { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status > .limline { flex: none; flex-wrap: nowrap; }
+.stat-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status > .stat-left > .stat-ctx { flex: none; }
+.stat-ctx[data-level="warn"] { color: var(--warning); }
+.stat-ctx[data-level="high"] { color: var(--destructive); font-weight: 600; }
+.stat-dir { color: inherit; text-decoration: none; white-space: nowrap; }   /* session folder: a link into "Files" */
+.stat-dir:hover { color: var(--foreground); text-decoration: underline; }
+[dir="rtl"] .stat-dir { direction: ltr; unicode-bidi: isolate; }   /* a path reads left to right in any page */
+/* line parts: the separator goes before a part rather than being text between parts: a part squeezed to zero leaves no "·" */
+.status > .stat-left { gap: 0; }
+.stat-left > * + *::before { content: "·"; padding: 0 var(--space-2); color: var(--muted-foreground); }
+.stat-left > .stat-main:empty:first-child + *::before { content: none; }   /* a hidden empty first part — no "·" at the start */
+.dir-short { display: none; }   /* before the narrow rule below: that one must override */
+/* narrow (phone): effort is a section in the model menu; the model, folder and conversation size are visible (the line used to read "· · ·") */
+@container status (max-width: 520px) { .status > .stat-left > .stat-main { display: none; }
+  .status > .stat-left > .stat-dir::before, .status > .stat-left > .stat-main + .stat-ctx::before { content: none; } .stat-ctx-tok, .dir-long { display: none; } .dir-short { display: inline; } }
+.stat-ctx-tok { white-space: nowrap; }
+.status > .stat-left > .stat-main:empty { display: none; }
+/* the session's own executor count: first in the line, doesn't shrink; a custom (non-default) value takes the text color */
+.status > .stat-par { flex: none; }
+.status > .stat-spec { flex: none; white-space: nowrap; }   /* specs on (core/specmode.py): a plain mark, no menu */
+:is(.stat-par, .stat-mod, .stat-eff) > .menu-btn { color: inherit; font-size: inherit; display: inline-block; white-space: nowrap; }   /* not flex: the space inside the label stays intact */
+.stat-par > .menu-btn:hover { color: var(--foreground); }
+.stat-par > .menu-btn[data-own] { color: var(--foreground); font-weight: 500; }
+:is(.stat-par, .stat-mod, .stat-eff) > .menu-btn::after { display: inline-block; vertical-align: middle; transform: rotate(-135deg); margin-block: 3px 0; margin-inline: 4px 0; }
+:is(.stat-par, .stat-mod, .stat-eff) > .menu-btn[aria-expanded="true"]::after { transform: rotate(45deg); margin-block: -3px 0; margin-inline: 4px 0; }
+:is(.stat-par, .stat-mod, .stat-eff) > .menu { inset-inline-start: 0; inset-inline-end: auto; min-width: 250px; }
+:is(.stat-par, .stat-mod, .stat-eff) .menu-item { white-space: nowrap; }
+.par-short { display: none; }
+@container status (max-width: 520px) { .par-long { display: none; } .par-short { display: inline; } }
+/* the session model and the reasoning level: after the executors chip, they don't shrink; the menu opens above the
+   line; a "·" between them and before the rest of the line */
+.status > :is(.stat-mod, .stat-eff) { flex: none; margin-inline-end: calc(var(--space-2) - var(--space-4)); }
+.status > .stat-mod:has(+ .stat-eff)::after,
+.status > :is(.stat-mod, .stat-eff):has(+ .stat-left > :is(.stat-dir, .stat-ctx, .stat-main:not(:empty)))::after { content: "·"; padding-inline-start: var(--space-2); }
+:is(.stat-mod, .stat-eff) > .menu-btn:hover:not(:disabled) { color: var(--foreground); }
+:is(.stat-mod, .stat-eff) > .menu-btn:disabled { opacity: .6; cursor: progress; }
+:is(.stat-mod, .stat-eff) > .menu { min-width: min(250px, calc(100vw - 16px)); max-width: min(320px, calc(100vw - 16px)); }
+:is(.stat-mod, .stat-eff) .menu-text { white-space: normal; }
+/* narrow, everything on one line: the model shows as its family name, without an arrow; there is no room for the
+   level (the folder would shrink to zero) — it is a section in the model menu; next to the executors chip there is no
+   room for the model either — both stay, as before, in the folder tooltip */
+.mod-short { display: none; }
+.stat-mod .mod-eff { display: none; }
+@container status (max-width: 520px) { .mod-long { display: none; } .mod-short { display: inline; }
+  .stat-mod > .menu-btn::after { display: none; } .status > .stat-eff, .status > .stat-par + .stat-mod { display: none; }
+  .stat-mod .mod-eff { display: block; }
+  .status > .stat-mod:has(+ .stat-eff)::after { content: none; }   /* the level is not visible: "·" only before a visible part */
+  .status > .stat-mod:has(+ .stat-eff + .stat-left > :is(.stat-dir, .stat-ctx, .stat-main:not(:empty)))::after { content: "·"; } }
+.par-input { display: block; width: 8em; margin-top: var(--space-3); }
+@media (pointer: coarse) { :is(.stat-par, .stat-mod, .stat-eff) > .menu-btn { padding: 12px 8px; margin: -12px -8px; } }   /* finger: a target of at least 40 px */
+/* status line: the mode and folder on the left (the turn summary is in the tooltip), the limits on the right */
+/* limits: smooth bars with soft rounding; color by step — a calm green, a warm tone, red only near the cap */
+.limline { display: inline-flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-variant-numeric: tabular-nums; }
+.limseg { --lim: var(--success); display: inline-flex; align-items: center; gap: 6px; color: var(--muted-foreground); white-space: nowrap; }
+.limseg[data-level="warn"] { --lim: var(--warning); }
+.limseg[data-level="high"] { --lim: var(--destructive); }
+.limname { color: var(--muted-foreground); }
+.limpct { color: color-mix(in oklch, var(--lim) 72%, var(--foreground)); font-weight: 600; }
+.limstop { color: color-mix(in srgb, var(--destructive) 75%, var(--muted-foreground)); }
+.limeco { color: color-mix(in srgb, var(--warning) 80%, var(--foreground)); }   /* limit saving (mini hubs) */
+/* Claude accounts: whose limit it is; the whole row leads to the limits of all accounts */
+.limacc { color: var(--foreground); font-weight: 500; }
+.limmail { max-width: 16em; overflow: hidden; text-overflow: ellipsis; }   /* a long email gets an ellipsis: the row doesn't push out the rest */
+@media (max-width: 760px) { .limmail { display: none; } }   /* account email: on a phone the percentages matter more */
+.limlink { cursor: pointer; border-radius: var(--radius-sm); }
+.limlink:hover .limname { color: var(--foreground); }
+.limlink:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.hint { font-size: var(--text-xs); color: var(--muted-foreground); }
+.error-text { font-size: var(--text-xs); color: var(--destructive); margin: 0; }
+.error-text:empty { display: none; }
+.drop { position: absolute; inset: 0; display: none; place-items: center; background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border: 2px dashed var(--primary); border-radius: var(--radius-lg); margin: var(--space-2); font-weight: 500; z-index: var(--z-panel); pointer-events: none; }
+main.dragging .drop { display: grid; animation: fade-in var(--dur-hover) var(--ease-out); }
+.banner { display: none; padding: var(--space-2) var(--space-6); background: var(--muted); font-size: var(--text-xs); border-bottom: 1px solid var(--border); }
+.banner.on { display: block; animation: fade-in var(--dur-fast) var(--ease-out); }
+.banner[role=button] { cursor: pointer; }
+.banner[role=button]:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.connection-side.on { display: none; }
+@media (max-width: 760px) { .connection-side.on { display: block; } }
+
+dialog { border: 0; border-radius: var(--radius-lg); padding: var(--space-6); background: var(--card); color: var(--foreground);
+  box-shadow: var(--shadow-2); width: min(460px, calc(100vw - 32px));
+  /* closed (exit): opacity only, shorter than the entrance; display/overlay with allow-discrete keep the dialog on screen until the exit ends */
+  opacity: 0; transition: opacity var(--dur-pane) var(--ease-out), display var(--dur-pane) allow-discrete, overlay var(--dur-pane) allow-discrete; }
+dialog[open] { opacity: 1; transform: none; transition: opacity var(--dur-dialog) var(--ease-out), transform var(--dur-dialog) var(--ease-out),
+  display var(--dur-dialog) allow-discrete, overlay var(--dur-dialog) allow-discrete; }
+@starting-style { dialog[open] { opacity: 0; transform: scale(0.96); } }
+dialog::backdrop { background: oklch(0 0 0 / 0.45); opacity: 0; transition: opacity var(--dur-pane) var(--ease-out), display var(--dur-pane) allow-discrete, overlay var(--dur-pane) allow-discrete; }
+dialog[open]::backdrop { opacity: 1; transition: opacity var(--dur-dialog) var(--ease-out), display var(--dur-dialog) allow-discrete, overlay var(--dur-dialog) allow-discrete; }
+@starting-style { dialog[open]::backdrop { opacity: 0; } }
+dialog h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
+dialog form { display: grid; gap: var(--space-4); }
+dialog .btns { justify-content: flex-end; }
+/* the question and option descriptions are markdown: no extra paragraph margins */
+.card legend .md > :first-child, .opt small.md > :first-child, .card legend > p:first-child { margin-top: 0; }
+.card legend p, .opt small p { margin: 0 0 var(--space-1); }
+.card legend p:last-child, .opt small p:last-child { margin-bottom: 0; }
+.card legend ul, .card legend ol, .opt small ul, .opt small ol { margin: var(--space-1) 0; padding-inline-start: 1.2em; }
+
+/* the "Waiting for you" strip above the box: the only loud element on the session page (red appears only here) */
+.strip-host { margin-bottom: var(--space-2); }
+.strip-host.enter { animation: strip-in var(--dur-fast) var(--ease-out); }   /* only when the strip appears (strip.js), not on every snapshot */
+@keyframes strip-in { from { opacity: 0; transform: translateY(4px); } }
+.strip { border-radius: var(--radius-lg); background: var(--card); box-shadow: var(--shadow-plate); max-height: 35vh; overflow-y: auto; }   /* a long queue scrolls inside and doesn't push the feed out */
+.strip-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); }
+.strip-row + .strip-row { border-top: 1px solid var(--border); }
+.strip-row .k { flex: none; min-width: 108px; font-size: var(--text-xs); font-weight: 600; }
+.strip-row[data-k="wait"] .k { color: var(--st-wait); }
+.strip-row[data-k="wait"] { box-shadow: inset 3px 0 0 var(--st-wait); }
+.strip-row[data-k="unread"] .k { color: var(--warning); }
+.strip-row[data-k="unread"] { box-shadow: inset 3px 0 0 var(--warning); }   /* inserted mid-turn, the step runs past a minute */
+[dir="rtl"] .strip-row[data-k="wait"] { box-shadow: inset -3px 0 0 var(--st-wait); }   /* the colored edge at the line start */
+[dir="rtl"] .strip-row[data-k="unread"] { box-shadow: inset -3px 0 0 var(--warning); }
+.strip-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
+.strip-row .btn { flex: none; }
+.strip-row button.t { font: inherit; background: none; border: 0; padding: 0; margin: 0; text-align: start; cursor: pointer; }
+.strip-row .t[aria-expanded]:focus-visible { outline: 2px solid var(--ring, currentColor); outline-offset: 2px; border-radius: var(--radius-sm); }   /* "for your information": a click expands the full text */
+.strip-row.open { align-items: flex-start; }
+.strip-row .t .nowrap { white-space: nowrap; }
+.strip-row.open .t { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--foreground); }
+.strip-row .strip-urg { flex: none; font-size: var(--text-xs); color: var(--muted-foreground); }
+.strip-row .strip-urg[data-level="mid"] { color: var(--warning); }
+.strip-row .strip-urg[data-level="high"] { color: var(--destructive); font-weight: 600; }
+.btn.fold-toggle-btn { border-color: var(--attention-line); border-width: 2px; padding-inline: calc(var(--space-2) - 1px); }   /* border 1px thicker, same size */
+.strip-toggle { all: unset; box-sizing: border-box; cursor: pointer; font-size: var(--text-xs); font-weight: 600; color: var(--muted-foreground); }
+.strip-toggle:hover { color: var(--foreground); }
+.strip-toggle:focus-visible { outline: 2px solid var(--ring, currentColor); outline-offset: 2px; border-radius: var(--radius-sm); }
+@media (max-width: 760px) {
+  .strip-row { flex-wrap: wrap; gap: var(--space-2); } .strip-row .k { flex: 1 1 100%; min-width: 0; }
+  .strip-row .t { flex: 1 1 100%; white-space: normal; overflow-wrap: anywhere; } .strip-row .btn { min-height: 40px; }
+  .strip-row:not(.open) .t[aria-expanded] { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .strip-toggle { min-height: 40px; display: flex; align-items: center; width: 100%; } }
+
+/* the command popup when typing "/" (js/commands.js): above the box, like the "More" menu; up to 6 rows, then scrolling */
+.cmd-menu { position: absolute; inset-inline-start: var(--space-2); bottom: calc(100% + var(--space-1)); width: min(440px, calc(100% - 2 * var(--space-2)));
+  padding: var(--space-1); background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lift); z-index: var(--z-menu);
+  cursor: default; font-size: var(--text-sm); }
+.cmd-menu .cmd-rows { max-height: calc(6 * 36px); overflow-y: auto; }
+.cmd-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: var(--space-3); padding: 6px var(--space-2); line-height: 24px; border-radius: calc(var(--radius-lg) - var(--space-1)); }
+.cmd-row[aria-selected="true"] { background: var(--accent); }
+.cmd-row .nm { font: 600 var(--text-sm) var(--font-code); white-space: nowrap; }
+.cmd-row .args { font-weight: 400; color: var(--muted-foreground); }
+.cmd-row .what { color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-row .by { font-size: var(--text-xs); color: var(--muted-foreground); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 0 6px; }
+.cmd-foot { font-size: var(--text-xs); color: var(--muted-foreground); padding: var(--space-1) var(--space-2) 2px; margin-top: var(--space-1); border-top: 1px solid var(--border); }
+/* dictation into a field (hub.dictate, API 1.31): on failure the microphone is red, the reason is in the tooltip */
+.btn.round.dictate { width: 34px; height: 34px; margin: 0; flex: none; }   /* next to someone else's field: without the composer icon's offset */
+.btn.round.mic.err, .btn.round.dictate.err { color: var(--destructive); }
+/* a failed dictation at the page's own fields (dictate.js fieldMic): the reason and the kept recording under the field, like .error-text */
+.dictate-note { font-size: var(--text-xs); color: var(--destructive); margin: 0; }
+.dictate-note:empty { display: none; }
+/* the microphone at the page's own fields (dictate.js fieldMic): smaller than the composer icon, quiet, in its place in the field row */
+.btn.round.dictate.mini { width: 28px; height: 28px; min-height: 28px; flex: none; }
+.btn.round.dictate.mini .icon { width: 18px; height: 18px; }
+@media (max-width: 760px) { .btn.round.dictate.mini { width: 32px; height: 32px; min-height: 32px; } }
+.other-row .dictate.mini { align-self: center; }
+.spec-card a.btn { text-decoration: none; }   /* "Open" of a spec card is a link styled as a button */

@@ -1,0 +1,204 @@
+{
+ "about": "Delegation board: \"Waiting for you\" while the executor is asking the owner; a turn error sends STOPPED to the hub; 90 minutes without a result sends TIMEOUT to the hub (once); \"Done\" is set only by the hub or by the owner explicitly. After \"done\" an executor with no open work hands its affairs over (HANDOFF-REQUEST).",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 102
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "b",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-b"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "b",
+   "data": {
+    "session_id": "sid-b",
+    "pid": 103
+   }
+  },
+  {
+   "t": 2,
+   "type": "delegation.created",
+   "data": {
+    "session": "a",
+    "context": "task A",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 3,
+   "type": "delegation.created",
+   "data": {
+    "session": "b",
+    "context": "task B",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m7"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.started",
+   "entity": "b",
+   "data": {
+    "marker": "m8"
+   }
+  },
+  {
+   "t": 5,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r1",
+    "tool": "AskUserQuestion",
+    "input": {
+     "questions": []
+    },
+    "interactive": true
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "b",
+   "data": {
+    "text": "",
+    "is_error": true
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.stopped",
+   "entity": "b"
+  },
+  {
+   "t": 7,
+   "type": "turn.started",
+   "entity": "hub",
+   "data": {
+    "marker": "m12"
+   }
+  },
+  {
+   "t": 8,
+   "type": "turn.stopped",
+   "entity": "hub"
+  },
+  {
+   "t": 5405,
+   "type": "timer.fired",
+   "entity": "d7",
+   "data": {
+    "kind": "timeout"
+   }
+  },
+  {
+   "t": 5500,
+   "type": "delegation.done",
+   "entity": "d8",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  }
+ ],
+ "expect": {
+  "delegations": {
+   "d7": {
+    "state": "waiting-owner",
+    "timed_out": true
+   },
+   "d8": {
+    "state": "done"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m7"
+   },
+   {
+    "do": "type",
+    "message": "m8"
+   },
+   {
+    "do": "respond",
+    "request_id": "r1"
+   },
+   {
+    "do": "type",
+    "text": "[hub:m12 from core] STOPPED d8: b — the turn broke off with an error, no reply to the owner"
+   },
+   {
+    "do": "type",
+    "text": "[hub:m16 from core] TIMEOUT d7: a has worked on the task longer than 90 minutes"
+   },
+   {
+    "do": "type",
+    "session": "b",
+    "message": "m17"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,120 @@
+{
+ "id": "direction-owner-imperative-run-en-portable",
+ "title": "Negative: \"Run\" in English: the direction launches the executor instead of answering in text",
+ "note": "An owner's request with an imperative verb (not a question, not musing): the rule \"a question without a request to act gets a text answer\" must not block it. Expected: an assignment to the executor (a task or a message), with no \"shall I do it?\" card and no \"is it possible / options\" answer. The session under test is a real claude (the direction lead); the hub and the executor are fakes.",
+ "real": [
+  "lead"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-0000000000a1",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "lead",
+   "data": {
+    "cwd": "$work/lead",
+    "session_id": "6f1c2a10-0000-4000-8000-0000000000a2",
+    "role": "agent",
+    "about": "Leads the reports direction: sets tasks for executors, hands the result to the owner",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "exp-a",
+   "data": {
+    "cwd": "$work/exp-a",
+    "session_id": "6f1c2a10-0000-4000-8000-0000000000a3",
+    "executor": true,
+    "raised_by": "lead",
+    "about": "Export button in the report",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "sonnet",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "lead",
+    "text": "Run the export of the «Cities» report now: give it to exp-a, he is free.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "no_card",
+   "type": "no_event",
+   "text": "does not send the owner a \"shall I do it?\" card",
+   "match": {
+    "type": "permission.requested",
+    "entity": "lead",
+    "data.tool": "AskUserQuestion"
+   }
+  },
+  {
+   "id": "acts",
+   "type": "any_of",
+   "text": "acts: sets a task or writes to the executor",
+   "checks": [
+    {
+     "id": "run",
+     "type": "event",
+     "match": {
+      "type": "task.run_requested",
+      "data.sender": "lead"
+     }
+    },
+    {
+     "id": "sent",
+     "type": "event",
+     "match": {
+      "type": "message.received",
+      "data.sender": "lead",
+      "data.to": "exp-a"
+     }
+    },
+    {
+     "id": "task",
+     "type": "event",
+     "match": {
+      "type": "delegation.created",
+      "data.session": "exp-a"
+     }
+    }
+   ]
+  }
+ ]
+}

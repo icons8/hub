@@ -1,0 +1,5 @@
+{
+  "name": "hub-coordinator",
+  "version": "0.2.0",
+  "description": "Hub session only: commands for the session fleet and the tool catalog."
+}

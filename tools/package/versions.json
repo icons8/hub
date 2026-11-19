@@ -1,0 +1,454 @@
+{
+  "_": "What goes into the hub packages (tools/package): pinned versions, sha256 and size per platform, so the build is reproducible. A new version means editing this file; a new environment (Python, Node, git…) — raising runtime as well. \"bundle\": false — not in the package, the hub downloads it at the first start (core/fetch).",
+  "runtime": 2,
+  "python": {
+    "version": "3.14.8+20261003",
+    "license": "PSF-2.0 (python-build-standalone: a CPython build, its licenses are in python/)",
+    "files": {
+      "linux-x64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "d9ec7a6935ade8b671a57ebaf111083d7314eab8dae5071d167054dadd2b97d6",
+        "size": 36299485
+      },
+      "linux-arm64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "ece2bf3d4b47c80c2403c5f32fa51a9458abaee93c10def8acafb5f45163e77d",
+        "size": 30352490
+      },
+      "mac-arm64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "ed14e9042f36c0aa18383f5d9729bcbf17847e842666a793b5a5a5d8505c0ca1",
+        "size": 26663219
+      },
+      "windows-x64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "sha256": "10e5705e44938ee78de35c62b30fdfe2945b53438343d04c0f53548cdd8e91b6",
+        "size": 23229056
+      },
+      "mac-x64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "08310045a2611bad730d7c1a01e847a1ea729d9dcfe29110ca67cbdf3998bb54",
+        "size": 26855367
+      },
+      "windows-arm64": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.14.8%2B20261003-aarch64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "sha256": "a54c6bed6a239d044ae219be9ddee772959d049fb9b03fe4e1fbbba7598ad2ba",
+        "size": 22229041
+      }
+    }
+  },
+  "cryptography": {
+    "version": "50.0.2",
+    "note": "the hub bus (core/bus.py: HPKE needs >= 47), a wheel into the environment's Python; mac-x64 — 48.0.1, the last with an x86_64 macOS wheel (49.0 dropped them); windows-arm64 — none: no win_arm64 wheel since 46.0.4, the bus says no_lib there",
+    "license": "Apache-2.0 OR BSD-3-Clause (cryptography/LICENSE*; its wheels link OpenSSL statically — Apache-2.0)",
+    "wheel": true,
+    "files": {
+      "linux-x64": {
+        "url": "https://files.pythonhosted.org/packages/21/69/64cef1f702bf6657e0cc186ed1a2891d50d29fb41586b254e1c07adea261/cryptography-50.0.2-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "sha256": "630ebfea3bf689d075f82316324ff7433dc447fe6bc1bfc76524b74b4a9567d2",
+        "size": 4719841
+      },
+      "linux-arm64": {
+        "url": "https://files.pythonhosted.org/packages/d9/69/c9bd862c3bf43d6399c433caf002df16e2dffd4be49bdf515cda38038711/cryptography-50.0.2-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+        "sha256": "79def8d059362e7831389ed3be0ecdf58a89386e1271e35dd9f5af84e81bffd0",
+        "size": 4731146
+      },
+      "mac-arm64": {
+        "url": "https://files.pythonhosted.org/packages/e5/56/d194340cc4a57535e82e1bee9e89667ac4b7c13b5d3f59686deae3094dd5/cryptography-50.0.2-cp311-abi3-macosx_11_0_arm64.whl",
+        "sha256": "fa8f5efb344d6908a1ce62f4a24e2e5780f825d6f53f5f50ec5ffacac72936cb",
+        "size": 3914904
+      },
+      "mac-x64": {
+        "url": "https://files.pythonhosted.org/packages/1b/bc/ee4137cbbe105652c0ee4252792b78fc8e7afa4b8e61d9d5dc05a7f45731/cryptography-48.0.1-cp311-abi3-macosx_10_9_universal2.whl",
+        "sha256": "3e4a1a3232eef2e6c732827d5722db29a0cc8b27af2a4d865b094cf954be9ca1",
+        "size": 8008324,
+        "version": "48.0.1"
+      },
+      "windows-x64": {
+        "url": "https://files.pythonhosted.org/packages/9a/4f/adfc442765721292fff86d314ce385d3249d22db42295c0dd057727b60f3/cryptography-50.0.2-cp311-abi3-win_amd64.whl",
+        "sha256": "7afa5a6602a9f29af1f3a2965f831bae7c9d5d597b7cbb716d41ab3b7d89879c",
+        "size": 3824692
+      }
+    }
+  },
+  "cffi": {
+    "version": "2.1.1",
+    "note": "what cryptography loads (_cffi_backend), a wheel into the environment's Python",
+    "license": "MIT No Attribution (cffi/LICENSE)",
+    "wheel": true,
+    "files": {
+      "linux-x64": {
+        "url": "https://files.pythonhosted.org/packages/e9/02/4e7d553a7ac4b4238b38b3c1b80d486e9d4436f8d2acbf87a0997fe3f402/cffi-2.1.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+        "sha256": "b0431303acaea1089ad4b3e9ce4e6518193def1118d4073ca848635ee4ea2e96",
+        "size": 221525
+      },
+      "linux-arm64": {
+        "url": "https://files.pythonhosted.org/packages/67/b8/b42132ca113dc567d37684437b46ca1dafc885902b02a110a02d5b511857/cffi-2.1.1-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl",
+        "sha256": "58acb8ab8e295e6c5ea12f888cbb13cf21511ef2a3303a23f4325c29d17fe5c1",
+        "size": 222328
+      },
+      "mac-arm64": {
+        "url": "https://files.pythonhosted.org/packages/b3/a9/9db617d05d7367c1ad0ab00b3aa6e6f9281edd689b4ee9ea0e5a84e89c97/cffi-2.1.1-cp314-cp314-macosx_11_0_arm64.whl",
+        "sha256": "661c298b4821edebead0c91edd2b00374d67ad7c5a1f7a91d4442633b79d6a72",
+        "size": 184962
+      },
+      "mac-x64": {
+        "url": "https://files.pythonhosted.org/packages/d9/99/c4b0c17cacdc9c3b8f280026286a9826d6a208c0f047591a3c3ce99b91fd/cffi-2.1.1-cp314-cp314-macosx_10_15_x86_64.whl",
+        "sha256": "d28630f5854ab07ab1fd4aba756de52326c82e6be15d414b12793f1975048b54",
+        "size": 184964
+      },
+      "windows-x64": {
+        "url": "https://files.pythonhosted.org/packages/a7/06/1c3e01e3ba14c39f6d10bfbac52753b7e22259e38088e5cfe1d704918690/cffi-2.1.1-cp314-cp314-win_amd64.whl",
+        "sha256": "3222ba5d678f80a030e6afbcc33dc1ae5cb45facabb61cee2c7016b8432fde48",
+        "size": 187949
+      }
+    }
+  },
+  "pycparser": {
+    "version": "3.12",
+    "note": "cffi's dependency (pure Python), a wheel into the environment's Python",
+    "license": "BSD-3-Clause",
+    "wheel": true,
+    "files": {
+      "linux-x64": {
+        "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl",
+        "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "size": 62600
+      },
+      "linux-arm64": {
+        "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl",
+        "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "size": 62600
+      },
+      "mac-arm64": {
+        "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl",
+        "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "size": 62600
+      },
+      "mac-x64": {
+        "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl",
+        "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "size": 62600
+      },
+      "windows-x64": {
+        "url": "https://files.pythonhosted.org/packages/b6/ae/315bbeee126a769cbde43cf4908acb4b40408d8bf8bbf334dd7368d8dadf/pycparser-3.12-py3-none-any.whl",
+        "sha256": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+        "size": 62600
+      }
+    }
+  },
+  "node": {
+    "version": "24.21.0 LTS",
+    "license": "MIT (node/LICENSE)",
+    "files": {
+      "linux-x64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.xz",
+        "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6",
+        "size": 31890184
+      },
+      "linux-arm64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz",
+        "sha256": "6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2",
+        "size": 30843004
+      },
+      "mac-arm64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.xz",
+        "sha256": "6239d4cf92d864487ec8cd3615038f7b67e7f58b77b21cd2f09ea9fbd68065fe",
+        "size": 27386080
+      },
+      "windows-x64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip",
+        "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541",
+        "size": 37618919
+      },
+      "mac-x64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.xz",
+        "sha256": "0ae5a24c24bb7d015cd816c5036b3f90f2945aa872fcf54e58da054753b3a299",
+        "size": 29175680
+      },
+      "windows-arm64": {
+        "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-arm64.zip",
+        "sha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921",
+        "size": 33679608
+      }
+    }
+  },
+  "git": {
+    "version": "2.56.0",
+    "note": "Mac: dugite-native v2.56.0-2; Windows: Git for Windows 2.56.0.windows.4, the full tree with bash (on ARM64 its native part is clangarm64/, msys's usr/ with bash stays x64 — emulated, Windows 11 only); Linux: the system git",
+    "license": "GPL-2.0 (git); the binaries are unmodified",
+    "msys": ["dev/*", "etc/mtab"],
+    "drop": {"windows-x64": ["ucrt64/share/doc/*", "usr/share/vim/vim92/doc/*", "usr/share/vim/vim92/lang/*",
+                             "usr/share/vim/vim92/spell/*", "usr/share/vim/vim92/tutor/*", "usr/bin/vimtutor",
+                             "usr/bin/ex.exe", "usr/bin/view.exe", "usr/bin/rview.exe", "usr/bin/rvim.exe",
+                             "usr/bin/vimdiff.exe",
+                             "ucrt64/lib/tcl8*", "ucrt64/lib/tk8*", "ucrt64/lib/tclConfig.sh", "ucrt64/lib/tkConfig.sh",
+                             "ucrt64/lib/thread2*", "ucrt64/lib/reg1*",
+                             "ucrt64/bin/tcl86.dll", "ucrt64/bin/tk86.dll", "ucrt64/bin/wish*.exe",
+                             "ucrt64/bin/tclsh*.exe", "ucrt64/libexec/git-core/tcl86.dll",
+                             "ucrt64/libexec/git-core/tk86.dll", "ucrt64/libexec/git-core/git-gui*",
+                             "ucrt64/libexec/git-core/git-citool", "ucrt64/share/git-gui*", "ucrt64/bin/gitk",
+                             "ucrt64/share/gitk*", "cmd/git-gui.exe", "cmd/gitk.exe",
+                             "ucrt64/bin/git-update-git-for-windows", "ucrt64/libexec/git-core/git-update"],
+                             "windows-arm64": ["clangarm64/share/doc/*", "usr/share/vim/vim92/doc/*",
+                               "usr/share/vim/vim92/lang/*", "usr/share/vim/vim92/spell/*",
+                               "usr/share/vim/vim92/tutor/*", "usr/bin/vimtutor", "usr/bin/ex.exe", "usr/bin/view.exe",
+                               "usr/bin/rview.exe", "usr/bin/rvim.exe", "usr/bin/vimdiff.exe", "clangarm64/lib/tcl8*",
+                               "clangarm64/lib/tk8*", "clangarm64/lib/tclConfig.sh", "clangarm64/lib/tkConfig.sh",
+                               "clangarm64/lib/thread2*", "clangarm64/lib/reg1*", "clangarm64/bin/tcl86.dll",
+                               "clangarm64/bin/tk86.dll", "clangarm64/bin/wish*.exe", "clangarm64/bin/tclsh*.exe",
+                               "clangarm64/libexec/git-core/tcl86.dll", "clangarm64/libexec/git-core/tk86.dll",
+                               "clangarm64/libexec/git-core/git-gui*", "clangarm64/libexec/git-core/git-citool",
+                               "clangarm64/share/git-gui*", "clangarm64/bin/gitk", "clangarm64/share/gitk*",
+                               "cmd/git-gui.exe", "cmd/gitk.exe", "clangarm64/bin/git-update-git-for-windows",
+                               "clangarm64/libexec/git-core/git-update"]},
+    "source": {
+      "mac-arm64": "https://github.com/git/git/archive/refs/tags/v2.56.0.tar.gz (build: https://github.com/desktop/dugite-native/tree/v2.56.0-2)",
+      "windows-x64": "https://github.com/git-for-windows/git/archive/refs/tags/v2.56.0.windows.4.tar.gz (build: https://github.com/git-for-windows/build-extra)",
+      "mac-x64": "https://github.com/git/git/archive/refs/tags/v2.56.0.tar.gz (build: https://github.com/desktop/dugite-native/tree/v2.56.0-2)",
+      "windows-arm64": "https://github.com/git-for-windows/git/archive/refs/tags/v2.56.0.windows.4.tar.gz (build: https://github.com/git-for-windows/build-extra)"
+    },
+    "files": {
+      "mac-arm64": {
+        "url": "https://github.com/desktop/dugite-native/releases/download/v2.56.0-2/dugite-native-v2.56.0-a44aeca-macOS-arm64.tar.gz",
+        "sha256": "1110de343de11cc6f469b782b60f36217b9199b5e06875dd65baa26dd60563c7",
+        "size": 63488287
+      },
+      "windows-x64": {
+        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/Git-2.56.0.4-64-bit.tar.bz2",
+        "sha256": "0dae059764ba7c447c9604eb6cb0f4afaf2d90b003ecf1c8cf2dbe5a13e4442c",
+        "size": 118642037
+      },
+      "mac-x64": {
+        "url": "https://github.com/desktop/dugite-native/releases/download/v2.56.0-2/dugite-native-v2.56.0-a44aeca-macOS-x64.tar.gz",
+        "sha256": "52cc663281e1ec2f1d76ba781193ca4847e62dbbf767f6c99ec9ec5b978a7659",
+        "size": 67470398
+      },
+      "windows-arm64": {
+        "url": "https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.4/Git-2.56.0.4-arm64.tar.bz2",
+        "sha256": "e3903db2fea42263b4df0d2f581ca8e07ec1c7c9f878156a8d01284f35011642",
+        "size": 161625248
+      }
+    }
+  },
+  "gh": {
+    "version": "2.103.3",
+    "license": "MIT (gh/LICENSE)",
+    "files": {
+      "linux-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz",
+        "sha256": "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d",
+        "size": 15031972
+      },
+      "linux-arm64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_arm64.tar.gz",
+        "sha256": "ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63",
+        "size": 13661485
+      },
+      "mac-arm64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_macOS_arm64.zip",
+        "sha256": "d700207eae9ae98fe2b89535c2c087c07823d4628c56364695a5a07ef311c062",
+        "size": 14106091
+      },
+      "windows-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_windows_amd64.zip",
+        "sha256": "98d0cfa794721665d7973dd728c78aff7bd836d58f10f6d7a03568eccb0a22e0",
+        "size": 15197187
+      },
+      "mac-x64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_macOS_amd64.zip",
+        "sha256": "a2f86418f4350ae6e9ec60d5000bdf7665728436946a97fc27fe50e6ae752682",
+        "size": 15702601
+      },
+      "windows-arm64": {
+        "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_windows_arm64.zip",
+        "sha256": "197211c98687d7770ac331fe8a3b6c198c389108c1536cdbedf659fe4703e484",
+        "size": 13637549
+      }
+    }
+  },
+  "ffmpeg": {
+    "version": "8.1.3",
+    "note": "Linux, Windows (x64, ARM64): BtbN n8.1.3-27-g8dca1586f4, the last build of October (BtbN keeps it two years); Mac (arm64, x86_64): our build from the source — x86_64 is cross-compiled on the arm Mac bridge without x86 assembly (no nasm there) and checked under Rosetta",
+    "license": "LGPL-2.1-or-later (no GPL parts; ffmpeg/LICENSE.txt)",
+    "keep": ["bin/ffmpeg", "bin/ffprobe", "bin/ffmpeg.exe", "bin/ffprobe.exe", "bin/*.dll", "lib/*.so*", "LICENSE*", "COPYING*"],
+    "files": {
+      "linux-x64": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-linux64-lgpl-shared-8.1.tar.xz",
+        "sha256": "493e89a48da02b9a7d217b60f7f60c3c917c9bed73459d8a106e5e987da082ef",
+        "size": 65812888
+      },
+      "linux-arm64": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-linuxarm64-lgpl-shared-8.1.tar.xz",
+        "sha256": "91eaefe2ebbd191a5a3b6adf04f5547b5c38dad735f2e91c60c349e203b9d747",
+        "size": 57069064
+      },
+      "windows-x64": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-win64-lgpl-shared-8.1.zip",
+        "sha256": "5cef7bc48e513f3cee7c881e8b2999d835541edb1846c3e89443a67f8f8556ab",
+        "size": 80356594
+      },
+      "windows-arm64": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-winarm64-lgpl-shared-8.1.zip",
+        "sha256": "7cc09ffd85f4f74609564f157d037b202cf91f9d3a349ef42e3f72ee19277320",
+        "size": 55859627
+      }
+    },
+    "build": {
+      "mac-arm64": {
+        "source": {
+          "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+          "sha256": "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3",
+          "size": 11732036
+        },
+        "configure": ["--disable-doc", "--disable-ffplay", "--disable-network", "--disable-autodetect",
+                      "--enable-videotoolbox", "--enable-audiotoolbox", "--enable-static", "--disable-shared",
+                      "--disable-debug", "--arch=arm64", "--extra-cflags=-mmacosx-version-min=13.0",
+                      "--extra-ldflags=-mmacosx-version-min=13.0"]
+      },
+      "mac-x64": {
+        "source": {
+          "url": "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+          "sha256": "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3",
+          "size": 11732036
+        },
+        "configure": ["--disable-doc", "--disable-ffplay", "--disable-network", "--disable-autodetect",
+                      "--enable-videotoolbox", "--enable-audiotoolbox", "--enable-static", "--disable-shared",
+                      "--disable-debug", "--enable-cross-compile", "--target-os=darwin", "--arch=x86_64",
+                      "--disable-x86asm", "--extra-cflags=-arch x86_64 -mmacosx-version-min=13.0",
+                      "--extra-ldflags=-arch x86_64 -mmacosx-version-min=13.0"]
+      }
+    }
+  },
+  "chrome": {
+    "version": "155.0.8059.39 (Chrome for Testing)",
+    "note": "windows-arm64: Chrome for Testing has no ARM64 Windows build — the win64 one, run by Windows 11's x64 emulation",
+    "license": "BSD-3-Clause and others (chrome/ABOUT, LICENSE files of the archive)",
+    "bundle": false,
+    "files": {
+      "linux-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux64/chrome-linux64.zip",
+        "sha256": "55672d1f392fd3e7b7a08621b6e804e6bcb39d40cf155504abb74b3a021ea8ea",
+        "size": 198195769
+      },
+      "linux-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux-arm64/chrome-linux-arm64.zip",
+        "sha256": "b9d44e5d183260ca941a4c4d8d21c8a437d81ef778a489047ef98968b0475dc5",
+        "size": 198202003
+      },
+      "mac-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/mac-arm64/chrome-mac-arm64.zip",
+        "sha256": "529a71bd61aaa2ef266a4d4bd300ae9572ba6a3468a8d55c3023ffeffb5b6b4e",
+        "size": 192634606
+      },
+      "windows-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-win64.zip",
+        "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e",
+        "size": 207197429
+      },
+      "mac-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/mac-x64/chrome-mac-x64.zip",
+        "sha256": "9e4da7961d4a426078f02e89ecfa569a7926ada2dc88aa53c0bd9ed0d46c3bb7",
+        "size": 203101743
+      },
+      "windows-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-win64.zip",
+        "sha256": "59ab2a6e99bde9c0bc180414988394f9f5355a0d3764c704151ee8ecea235c7e",
+        "size": 207197429
+      }
+    }
+  },
+  "chrome-headless-shell": {
+    "version": "155.0.8059.39 (Chrome for Testing)",
+    "license": "BSD-3-Clause and others (LICENSE.headless_shell of the archive)",
+    "bundle": false,
+    "files": {
+      "linux-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux64/chrome-headless-shell-linux64.zip",
+        "sha256": "39dcb8c46550632a3d911850ab3b8af840b4e3f6d8622faa2018eb8756278786",
+        "size": 124203329
+      },
+      "linux-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux-arm64/chrome-headless-shell-linux-arm64.zip",
+        "sha256": "9fb86f7c0b2734c5febc0bbb4e85f37da43553f3f8a7970949828c5713e87e94",
+        "size": 124553121
+      },
+      "mac-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/mac-arm64/chrome-headless-shell-mac-arm64.zip",
+        "sha256": "b3e093c06001c41e68decbc8dd4a62f9efe4bf4e4dd247a686ea531863448d75",
+        "size": 102429510
+      },
+      "windows-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-headless-shell-win64.zip",
+        "sha256": "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436",
+        "size": 124737213
+      },
+      "mac-x64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/mac-x64/chrome-headless-shell-mac-x64.zip",
+        "sha256": "6338a784c691f42dd1ed6aeeef650171c7d72cf74bdb8450d0079864e72a8074",
+        "size": 107758350
+      },
+      "windows-arm64": {
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/win64/chrome-headless-shell-win64.zip",
+        "sha256": "20798f7c51a22def0b3d02e526a8f52e7ee2c7eddcde9d81a4c23f618e8b5436",
+        "size": 124737213
+      }
+    }
+  },
+  "chrome-devtools-mcp": {
+    "version": "1.10.1",
+    "license": "Apache-2.0",
+    "npm_integrity": "sha512-Klw6HWDqHC/XS1JwZldd2r49aUhbUJN9m9Mvcx4SEueIPXtzuQX+QelxAViobv8YUkDZ7HWDrmViR6LeYK0wAw=="
+  },
+  "transcribe-native": {
+    "version": "0.4.1",
+    "note": "the built-in voice (modules/voice/install.py): transcribe.cpp's native library and its ctypes wrapper of the same version, downloaded when a person turns voice on; windows-arm64 has no build",
+    "license": "MIT (transcribe.cpp, ggml, miniz, Silero VAD: licenses/ in the archive)",
+    "bundle": false,
+    "wrapper": {
+      "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe_cpp-0.4.1-py3-none-any.whl",
+      "sha256": "f373b6e20a4d897ed0dcaa2fe7fae183379777432b3a76641c42506c77b442ad",
+      "size": 47639
+    },
+    "files": {
+      "linux-x64": {
+        "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-x86_64-cpu-vulkan.tar.gz",
+        "sha256": "4b58e80c63d7f2b531b4e844b94c0703593f48a5be6afd829389cdda14a13edf",
+        "size": 22561707
+      },
+      "linux-arm64": {
+        "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-linux-aarch64-cpu-vulkan.tar.gz",
+        "sha256": "3671d8a07e256642d6bb38cc05ad8bbe88c76f814aeb704d1f8b57c61010db02",
+        "size": 18137415
+      },
+      "mac-arm64": {
+        "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-arm64-metal.tar.gz",
+        "sha256": "7369e36dc2a5fc5d52eee5766fa03ad22d3f533c8688bf1deccf3ffdc202ea24",
+        "size": 2491746
+      },
+      "mac-x64": {
+        "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-macos-x86_64-cpu.tar.gz",
+        "sha256": "513a3976a2f0ebc0666c9670551e96c226e39ed14090a51f2efa0874f41258d8",
+        "size": 1619231
+      },
+      "windows-x64": {
+        "url": "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.4.1/transcribe-native-0.4.1-windows-x86_64-cpu-vulkan.tar.gz",
+        "sha256": "272eb97795048ccb557c85bb9dd44c9e530e1c928443114c39816a8a5f76269d",
+        "size": 18052295
+      }
+    }
+  },
+  "inno-setup": {
+    "version": "7.1.1",
+    "note": "a build tool, not in the package: makes Setup.exe of the Windows app (tools/package/windows/setup_exe.py)",
+    "license": "Inno Setup License (free, commercial use allowed)",
+    "tool": true,
+    "files": {
+      "windows-x64": {
+        "url": "https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe",
+        "sha256": "8a5a6711c3766a6e5fb74f280ba0e3551e719ce94538d901fdbd1f8f9920b3f0",
+        "size": 14336568
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+ "about": "The session dies right after it is started: after 3 starts in a row without SessionStart it is failed, and messages to it are not delivered.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 3,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 5,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 6,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "failed"
+   }
+  },
+  "messages": {
+   "m7": {
+    "state": "failed",
+    "reason": "session failed"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false
+   },
+   {
+    "do": "spawn",
+    "resume": false
+   },
+   {
+    "do": "spawn",
+    "resume": false
+   },
+   {
+    "do": "spawn",
+    "resume": false
+   }
+  ],
+  "rejected": 0
+ }
+}

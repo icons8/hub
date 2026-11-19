@@ -1,0 +1,117 @@
+{
+ "about": "stripe-live (money): a risky tool waits for the owner; a \"yes\" from a session is rejected; the owner's \"yes\" from the page connects it. (There were no turns - it comes up with the same --session-id, without --resume.)",
+ "events": [
+  {
+   "t": 0,
+   "type": "catalog.loaded",
+   "data": {
+    "tools": {
+     "jira@hub-skills": {
+      "kind": "plugin",
+      "risk": []
+     },
+     "stripe-live": {
+      "kind": "mcp",
+      "risk": [
+       "money"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "tools.requested",
+   "entity": "a",
+   "data": {
+    "tool": "stripe-live",
+    "why": "reconcile payouts"
+   }
+  },
+  {
+   "t": 3,
+   "type": "tools.granted",
+   "entity": "a",
+   "data": {
+    "tool": "stripe-live",
+    "channel": "session",
+    "owner": false
+   }
+  },
+  {
+   "t": 4,
+   "type": "tools.approved",
+   "entity": "a",
+   "data": {
+    "tool": "stripe-live",
+    "channel": "session",
+    "owner": true
+   }
+  },
+  {
+   "t": 5,
+   "type": "tools.denied",
+   "entity": "a",
+   "data": {
+    "tool": "stripe-live",
+    "channel": "session",
+    "owner": false
+   }
+  },
+  {
+   "t": 6,
+   "type": "tools.approved",
+   "entity": "a",
+   "data": {
+    "tool": "stripe-live",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "starting",
+    "tools": [
+     "stripe-live"
+    ]
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "tools": []
+   },
+   {
+    "do": "release"
+   },
+   {
+    "do": "spawn",
+    "resume": false,
+    "tools": [
+     "stripe-live"
+    ]
+   }
+  ],
+  "rejected": 2
+ }
+}

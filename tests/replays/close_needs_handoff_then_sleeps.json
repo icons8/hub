@@ -1,0 +1,134 @@
+{
+ "about": "Close = closable -> HANDOFF-REQUEST -> the session answers HANDOFF-DONE (Done/Open/Handed over/Background) -> put to sleep; the hub gets a line for the summary. A turn in progress: refused with a reason.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w",
+    "pid": 102
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "session.close_requested",
+   "entity": "w",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 5,
+   "type": "session.close_requested",
+   "entity": "w",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m8"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: report\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.stopped",
+   "entity": "w"
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "asleep"
+   }
+  },
+  "messages": {
+   "m8": {
+    "session": "w",
+    "state": "delivered"
+   },
+   "m10": {
+    "session": "hub"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m8"
+   },
+   {
+    "do": "release",
+    "session": "w"
+   },
+   {
+    "do": "type",
+    "message": "m10",
+    "text": "[hub:m10 from core] HANDOFF-DONE w is asleep:\nDone: report\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   }
+  ],
+  "rejected": 1
+ }
+}

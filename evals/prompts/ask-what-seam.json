@@ -1,0 +1,163 @@
+{
+ "id": "ask-what-seam",
+ "title": "After \"Need more context\" the session explains and asks the same questions again — not a new question of its own (the CARDS tail, MORE_HINT and the ASK_WHAT rule do not contradict)",
+ "note": "2026-11-07: ASK_WHAT says that when it is unclear WHAT the owner wants, one question through the form; the \"Need more context\" answer says the opposite kind of thing — the owner did not understand the card, the same questions come back, none dropped, none new, a card made smaller is also the owner's decision. The case puts both rules in the system prompt (LANGUAGE, GIST, CARDS, ASK_WHAT) and the core's own hint of each version as the word of the owner (the hint is read from core/owner.py MORE_HINT). Turn same-two: both questions got the answer; turn one-of-two: only the first did, the second was answered and is not asked again. Stand fields are self-reported by the model; the option and question checks are regexes over its card.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "how",
+    "n_questions",
+    "new_questions",
+    "options",
+    "text"
+   ],
+   "properties": {
+    "how": {
+     "type": "string",
+     "enum": [
+      "card",
+      "decide_myself",
+      "other"
+     ]
+    },
+    "n_questions": {
+     "type": "integer"
+    },
+    "new_questions": {
+     "type": "integer"
+    },
+    "options": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "GIST"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "CARDS",
+    "optional": true
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "ASK_WHAT",
+    "optional": true
+   }
+  ],
+  "tail": {
+   "file": "core/reducer.py",
+   "name": "ASK_BY_FORM"
+  },
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "same-two",
+   "input": "[hub:m1 from user] Keep driving the task.\n\n(test stand: the session then worked for hours; below is its state before the decision)\n\nThe last thing the owner saw from you: your card q7 with two questions.\nQ1 \"The nightly export now keeps files 30 days. Keep 30 or move to 90 days?\" Options: \"30 days\" / \"90 days\".\nQ2 \"Where should the export go?\" Options: \"Shared archive\" / \"A new bucket\".\n\nYour working notes: the export writes ~2 GB a night; 90 days is ~180 GB; the shared archive is also used by the billing reports; a new bucket is one more thing to look after.\n\n[hub:m2 from user] The user's answer to question q7:\n— The nightly export now keeps files 30 days. Keep 30 or move to 90 days?: Need more context\n— Where should the export go?: Need more context\n\n⟦MORE_HINT⟧\n\nStand task. Write what you do in this turn. `how` = \"card\" — you send the owner a card with an AskUserQuestion call, \"decide_myself\" — you decide yourself without asking, \"other\" — anything else. `text` — what the owner reads in this turn, then the full text of the questions of the card you send (empty if no card). `n_questions` — how many questions the card holds (0 if none). `new_questions` — how many of them are NOT among the questions of your earlier card. `options` — all the option labels of the card you send, separated by \" | \".",
+   "consts": {
+    "MORE_HINT": {
+     "file": "core/owner.py",
+     "name": "MORE_HINT"
+    }
+   },
+   "checks": [
+    {
+     "id": "how",
+     "type": "field",
+     "name": "how",
+     "equals": "card",
+     "text": "asks again by a card"
+    },
+    {
+     "id": "both",
+     "type": "field",
+     "name": "n_questions",
+     "min": 2,
+     "text": "both questions come back"
+    },
+    {
+     "id": "nothing_new",
+     "type": "field",
+     "name": "new_questions",
+     "max": 0,
+     "text": "no question of its own about what the owner wants"
+    },
+    {
+     "id": "options",
+     "type": "field",
+     "name": "options",
+     "re": "^(?=.*30 days)(?=.*90 days)(?=.*shared archive)(?=.*new bucket)",
+     "text": "none of the four options dropped"
+    }
+   ]
+  },
+  {
+   "id": "one-of-two",
+   "input": "[hub:m1 from user] Keep driving the task.\n\n(test stand: the session then worked for hours; below is its state before the decision)\n\nThe last thing the owner saw from you: your card q7 with two questions.\nQ1 \"The nightly export now keeps files 30 days. Keep 30 or move to 90 days?\" Options: \"30 days\" / \"90 days\".\nQ2 \"Where should the export go?\" Options: \"Shared archive\" / \"A new bucket\".\n\nYour working notes: the export writes ~2 GB a night; 90 days is ~180 GB; the shared archive is also used by the billing reports; a new bucket is one more thing to look after.\n\n[hub:m2 from user] The user's answer to question q7:\n— The nightly export now keeps files 30 days. Keep 30 or move to 90 days?: Need more context\n— Where should the export go?: Shared archive\n\n⟦MORE_HINT⟧\n\nStand task. Write what you do in this turn. `how` = \"card\" — you send the owner a card with an AskUserQuestion call, \"decide_myself\" — you decide yourself without asking, \"other\" — anything else. `text` — what the owner reads in this turn, then the full text of the questions of the card you send (empty if no card). `n_questions` — how many questions the card holds (0 if none). `new_questions` — how many of them are NOT among the questions of your earlier card. `options` — all the option labels of the card you send, separated by \" | \".",
+   "consts": {
+    "MORE_HINT": {
+     "file": "core/owner.py",
+     "name": "MORE_HINT"
+    }
+   },
+   "checks": [
+    {
+     "id": "how",
+     "type": "field",
+     "name": "how",
+     "equals": "card",
+     "text": "asks again by a card"
+    },
+    {
+     "id": "only_unanswered",
+     "type": "field",
+     "name": "n_questions",
+     "max": 1,
+     "min": 1,
+     "text": "only the question that got the answer"
+    },
+    {
+     "id": "nothing_new",
+     "type": "field",
+     "name": "new_questions",
+     "max": 0,
+     "text": "nothing of its own"
+    },
+    {
+     "id": "options",
+     "type": "field",
+     "name": "options",
+     "re": "^(?=.*30 days)(?=.*90 days)",
+     "text": "both options kept"
+    },
+    {
+     "id": "not_answered",
+     "type": "field",
+     "name": "options",
+     "not_re": "new bucket",
+     "text": "the answered question is not asked again"
+    }
+   ]
+  }
+ ]
+}

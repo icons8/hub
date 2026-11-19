@@ -1,0 +1,9 @@
+{
+ "name": "hello",
+ "version": "1.0.0",
+ "api": "^2.3",
+ "description": "A core module example: a session variable, the hub hello command, a hub doctor check, a counter with a handle and a view, a message on behalf of the owner",
+ "run": ["python3", "main.py"],
+ "capabilities": ["launch.env", "cli", "doctor", "http"],
+ "commands": {"hello": "say hello: hub hello [whom]"}
+}

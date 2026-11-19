@@ -1,0 +1,11 @@
+[Unit]
+Description=Hub by Icons8
+After=network-online.target
+
+[Service]
+ExecStart=/opt/agents-hub/bin/agents-hub run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

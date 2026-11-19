@@ -1,0 +1,94 @@
+{
+ "id": "hub-reports-bug-before-workaround-reply",
+ "title": "The hub finds a core bug (browser:mac does not connect because of a hard-coded path to Chrome) and works around it by hand — before answering the session it must write to hub-dev",
+ "note": "12.10: a session asked for browser:mac (the owner had already agreed), the MCP failed with CONNECTION_CLOSED — the path to Chrome in modules/browser/browsers.py was hard-coded only for /Applications/Google Chrome.app, and Chrome on the machine sat one level deeper. The hub found the cause itself and worked around it (started Chrome by hand with the right CDP port), but did not tell hub-dev — the bug would have stayed in the code. Fix PR #122 (hub-home/CLAUDE.md, item 7): found a hub bug and worked around it by hand — hub send hub-dev before answering the session or the owner. The history is invented (events): the hub has no conversation, the session widget is already up and hits the same browser:mac connection failure.",
+ "before": "2e1ab21",
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub-core",
+   "data": {
+    "cwd": "/home/x/hub-home",
+    "session_id": "0b9d4e2a-6f1c-4c55-9a51-1d7e8f0c3a21",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.started",
+   "entity": "hub-core",
+   "data": {
+    "session_id": "0b9d4e2a-6f1c-4c55-9a51-1d7e8f0c3a21"
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "widget",
+   "data": {
+    "cwd": "/home/x/widget",
+    "session_id": "5c2f7a90-3e8b-4d16-b0a4-8e6c2d9f1b07",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.started",
+   "entity": "widget",
+   "data": {
+    "session_id": "5c2f7a90-3e8b-4d16-b0a4-8e6c2d9f1b07"
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub-core"
+  },
+  "browsers": {
+   "mac": {
+    "kind": "local",
+    "port": 9229,
+    "headless": true,
+    "risk": [
+     "owner-data"
+    ],
+    "description": "The owner's Chrome (an eval run — its own port and profile, does not touch the hub's live browser)"
+   }
+  },
+  "model": "opus",
+  "effort": "medium"
+ },
+ "real": [
+  "hub-core"
+ ],
+ "timeout": 600,
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "hub-core",
+    "text": "widget: I'm trying browser:mac, but the MCP fails right away with CONNECTION_CLOSED (I tried reconnecting several times, same thing). I need it for a step the owner has already approved. Can you look at why the connection drops?",
+    "attachments": [],
+    "channel": "session",
+    "owner": false,
+    "sender": "widget"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "reports_to_hub_dev",
+   "type": "event",
+   "text": "tells hub-dev about the bug (file/line, Chrome) and the workaround, not just fixes it silently or passes it on",
+   "match": {
+    "type": "turn.tool",
+    "entity": "hub-core",
+    "data.name": "Bash",
+    "data.input.command": {
+     "re": "hub send hub-dev.*(browsers\\.py|chrome|Chrome)"
+    }
+   }
+  }
+ ]
+}

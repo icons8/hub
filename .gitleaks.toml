@@ -1,0 +1,44 @@
+# gitleaks (https://github.com/gitleaks/gitleaks): gitleaks rules and what is known here not to be a key.
+#   gitleaks dir --config .gitleaks.toml .
+title = "agents-hub"
+
+[extend]
+useDefault = true
+
+# [[allowlists]] needs gitleaks 8.25+: the old [allowlist] table cannot be used next to it
+[[allowlists]]
+description = "invented keys that the tests feed to the code (where a token is put, what is masked); bytecode; hashes of translation lines"
+paths = ['''(^|/)__pycache__/''', '''^i18n/sync\.json$''']
+regexes = [
+  '''^sk_live_ab12CD34ef56GH78ij90KL12$''',
+  '''^tok-[a-z0-9]+-0123456789$''',
+  '''^same-secret-0123456789$''',
+  '''^sk-test-0123456789$''',
+  # tests/test_redact.py: values the mask must recognise or leave alone
+  '''^abc\.def-123456789$''', '''^abc123def456$''', '''^q1w2e3r4t5y6$''', '''^abcd1234efgh$''', '''^abcdef123456XYZ$''',
+  '''^Ab3x9K\.pQ7zLm2$''', '''^dp\.st\.prd\.Ab12Cd34Ef56(Gh)?$''', '''^EAAB1234abcd5678$''', '''^Zx81kq0pLm2abc$''',
+  '''^U291cmNlPU1lc3NhZ2luZ0Zyb250RW5k$''', '''^eyJOZXh0VG9rZW4iOiBudWxsfQ$''', '''^CiAKGjBpNDd2Nmp2Zml2cXRw$''',
+  '''^CPDAlvWDx70CEPDAlvWDx70CGAU$''',
+  # tests/test_app_report.py: a fake Sentry receiver's key and the values a report must cut
+  '''^0123456789abcdef0123456789abcdef$''', '''^abcd1234efgh5678$''', '''^abc0123456789$''', '''^SeCrEtKeY-123456$''',
+  # tests/test_question_shown.py: a token in a sketch that must stay whole
+  '''^abc123456789012345678901234567890$''',
+]
+
+# tests/test_langdata.py: sha256 of each language's word list for the password labels; the lines are hashes, not keys
+[[allowlists]]
+description = "sha256 hashes of the secrets.labels word lists"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^tests/test_langdata\.py$''']
+regexTarget = "match"
+regexes = ['''^[A-Za-z-]+\.secrets\.labels"\s*:\s*"[0-9a-f]{64}"?$''']
+
+# tests/test_secrets.py and evals/prompts/secrets-add*.json: invented values the secrets code and its evals must treat as a secret
+[[allowlists]]
+description = "invented GitLab-shaped tokens of the secrets tests and evals"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^tests/test_secrets\.py$''', '''^evals/prompts/secrets-add(-empty)?\.json$''']
+regexTarget = "match"
+regexes = ['''glpat-(EVALMARK-(7f3kq9|new55x)|probe-1234)\b''']

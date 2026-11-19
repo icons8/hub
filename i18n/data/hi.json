@@ -1,0 +1,14 @@
+{
+ "_about": "Language data of Hindi (core/langdata.py): what the core recognises in Hindi text.",
+ "secrets": {
+  "labels": [
+   "पासवर्ड",
+   "टोकन",
+   "एपीआई कुंजी",
+   "api कुंजी",
+   "गुप्त कुंजी",
+   "निजी कुंजी",
+   "एक्सेस टोकन"
+  ]
+ }
+}

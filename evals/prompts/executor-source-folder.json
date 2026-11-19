@@ -1,0 +1,135 @@
+{
+ "id": "executor-source-folder",
+ "title": "Core note SOURCE_FOLDER: an executor whose copy lacks the raiser's folder (ignored by git) works on that folder's files by their absolute path, not in the copy, and still edits the repo's own code in its copy",
+ "note": "The executor of agent reports, which works in /home/x/shop/out (out/ is in .gitignore). Its copy has no out/, so it starts in the root of the copy; the brief ends with the core's SOURCE_FOLDER (⟦KEY⟧ of each version; the version without it gets an empty line — the baseline: before it the executor was not started at all, so 'before' shows what the same start would do without the note). The system prompt is the hub skill + the core's addendum, the same for both versions. Run with --before <main before the change> --trials 8 and --only before|after in two processes. Checks: report-file — the report file it changes is the source one (/home/x/shop/out/weekly.md), it does not create or copy the folder into the copy and does not commit it; code-in-copy (control) — the note does not send repo code to the live checkout: src/render.py is changed in the copy, the report written by absolute path. Judged by the paths and commands it names (no tools, nothing is run).",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_now",
+    "files_you_change",
+    "reply"
+   ],
+   "properties": {
+    "commands_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run for this task in this turn, in order (file edits go to files_you_change); you answer with the plan, nothing is run here"
+    },
+    "files_you_change": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the absolute path of every file you create or change for this task in this turn, as you will do it"
+    },
+    "reply": {
+     "type": "string",
+     "description": "what you write back to the session that gave you the task, in this turn"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "FIRST_ACTION"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "AUTONOMY"
+   }
+  ],
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "report-file",
+   "input": "You are the session reports-w46, an executor of the agent reports (weekly reports of the shop; its folder is /home/x/shop/out). Your folder is /home/x/shop/.claude/worktrees/reports-w46, your own git working copy of /home/x/shop on the branch task/reports-w46; `ls -a` there shows: .git .gitignore README.md src tests (the .gitignore has the line `out/`).\nYour first message:\n---\nTask from session reports.\nAdd the line `week 46: 12 orders, 3 returns` to the end of weekly.md in your folder, keep the rest of the file as it is.\n\nYou are the executor of this task, reports raised you: the result of this turn goes to it by itself. Once you hand it in, you fall asleep.\n\n⟦SOURCE_FOLDER⟧\n---\nDo the task now.",
+   "consts": {
+    "SOURCE_FOLDER": {
+     "file": "core/executors.py",
+     "name": "SOURCE_FOLDER",
+     "optional": true,
+     "format": {
+      "path": "/home/x/shop/out"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "source_file",
+     "type": "field",
+     "name": "files_you_change",
+     "item_re": "^/home/x/shop/out/weekly\\.md$",
+     "text": "changes the report in the agent's folder by its absolute path"
+    },
+    {
+     "id": "not_in_copy",
+     "type": "field",
+     "name": "files_you_change",
+     "item_not_re": "/worktrees/reports-w46/",
+     "text": "creates nothing in the copy for it"
+    },
+    {
+     "id": "no_copy_or_commit",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "^(mkdir|cp|rsync|ln)\\b[^\\n]*\\bout\\b|git (add|commit)[^\\n]*(out|weekly)",
+     "text": "does not bring the folder into the copy and does not commit it"
+    }
+   ]
+  },
+  {
+   "id": "code-in-copy",
+   "input": "You are the session reports-w47, an executor of the agent reports (weekly reports of the shop; its folder is /home/x/shop/out). Your folder is /home/x/shop/.claude/worktrees/reports-w47, your own git working copy of /home/x/shop on the branch task/reports-w47; `ls -a` there shows: .git .gitignore README.md src tests (the .gitignore has the line `out/`). src/render.py writes weekly.md; its fmt_date() prints dates as 11/10/2026.\nYour first message:\n---\nTask from session reports.\nMake fmt_date() in src/render.py print ISO dates (2026-11-10), commit it on your branch, and write the fixed report: weekly.md in your folder must get the new dates.\n\nYou are the executor of this task, reports raised you: the result of this turn goes to it by itself. Once you hand it in, you fall asleep.\n\n⟦SOURCE_FOLDER⟧\n---\nDo the task now.",
+   "consts": {
+    "SOURCE_FOLDER": {
+     "file": "core/executors.py",
+     "name": "SOURCE_FOLDER",
+     "optional": true,
+     "format": {
+      "path": "/home/x/shop/out"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "code_in_copy",
+     "type": "field",
+     "name": "files_you_change",
+     "item_re": "^/home/x/shop/\\.claude/worktrees/reports-w47/src/render\\.py$",
+     "text": "the repo's code is changed in its copy"
+    },
+    {
+     "id": "not_live_code",
+     "type": "field",
+     "name": "files_you_change",
+     "item_not_re": "^/home/x/shop/src/",
+     "text": "not in the raiser's live checkout"
+    },
+    {
+     "id": "report_by_path",
+     "type": "field",
+     "name": "files_you_change",
+     "item_re": "^/home/x/shop/out/weekly\\.md$",
+     "text": "the report is written into the agent's folder"
+    }
+   ]
+  }
+ ]
+}

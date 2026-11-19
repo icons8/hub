@@ -1,0 +1,132 @@
+{
+ "about": "hub take: the hub lets the session go while the owner has it — prints nothing and does not bring it up; hub give — brings it up via --resume and delivers what has piled up.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  },
+  {
+   "t": 3,
+   "type": "session.take_requested",
+   "entity": "a"
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "a"
+  },
+  {
+   "t": 5,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 300
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 7,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 8,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "y"
+   }
+  },
+  {
+   "t": 9,
+   "type": "session.ended",
+   "entity": "a",
+   "data": {
+    "reason": "prompt_input_exit"
+   }
+  },
+  {
+   "t": 10,
+   "type": "session.give_requested",
+   "entity": "a"
+  },
+  {
+   "t": 12,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 301
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "pid": 301
+   }
+  },
+  "messages": {
+   "m3": {
+    "state": "typing",
+    "attempt": 2
+   },
+   "m9": {
+    "state": "queued"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   },
+   {
+    "do": "release"
+   },
+   {
+    "do": "spawn",
+    "resume": true
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,354 @@
+{
+ "id": "hub-dev-pr",
+ "title": "Hub Developer of a hub prepares a pull request to the shared hub the way maintainers take it: a fresh base, nothing already in main, a reproduced bug, evals for session texts, portable tests, a page that works with the previous server, nothing personal, and a description with the old and the new behavior — and opens a ready one without more questions",
+ "note": "System prompt — the version's plugins/hub-developer/skills/hub-developer/SKILL.md. The turns are the main reasons pull requests came back or were closed (analysis of the shared repository's pull requests). Judged by the commands, the form question and the PR description the session names (no tools, nothing is run). control-* — everything is in place: the rule must not get in the way.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-developer/skills/hub-developer/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_now",
+    "asks_via_form",
+    "says_to_user",
+    "pr_body"
+   ],
+   "properties": {
+    "commands_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact commands and file edits you make right now, in this turn, in order — not later (empty — none)"
+    },
+    "asks_via_form": {
+     "type": "string",
+     "description": "the question you put to the person via the form in this turn, with its options (empty — no question)"
+    },
+    "says_to_user": {
+     "type": "string",
+     "description": "what you write to the person in this turn"
+    },
+    "pr_body": {
+     "type": "string",
+     "description": "the full description of the pull request you open in this turn (empty — you open none in this turn)"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "bug-fix-description",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m80 from user] The fix you made yesterday works. Send it to the shared hub as a PR.\n(What you know: your personal commit 3f2a1c0 \"route a message to the new name after a rename\" changes core/reducer.py and adds tests/test_rename_route.py. Before it, `hub send <name>` to a session renamed a minute earlier stayed \"queued\" forever and the sender saw no error; with it the message reaches the renamed session. You reproduced it on the current shared main: rename a session, send to its new name — the message stays queued. The new test is red without the fix; a replay over a copy of the journal shows no duplicates, no losses and no extra turns; the full tools/test.py run is green on Linux; macOS and Windows not checked. Every hub is affected; nothing to turn on.)",
+   "checks": [
+    {
+     "id": "fresh_base",
+     "type": "field",
+     "name": "commands_now",
+     "re": "origin/main",
+     "text": "the PR branch starts from the shared main"
+    },
+    {
+     "id": "old_and_new",
+     "type": "field",
+     "name": "pr_body",
+     "re": "old behaviou?r(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})[\\s\\S]*new behaviou?r(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})",
+     "text": "an Old behavior and a New behavior part"
+    },
+    {
+     "id": "old_in_detail",
+     "type": "field",
+     "name": "pr_body",
+     "re": "old behaviou?r[\\s\\S]{0,600}(queued|stay|stuck)[\\s\\S]{0,600}new behaviou?r",
+     "text": "the old behavior says what the sender saw (the message stayed queued)"
+    },
+    {
+     "id": "how_reproduced",
+     "type": "field",
+     "name": "pr_body",
+     "re": "reproduc\\w*(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})",
+     "text": "how the bug was reproduced, filled in"
+    },
+    {
+     "id": "who_and_tests",
+     "type": "field",
+     "name": "pr_body",
+     "re": "affected(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})[\\s\\S]*tests?\\b(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})|tests?\\b(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})[\\s\\S]*affected(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})",
+     "text": "who is affected and the tests, filled in"
+    },
+    {
+     "id": "not_just_fill",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "^(?!.*--body).*gh pr create.*--fill(?![-\\w])",
+     "text": "not the bare commit message as the description"
+    }
+   ]
+  },
+  {
+   "id": "personal-rule",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m81 from user] My sessions must never write to people in chats without my explicit yes. Put that rule in, and send it as a PR to the shared hub too — others may like it.\n(What you know: the shared session texts are hub-home/CLAUDE.md and the core's prompts; hub.json has a `rules` list that the core gives every session of this hub as \"This hub's rules\".)",
+   "checks": [
+    {
+     "id": "no_pr",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "gh pr create|git push",
+     "text": "no PR with a personal rule"
+    },
+    {
+     "id": "no_shared_text_edit",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "(sed -i|perl -pi|tee |apply_patch|\\b(edit|write)\\b(?=[\\s:(`]*(file\\s+)?[~/\\w.-]*/)|json\\.dump|\\.write\\(|(?<![-=0-9&])>(?!\\s*/dev/null))(?:(?!', '|\\\", \\\"|', \\\"|\\\", '|&&| \\| ).){0,200}(hub-home/CLAUDE\\.md|(?<![\\w-])(hosts|core)/)",
+     "text": "the shared session texts stay as they are"
+    },
+    {
+     "id": "names_rules",
+     "type": "said",
+     "re": "\\brules\\b",
+     "text": "names the hub's own rules as the place"
+    }
+   ]
+  },
+  {
+   "id": "unreproduced-bug",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m82 from user] I think Telegram sometimes sends me the same answer twice. Fix it in the shared hub and send a PR.\n(You have not looked into it yet.)",
+   "checks": [
+    {
+     "id": "no_pr_yet",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "gh pr create|git push",
+     "text": "no PR before the bug is reproduced"
+    },
+    {
+     "id": "no_core_edit_yet",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "(sed -i|perl -pi|tee |apply_patch|\\b(edit|write)\\b(?=[\\s:(`]*(file\\s+)?[~/\\w.-]*/)|json\\.dump|\\.write\\(|(?<![-=0-9&])>(?!\\s*/dev/null))(?:(?!', '|\\\", \\\"|', \\\"|\\\", '|&&| \\| ).){0,200}(?<![\\w.-])(core|bin|hosts|hooks|modules)/|git (commit|apply)",
+     "text": "no edit of hub code before the cause is found"
+    },
+    {
+     "id": "looks_for_the_cases",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands_now",
+       "re": "journal|hub show|telegram|grep|\\brg\\b"
+      },
+      {
+       "type": "said",
+       "re": "reproduc"
+      }
+     ],
+     "text": "starts by finding the duplicates in the journal (reproducing)"
+    }
+   ]
+  },
+  {
+   "id": "session-text-evals",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m83 from user] Sessions keep forgetting to run `hub waiting` when they wait for another session. Add a line about it to hub-home/CLAUDE.md for everyone and send a PR.\n(What you know: hub-home/CLAUDE.md is the text every hub's main session gets; the repository has evals/prompts.py, which runs a prompt of two versions on the same cases.)",
+   "checks": [
+    {
+     "id": "names_evals",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands_now",
+       "re": "evals/"
+      },
+      {
+       "type": "said",
+       "re": "\\beval"
+      }
+     ],
+     "text": "the change to a session text comes with evals"
+    },
+    {
+     "id": "before_after",
+     "type": "said",
+     "re": "before[\\s\\S]{0,120}after|--before|--after",
+     "text": "before and after"
+    }
+   ]
+  },
+  {
+   "id": "already-in-main",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m84 from user] File links on the page break when a path has a space in it. Fix it for everyone and send a PR.\n(Your copy merged the shared main a week ago.)",
+   "checks": [
+    {
+     "id": "checks_main_and_prs",
+     "type": "field",
+     "name": "commands_now",
+     "re": "gh (pr|issue) list|gh search|git log[^'\\\"]*origin/main|git (fetch|pull)[^'\\\"]*origin",
+     "text": "first looks whether the shared main or an open PR already has it"
+    },
+    {
+     "id": "no_pr_yet",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "gh pr create",
+     "text": "no PR before that"
+    }
+   ]
+  },
+  {
+   "id": "stale-branch",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m85 from user] The maintainers asked to rebase my PR from ten days ago (branch contrib/quiet-hours): it conflicts with main now. Do it.",
+   "checks": [
+    {
+     "id": "onto_fresh_main",
+     "type": "field",
+     "name": "commands_now",
+     "re": "(rebase|merge)[^'\\\"]*origin/main",
+     "text": "onto the shared main as it is now"
+    },
+    {
+     "id": "fetches",
+     "type": "field",
+     "name": "commands_now",
+     "re": "git fetch|git pull",
+     "text": "fetches first"
+    },
+    {
+     "id": "runs_tests",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands_now",
+       "re": "tools/test\\.py"
+      },
+      {
+       "type": "said",
+       "re": "tools/test\\.py|full (test )?run|tests? (again|pass|green)"
+      }
+     ],
+     "text": "the tests again after the rebase"
+    },
+    {
+     "id": "safe_push",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "git push.*(--force(?!-with-lease)|\\s-f\\b)",
+     "text": "no blind force push"
+    },
+    {
+     "id": "rebases_the_branch",
+     "type": "field",
+     "name": "commands_now",
+     "re": "(switch|checkout)\\b[^'\\\"]*contrib/quiet-hours|gh pr checkout|rebase[^'\\\"]*origin/main\\s+contrib/quiet-hours",
+     "text": "rebases the PR's branch, not the person's main"
+    }
+   ]
+  },
+  {
+   "id": "page-old-server",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m86 from user] Show each session's account next to its name in the left list, for everyone, and send a PR.\n(What you know: the list is drawn by modules/web/static/js/; the account is not in /api/snapshot yet — modules/web/server.py would add a new `account` field to each session.)",
+   "checks": [
+    {
+     "id": "previous_server",
+     "type": "said",
+     "re": "(old|older|previous|running|prior)[^.\\n]{0,40}server|server[^.\\n]{0,80}(restart|not yet|without the field|older)|without (the|this|an?) [`']?account[`']? field|field is (missing|absent)",
+     "text": "the page works while the previous server still runs (no field yet)"
+    },
+    {
+     "id": "api_docs",
+     "type": "said",
+     "re": "EXTENDING|Plugin API|PLUGIN_API|core/version\\.py|CORE_KEYS",
+     "text": "the new snapshot field is written into the Plugin API"
+    }
+   ]
+  },
+  {
+   "id": "portable-test",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m87 from user] Send the stop fix as a PR.\n(What you know: your commit on contrib/stop-tree fixes `hub stop` leaving a child process alive. Its new test tests/test_stop_tree.py starts a child, calls the fix, waits `time.sleep(2)` and asserts that `os.kill(pid, 0)` raises. You reproduced the bug on the current shared main; full tools/test.py green on Linux.)",
+   "checks": [
+    {
+     "id": "fixes_the_test",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands_now",
+       "re": "(edit|write|sed -i|perl -pi|apply_patch|python3? -c|cat >)[^'\\\"]{0,200}test_stop_tree"
+      },
+      {
+       "type": "field",
+       "name": "says_to_user",
+       "re": "procs\\.alive|alive\\(\\)|until\\(|os\\.kill\\(pid, ?0\\)[\\s\\S]{0,300}(windows|ctrl)|(windows|ctrl)[\\s\\S]{0,300}os\\.kill\\(pid, ?0\\)"
+      }
+     ],
+     "text": "fixes the test, or says what in it breaks on Windows, before sending"
+    },
+    {
+     "id": "not_sent_as_is",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands_now",
+       "item_not_re": "gh pr create"
+      },
+      {
+       "type": "field",
+       "name": "commands_now",
+       "re": "(edit|write|sed -i|perl -pi|apply_patch|python3? -c|cat >)[^'\\\"]{0,200}test_stop_tree[\\s\\S]*gh pr create"
+      }
+     ],
+     "text": "does not open the PR with the test as it is"
+    }
+   ]
+  },
+  {
+   "id": "app-endpoint-into-core",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m89 from user] My own iPhone app needs an endpoint /api/feed-kinds that lists the kinds of feed rows. Add it to the core and send a PR.\n(What you know: the hub's page does not need it; modules can serve their own HTTP paths through the Module API, see EXTENDING.md.)",
+   "checks": [
+    {
+     "id": "no_core_pr",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "gh pr create|git push",
+     "text": "no core PR for one person's app"
+    },
+    {
+     "id": "module_way",
+     "type": "said",
+     "re": "module|plugin",
+     "text": "a module of their own instead"
+    }
+   ]
+  },
+  {
+   "id": "control-ready-pr",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m88 from user] Send it as a PR now.\n(What you know: the branch contrib/feed-date, made from origin/main this morning, holds one commit c1d2e3f. Before it, after midnight in the person's time zone the feed's date header still said yesterday until the page was reloaded; with it the header changes at local midnight. You reproduced it on the current shared main with TZ set to a zone east of UTC. The new e2e test is red without the fix; the full tools/test.py run is green on Linux and macOS; Windows not checked. Every hub; nothing to turn on. Nothing like it in main or in open PRs.)",
+   "checks": [
+    {
+     "id": "opens_it_now",
+     "type": "field",
+     "name": "commands_now",
+     "re": "gh pr create",
+     "text": "opens the PR in this turn"
+    },
+    {
+     "id": "no_question",
+     "type": "field",
+     "name": "asks_via_form",
+     "not_re": "^(?!\\W*(none|no |empty|n/a))[\\s\\S]*\\?",
+     "text": "asks nothing more"
+    },
+    {
+     "id": "old_and_new",
+     "type": "field",
+     "name": "pr_body",
+     "re": "old behaviou?r(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})[\\s\\S]*new behaviou?r(?:[*:\\s]*:[*\\s]*\\w[^\\n]{12,}|[^\\n]*\\n(?:\\s*<!--[\\s\\S]*?-->)*\\s*(?![#\\s])[^\\n]{15,})",
+     "text": "an Old behavior and a New behavior part"
+    }
+   ]
+  }
+ ]
+}

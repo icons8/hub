@@ -1,0 +1,59 @@
+/* Clean, the core's default theme (js/themes.js; "Files" — files/static/theme.js): its colors and font, here and only here.
+   :root.th-clean — Clean is chosen, .th-clean-dark — its dark variant; the layout is in clean.css. The selectors are
+   :root, not html: the dark colors of tokens.css (:root:not([data-theme="light"]) under prefers-color-scheme) weigh as
+   much and come earlier, so a light Clean stays light on a dark system. The keys are those a theme sets (themes.js KEYS). */
+/* Geist (OFL, f/Geist-OFL.txt): the whole page; code keeps the core's Geist Mono */
+@font-face { font-family: "Clean Geist"; src: url("f/GeistVariable.woff2"); font-display: swap; }
+:root.th-clean {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #27272a;
+  --card: #ffffff;
+  --muted: #0000000e;
+  --muted-2: #0000001a;
+  --muted-foreground: #62626b;
+  --accent: #00000016;
+  --border: #0000001a;
+  --input: #d4d4d9;
+  --primary: #4f6cf6;
+  --primary-foreground: #ffffff;
+  --ring: #c9c9d0;
+  --destructive: #c92a2a;
+  --warning: #ec6e0e;
+  --success: #1fb141;
+  --code: #27272a;
+  --hl-attr: #6d4fd6;
+  --attention: #c92a2a;
+  --outline-image: oklch(0 0 0 / 0.1);
+  --font: "Clean Geist", var(--font-ui);
+  --font-display: "Clean Geist", var(--font);
+}
+:root.th-clean.th-clean-dark {
+  color-scheme: dark;
+  --background: #1c1c1f;
+  --foreground: #ececee;
+  --card: #1c1c1f;
+  --muted: #ffffff0f;
+  --muted-2: #ffffff1b;
+  --muted-foreground: #a1a1aa;
+  --accent: #ffffff0f;
+  --border: #ffffff15;
+  --input: #3f3f46;
+  --primary: #7d93ff;
+  --primary-foreground: #0f0f12;
+  --ring: #52525b;
+  --destructive: #f0565a;
+  --warning: #f59a4a;
+  --success: #4cd46a;
+  --code: #ececee;
+  --hl-attr: #a995ff;
+  --attention: #f0565a;
+  --outline-image: oklch(1 0 0 / 0.1);
+}
+:root.th-clean .kit-img { image-rendering: auto; }
+/* "Settings" → "Appearance": the previews of the built-in themes (themes.js), in the colors above */
+.theme-row .preview.clean { background: linear-gradient(135deg, #ffffff 50%, #1c1c1f 50%); }
+.theme-row .preview.clean-light { background: #ffffff; }
+.theme-row .preview.clean-dark { background: #1c1c1f; }
+.theme-row .preview.clean-light .bar, .theme-row .preview.clean .bar { background: #4f6cf6; }
+.theme-row .preview.clean-dark .bar { background: #7d93ff; }

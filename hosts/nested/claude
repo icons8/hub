@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""`claude` inside a hub session (this folder is first in the session's PATH). `claude -p` gets the session's own set:
+its plugins and MCP, without the owner's personal settings and MCP. An executor without a granted ms365 once opened a
+nested `claude -p` and read Teams through the owner's personal MCP, bypassing the hub's grants. If a tool is needed,
+use `hub tools request`. A call that set its own settings and MCP (eval runs) and subcommands (`claude mcp list`,
+`--version`) go through as is."""
+import json
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
+import platforms  # noqa: E402
+
+
+def compose(argv, session, deny=()):
+    """Arguments for the real claude: for `-p`, isolation and the session's set unless the call set them itself; the
+    mini-hub's denials (HUB_NESTED_DENY) always. Denials go at the end (before "--"): the flag's list won't swallow the
+    task text."""
+    if "-p" not in argv and "--print" not in argv:
+        return list(argv)
+    head = []
+    if "--setting-sources" not in argv:
+        head += ["--setting-sources", "project,local"]
+    if "--strict-mcp-config" not in argv:
+        head += ["--strict-mcp-config", *session]
+    tail = list(argv)
+    if deny:
+        at = tail.index("--") if "--" in tail else len(tail)
+        tail[at:at] = ["--disallowedTools", *deny]
+    return head + tail
+
+
+def login(env):
+    """Sign the nested claude in with the pool token (changes env): for sessions on the account gateway (built-in or
+    the sign-in module's; one environment, core/profiles.through) the core gave a token stub, and Claude Code scrubs
+    CLAUDE_CODE_OAUTH_TOKEN from the Bash environment, so the nested one got "Not logged in". We put the stub back from
+    HUB_GATEWAY_STUB (the core sets it only for sessions on a pool token; an account signed in on this computer gets no
+    marker), and the gateway substitutes the real token. The call's own sign-in (token, key) goes through as is."""
+    from core import profiles
+    stub = env.get(profiles.STUB_ENV)
+    own = any(env.get(k) for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"))
+    headers = env.get("ANTHROPIC_CUSTOM_HEADERS") or ""
+    on_gateway = env.get("ANTHROPIC_BASE_URL") and profiles.SECRET_HEADER + ":" in headers
+    if stub and on_gateway and not own:   # the call's own address (a foreign proxy) gets no stub
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = stub
+    return env
+
+
+def shim(path):
+    """The same wrapper (another hub copy's: a working copy's, an eval's): do not follow it, or it loops."""
+    try:
+        with open(path, "rb") as f:
+            return b"HUB_NESTED_FLAGS" in f.read(4096)
+    except OSError:
+        return False
+
+
+def without_shims(path):
+    return os.pathsep.join(p for p in path.split(os.pathsep) if p and not shim(os.path.join(p, "claude")))
+
+
+def real():
+    for found in (os.environ.get("HUB_REAL_CLAUDE"), shutil.which("claude", path=without_shims(os.environ.get("PATH", "")))):
+        if found and not shim(found):
+            return found
+    sys.exit("claude: the real claude is not found (HUB_REAL_CLAUDE)")
+
+
+def environment(env):
+    """This computer's login for a nested -p (changes env, nothing else): a session on the owner's own login got
+    CLAUDE_CODE_OAUTH_TOKEN from settings.json env (catalog.user_env), but Claude Code scrubs it from the Bash
+    environment and -p here runs without user settings (--setting-sources project,local), so a computer whose login
+    lives only in settings.json env got "Not logged in". Put back only that token and only for such a session: no pool
+    account (HUB_ACCOUNT), its address the owner's own or the account gateway's. A session on a pool account or at a
+    module's own address keeps what the core gave it (the owner's token must not go there); the call's own sign-in
+    stays; the key and the proxy are not scrubbed, the session has them as the core gave them."""
+    if any(env.get(k) for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")) \
+            or env.get("HUB_ACCOUNT"):
+        return env
+    try:
+        from core import catalog, profiles
+        got = catalog.user_env()
+        url = lambda e: (e.get("ANTHROPIC_BASE_URL") or "").strip().rstrip("/").lower()   # noqa: E731
+        own = url(env) == url(got) or profiles.on_gateway(env)
+    except Exception:   # noqa: BLE001 - best effort: the nested claude starts as it would without it
+        return env
+    if own and got.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = got["CLAUDE_CODE_OAUTH_TOKEN"]
+    return env
+
+
+if __name__ == "__main__":
+    session = []
+    try:
+        with open(os.environ.get("HUB_NESTED_FLAGS") or "", encoding="utf-8") as f:
+            session = json.load(f)
+    except (OSError, ValueError):
+        pass   # no set (a session without tools): isolation only
+    try:
+        deny = json.loads(os.environ.get("HUB_NESTED_DENY") or "[]")
+    except ValueError:
+        deny = []
+    claude = real()
+    if "-p" in sys.argv or "--print" in sys.argv:   # subcommands (`claude auth login`, `setup-token`) go through as is
+        login(os.environ)
+        environment(os.environ)   # after login(): a stub of the gateway is already the call's own sign-in
+    platforms.current.exec_instead([claude, *compose(sys.argv[1:], session, deny)])

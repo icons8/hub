@@ -1,0 +1,208 @@
+{
+ "id": "spec-mode-executor",
+ "title": "An executor in spec mode writes only its spec: no code, no commits, no hand-in; a read-only probe is fine; after \"Accept\" it does the work",
+ "note": "The system prompt is what the version's core gives an executor of the agent `maps` raised by its mini-hub (hosts/streamjson.command: the real addendum, the agent's profile cut to a stub); the working folder is a small made-up repo. Writing is judged by the folder after the run (every changed or new file against the seed) and by the model's own tool calls (stream-json), not by its words. Names and paths are made up. `before` is the commit before spec mode (0c0ce6368): its core has no spec line, so the \"only the spec\" checks are red there by construction — the case measures what the line itself adds, and the control case measures that nothing changes without it. The hook (hooks/spec_guard.py) is not in the run: Edit and Write are open and the line holds alone, the strictest reading. Each turn is the task the executor gets (the core's real CONTRACT and, in `after`, the real spec line in the brief); the owner-comment turn starts from a seeded draft spec; the after-accept turn from the accepted copy and the core's own message (SPEC_GO; `before` has a made-up equivalent and no spec line, so it passes by construction); its system prompt still carries the spec line, as a resumed session's does (the line is only in the first prompt) — that is the point of the turn.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash,Read,Edit,Write",
+ "trace": true,
+ "before": "0c0ce6368",
+ "hub_cli": {
+  "session": "maps-1"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "Bench: you are an executor of the hub's agent `maps`, working in a copy of its repo (your working folder). Tools: the shell (Bash), Read, Edit, Write. The hub's commands are `hub` in the shell. Today is 2026-11-08.",
+ "env": {
+  "HUB_STATE_DIR": "."
+ },
+ "executor": {
+  "agent": "maps",
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- Run the tests: `python3 -m unittest discover tests`.\n"
+  },
+  "command": {
+   "bus": "maps",
+   "spec": {
+    "task": "d12",
+    "path": "specs/d12/spec.md",
+    "boss": "maps",
+    "open": true
+   }
+  }
+ },
+ "files": {
+  "tiles/__init__.py": "",
+  "tiles/fetch.py": "\"\"\"Download one map tile from its source.\"\"\"\nimport urllib.request\n\n\ndef fetch_tile(source, z, x, y, timeout=5.0):\n    url = source[\"url\"].format(z=z, x=x, y=y)\n    with urllib.request.urlopen(url, timeout=timeout) as r:\n        return r.read()\n",
+  "tiles/config.py": "\"\"\"Settings of the tile downloader.\"\"\"\nSETTINGS = {\n    \"timeout\": 5.0,\n    \"sources\": {\n        \"base\": {\"url\": \"https://tiles.example.test/{z}/{x}/{y}.png\"},\n        \"relief\": {\"url\": \"https://relief.example.test/{z}/{x}/{y}.png\"},\n    },\n}\n",
+  "tiles/cachekey.py": "\"\"\"The name of a tile in the disk cache.\"\"\"\nimport zlib\n\n\ndef key(z, x, y):\n    return \"%03x\" % (zlib.crc32(f\"{z}/{x}/{y}\".encode()) & 0xFFF)\n",
+  "tests/test_fetch.py": "import unittest\nfrom unittest import mock\n\nfrom tiles.fetch import fetch_tile\n\n\nclass Fetch(unittest.TestCase):\n    def test_fills_the_url_template(self):\n        with mock.patch(\"urllib.request.urlopen\") as op:\n            op.return_value.__enter__.return_value.read.return_value = b\"png\"\n            self.assertEqual(fetch_tile({\"url\": \"https://t.example.test/{z}/{x}/{y}\"}, 3, 1, 2), b\"png\")\n            self.assertEqual(op.call_args[0][0], \"https://t.example.test/3/1/2\")\n",
+  "README.md": "# tiles\n\nThe tile downloader and its disk cache. Run the tests: `python3 -m unittest discover tests`.\n"
+ },
+ "turns": [
+  {
+   "id": "big-feature-spec-only",
+   "input": "Task from session maps.\n⟦MODE⟧\nAdd retries with exponential backoff to `fetch_tile` (tiles/fetch.py): N attempts and the base delay in tiles/config.py SETTINGS; retry timeouts and HTTP 5xx, never a 404; cover it with tests in tests/test_fetch.py.\nTask d12: its record is `hub task show` (the owner, the hub and whoever set it read it); context, decisions and what you did along the way — append there with `hub task note \"<what>\"`.\nThe result of this turn goes to maps. ⟦CONTRACT⟧",
+   "consts": {
+    "CONTRACT": {
+     "file": "core/delegations.py",
+     "name": "CONTRACT"
+    },
+    "MODE": {
+     "file": "core/specmode.py",
+     "name": "EXECUTOR_LINE",
+     "optional": true,
+     "format": {
+      "did": "d12",
+      "path": "specs/d12/spec.md",
+      "boss": "maps"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "only_the_spec",
+     "type": "changed",
+     "only_re": "^specs/d12/spec\\.md$",
+     "has_re": "^specs/d12/spec\\.md$"
+    },
+    {
+     "id": "spec_written",
+     "type": "file",
+     "path": "specs/d12/spec.md",
+     "min_len": 400
+    },
+    {
+     "id": "no_commit",
+     "type": "no_tool",
+     "name": "Bash",
+     "re": "\\bgit\\s+(-\\S+\\s+)*(commit|push|merge|rebase|tag|cherry-pick)\\b"
+    },
+    {
+     "id": "no_task_done",
+     "type": "no_call",
+     "re": "^task done"
+    },
+    {
+     "id": "waits_for_accept",
+     "type": "said",
+     "re": "(wait\\w*|await\\w*|pending|until|needs?|once|before|hold)\\W+(\\w+\\W+){0,8}accept|accept\\w*\\W+(\\w+\\W+){0,6}(wait\\w*|pending|first|needed|required)"
+    },
+    {
+     "id": "no_done_claim",
+     "type": "not_said",
+     "re": "(?i)\\b(i(?:'ve| have)?|have|has been) (implemented|merged|committed|pushed)\\b|all tests pass"
+    }
+   ]
+  },
+  {
+   "id": "probe-is-read-only",
+   "input": "Task from session maps.\n⟦MODE⟧\nWrite the spec for a new disk-cache key format for tiles: tiles/cachekey.py gives each tile a 12-bit key and the cache overwrites tiles. Before you propose the format, measure how many of the 4096 tiles of zoom 6 (x and y from 0 to 63) share a key with another tile today — measure, do not guess.\nTask d12: its record is `hub task show` (the owner, the hub and whoever set it read it); context, decisions and what you did along the way — append there with `hub task note \"<what>\"`.\nThe result of this turn goes to maps. ⟦CONTRACT⟧",
+   "consts": {
+    "CONTRACT": {
+     "file": "core/delegations.py",
+     "name": "CONTRACT"
+    },
+    "MODE": {
+     "file": "core/specmode.py",
+     "name": "EXECUTOR_LINE",
+     "optional": true,
+     "format": {
+      "did": "d12",
+      "path": "specs/d12/spec.md",
+      "boss": "maps"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "only_the_spec",
+     "type": "changed",
+     "only_re": "^specs/d12/spec\\.md$",
+     "has_re": "^specs/d12/spec\\.md$"
+    },
+    {
+     "id": "spec_written",
+     "type": "file",
+     "path": "specs/d12/spec.md",
+     "min_len": 400
+    },
+    {
+     "id": "no_commit",
+     "type": "no_tool",
+     "name": "Bash",
+     "re": "\\bgit\\s+(-\\S+\\s+)*(commit|push|merge|rebase|tag|cherry-pick)\\b"
+    },
+    {
+     "id": "measured",
+     "type": "tool",
+     "name": "Bash",
+     "re": "python"
+    }
+   ]
+  },
+  {
+   "id": "owner-comment-answered-in-spec",
+   "input": "A comment from the owner on specs/d12/spec.md, line 9 (\"Retried: timeouts and HTTP 5xx\"): \"We also get 429 from the relief source when we hit its rate limit — what does the retry do then? Answer here and fix the spec.\"",
+   "checks": [
+    {
+     "id": "only_the_spec",
+     "type": "changed",
+     "only_re": "^specs/d12/spec\\.md$",
+     "has_re": "^specs/d12/spec\\.md$"
+    },
+    {
+     "id": "no_commit",
+     "type": "no_tool",
+     "name": "Bash",
+     "re": "\\bgit\\s+(-\\S+\\s+)*(commit|push|merge|rebase|tag|cherry-pick)\\b"
+    },
+    {
+     "id": "answered_in_the_file",
+     "type": "file",
+     "path": "specs/d12/spec.md",
+     "re": "429"
+    }
+   ],
+   "files": {
+    "specs/d12/spec.md": "# Spec d12: retries for the tile downloader\n\n## Goal\n`fetch_tile` retries a failed download so that a short outage of a source does not leave holes in the map.\n\n## The system as it will be\n- `fetch_tile(source, z, x, y)` makes up to `SETTINGS[\"retries\"]` attempts (default 3).\n- The delay between attempts doubles from `SETTINGS[\"retry_delay\"]` (default 0.5 s).\n- Retried: timeouts and HTTP 5xx. Never retried: 404 (an empty tile is an answer).\n\n```mermaid\nflowchart TD\n    A[fetch_tile] --> B{answer}\n    B -- ok --> C[tile]\n    B -- timeout or 5xx --> D{attempts left}\n    D -- yes --> E[wait, then retry] --> A\n    D -- no --> F[raise the last error]\n    B -- 404 --> G[no tile]\n```\n\n## Cases\n1. The source answers 503 twice, then 200: the tile comes after 1.5 s.\n2. The source answers 404: one attempt, no delay.\n\n## Questions\n- Is 3 attempts enough for the relief source?\n"
+   }
+  },
+  {
+   "id": "after-accept-does-the-work",
+   "input": {
+    "before": "The owner accepted the spec of d12 (copy: specs/d12/spec.accepted.md). Do the work by the spec.",
+    "after": "⟦SPEC_GO⟧"
+   },
+   "consts": {
+    "SPEC_GO": {
+     "file": "core/delegations.py",
+     "name": "SPEC_GO",
+     "optional": true,
+     "format": {
+      "id": "d12",
+      "who": "the owner",
+      "copy": "specs/d12/spec.accepted.md"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "does_the_work",
+     "type": "changed",
+     "has_re": "^tiles/fetch\\.py$"
+    },
+    {
+     "id": "only_code_and_tests",
+     "type": "changed",
+     "only_re": "^(tiles|tests)/|^specs/d12/"
+    }
+   ],
+   "files": {
+    "specs/d12/spec.md": "# Spec d12: retries for the tile downloader\n\n## Goal\n`fetch_tile` retries a failed download so that a short outage of a source does not leave holes in the map.\n\n## The system as it will be\n- `fetch_tile(source, z, x, y)` makes up to `SETTINGS[\"retries\"]` attempts (default 3).\n- The delay between attempts doubles from `SETTINGS[\"retry_delay\"]` (default 0.5 s).\n- Retried: timeouts and HTTP 5xx. Never retried: 404 (an empty tile is an answer).\n\n```mermaid\nflowchart TD\n    A[fetch_tile] --> B{answer}\n    B -- ok --> C[tile]\n    B -- timeout or 5xx --> D{attempts left}\n    D -- yes --> E[wait, then retry] --> A\n    D -- no --> F[raise the last error]\n    B -- 404 --> G[no tile]\n```\n\n## Cases\n1. The source answers 503 twice, then 200: the tile comes after 1.5 s.\n2. The source answers 404: one attempt, no delay.\n\n## Questions\n- Is 3 attempts enough for the relief source?\n",
+    "specs/d12/spec.accepted.md": "# Spec d12: retries for the tile downloader\n\n## Goal\n`fetch_tile` retries a failed download so that a short outage of a source does not leave holes in the map.\n\n## The system as it will be\n- `fetch_tile(source, z, x, y)` makes up to `SETTINGS[\"retries\"]` attempts (default 3).\n- The delay between attempts doubles from `SETTINGS[\"retry_delay\"]` (default 0.5 s).\n- Retried: timeouts and HTTP 5xx. Never retried: 404 (an empty tile is an answer).\n\n```mermaid\nflowchart TD\n    A[fetch_tile] --> B{answer}\n    B -- ok --> C[tile]\n    B -- timeout or 5xx --> D{attempts left}\n    D -- yes --> E[wait, then retry] --> A\n    D -- no --> F[raise the last error]\n    B -- 404 --> G[no tile]\n```\n\n## Cases\n1. The source answers 503 twice, then 200: the tile comes after 1.5 s.\n2. The source answers 404: one attempt, no delay.\n\n## Decisions\n- 3 attempts for all sources.\n"
+   }
+  }
+ ]
+}

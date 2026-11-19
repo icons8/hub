@@ -1,0 +1,1 @@
+{"name": "slots", "description": "Example: an element at each place of the page and a tab in \"Settings\"", "version": "1.0.0", "hub": "^1.0", "web": "main.js", "why": "A cheat sheet for plugin authors: shows which place is where on the page and how to take it."}

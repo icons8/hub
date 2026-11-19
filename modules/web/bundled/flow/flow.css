@@ -1,0 +1,45 @@
+/* ---- flow: who writes to whom — dots and signals ---- */
+:root { --flow-msg: var(--blue-500); --flow-task: var(--violet-500); --flow-result: var(--green-500);
+  --flow-quiet: var(--muted-foreground);      /* session dot with no signals (neither an agent nor the hub) */
+  --flow-label: var(--muted-foreground); --flow-label-size: 13px; }   /* dot labels on the canvas (the hovered one — in text color) */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --flow-msg: var(--blue-400); --flow-task: var(--violet-300); --flow-result: var(--green-400); } }
+.flow { position: relative; display: grid; grid-template-rows: auto 2px minmax(0, 1fr); min-height: 0;
+  background: radial-gradient(ellipse at 50% 45%, color-mix(in oklch, var(--primary) 7%, transparent), transparent 65%); }
+.flow canvas { width: 100%; height: 100%; display: block; min-height: 320px; }
+.flow-bar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: var(--space-3) var(--space-4); }
+.flow-bar h2 { margin: 0; font-size: var(--text-lg); }
+.flow-controls, .flow-speed { display: inline-flex; align-items: center; gap: var(--space-2); flex: none; }
+.flow-control { min-height: 34px; font-size: var(--text-sm); }
+/* select with the btn class: .btn and .btn:hover reset the shared select arrow (base.css) and the room for it — restore both */
+.flow-bar select.flow-control, .flow-bar select.flow-control:hover { padding-inline-end: 22px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-size: 4px 4px; background-repeat: no-repeat; background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; }
+[dir="rtl"] .flow-bar select.flow-control { background-position: 8px 50%, 12px 50%; }   /* the arrow at the line end */
+.flow-controls .pause { padding: 0; width: 34px; justify-content: center; }
+.flow-pause-icon { display: block; width: 20px; height: 20px; background: currentColor;
+  -webkit-mask: url("pause.svg") center / contain no-repeat; mask: url("pause.svg") center / contain no-repeat; }
+.pause.is-paused .flow-pause-icon { -webkit-mask-image: url("play.svg"); mask-image: url("play.svg"); }
+.flow-clock { font: 500 var(--text-sm) var(--font-mono); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.flow-note { flex-basis: 100%; font-size: var(--flow-label-size); color: var(--foreground); }
+.flow-note[hidden] { display: none; }
+.flow-progress { height: 2px; width: 0; background: var(--primary); }
+.flow-tip { position: absolute; display: grid; gap: 2px; max-width: 280px; padding: var(--space-2) var(--space-3);
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-2);
+  font-size: var(--text-xs); color: var(--muted-foreground); pointer-events: none; }
+.flow-tip b { color: var(--foreground); font-size: var(--text-sm); }
+/* speed, pause and seek — only in replay */
+.flow:not(.replaying) .flow-speed, .flow:not(.replaying) .flow-seek { display: none; }
+/* seek is the same thin progress line, just with a thumb (no duplicate slider): in replay
+   the progress line is the slider, there is no separate bar */
+.flow.replaying .flow-progress { display: none; }
+.flow canvas { grid-row: 3; }
+.flow-progress { grid-row: 2; }
+/* row 2 is 2px tall: the slider is taller and overlays it (the line is easy to grab), the line itself is 2px, centered */
+.flow-seek { grid-row: 2; align-self: center; position: relative; z-index: 1; width: 100%; height: 14px; margin: -6px 0; padding: 0;
+  cursor: pointer; -webkit-appearance: none; appearance: none;
+  background: linear-gradient(to right, var(--primary) var(--p, 0%), var(--border) var(--p, 0%)) center / 100% 2px no-repeat; }
+.flow-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--primary) 25%, transparent); }
+.flow-seek::-moz-range-thumb { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--primary); }
+.flow-seek:hover::-webkit-slider-thumb, .flow-seek:active::-webkit-slider-thumb { width: 14px; height: 14px; }

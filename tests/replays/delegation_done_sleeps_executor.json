@@ -1,0 +1,168 @@
+{
+ "about": "\"Done\" on a delegation: the executor hands over its affairs and falls asleep if nothing else is open; if a second delegation is open it stays, and sleeps after that one's \"done\". The hub does not fall asleep.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 2,
+   "type": "delegation.created",
+   "data": {
+    "session": "w",
+    "context": "task 1",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 2,
+   "type": "delegation.created",
+   "data": {
+    "session": "w",
+    "context": "task 2",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "one"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 5,
+   "type": "delegation.done",
+   "entity": "d5",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m6"
+   }
+  },
+  {
+   "t": 7,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "two"
+   }
+  },
+  {
+   "t": 7,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 8,
+   "type": "delegation.done",
+   "entity": "d6",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m14"
+   }
+  },
+  {
+   "t": 10,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: hello.py\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "asleep",
+    "closing": "none"
+   },
+   "hub": {
+    "state": "idle"
+   }
+  },
+  "delegations": {
+   "d5": {
+    "state": "done"
+   },
+   "d6": {
+    "state": "done"
+   }
+  },
+  "messages": {
+   "m14": {
+    "session": "w",
+    "state": "delivered"
+   }
+  },
+  "rejected": 0
+ }
+}

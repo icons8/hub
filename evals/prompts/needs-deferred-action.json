@@ -1,0 +1,103 @@
+{
+ "id": "needs-deferred-action",
+ "title": "The watchdog's “waits for the owner” question: an action the owner can take only after something that still runs (a build, an export) is not a wait on them yet; the same action once it is possible is",
+ "note": "Live case: a result listed “your action: take the part off the machine” while the job was at 89% and an hour from its end; the owner got a to-do he could not act on. Texts are made up and neutral. Input = the language line + the end of the result, as the watchdog sends it (no open cards). approve-now-run-after: a yes the owner can give now for a step that runs after the job is still a wait on them; already-done: the action is done, nothing is needed.",
+ "prompt": {
+  "file": "modules/watch/watch.py",
+  "name": "NEEDS_PROMPT",
+  "schema_name": "NEEDS_SCHEMA"
+ },
+ "turns": [
+  {
+   "id": "deferred-plain",
+   "input": "Owner's language: English.\nThe first build is running: 89% at 15:13, by its pace it ends about 16:30. Then you pick up the file from the build machine's USB stick, and I start the second build, about 5 hours.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "deferred-listed-as-need",
+   "input": "Owner's language: English.\nThe review of what is unfinished is ready: the page is published, the items went to their sessions.\n\n**Needed from you**\n- [Your action] Pick up the file from the build machine's USB stick. At 15:13 the build was at 89%, by its pace it ends about 16:30. The second build goes next, about 5 hours.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "deferred-promise",
+   "input": "Owner's language: English.\nThe export from the vendor's portal is still being prepared on their side, they say it is ready by 16:30. When it is ready, I will ask you to sign in there and download the archive: the login is only yours.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "possible-now",
+   "input": "Owner's language: English.\nThe first build is done, the file is on the build machine's USB stick. Needed from you: pick it up and write me “taken”. I start the second build right after that, about 5 hours.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "mixed-now-and-later",
+   "input": "Owner's language: English.\nThe first build is running and ends about 16:30; after it you pick up the file from the USB stick.\n\nOne thing I need now: which name goes on the label — “Studio” or “Workshop”? Without it the second build can't be prepared.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    },
+    {
+     "id": "ask_now_only",
+     "type": "field",
+     "name": "ask",
+     "not_re": "(?i)usb|stick|pick up",
+     "text": "the ask names the question, not the later action"
+    }
+   ]
+  },
+  {
+   "id": "approve-now-run-after",
+   "input": "Owner's language: English.\nThe build ends at 16:30. Needed from you now: say yes to the deploy, so I run it right after the build. Without your yes it waits.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "already-done",
+   "input": "Owner's language: English.\nThe first build is done, and you took the file from the build machine's USB stick at 16:35 (you wrote “taken”). The second build started, about 5 hours; nothing is needed from you until it ends.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,91 @@
+{
+ "id": "task-show-brief",
+ "title": "The doer's `hub task show` folds its untouched brief into one line: a session that lost the first message (after /clear or a compaction) fetches the whole text with --full; one that has it does not call again and works",
+ "note": "System prompt — the version's hub skill. The input carries the real output of `hub task show` for the doer: the \"before\" version the whole record (the brief twice), the \"after\" one the folded line (taskrec.for_doer). In `before` the whole text is in the output, so (a) passes there without --full — the case is judged on `after`. A made-up task.",
+ "before": "cb907f9c6",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_now",
+    "says_to_owner",
+    "task_text_in_hand"
+   ],
+   "properties": {
+    "commands_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact commands you run in this turn, in order"
+    },
+    "says_to_owner": {
+     "type": "string",
+     "description": "what you write to the owner in this turn"
+    },
+    "task_text_in_hand": {
+     "type": "string",
+     "description": "the task's text, as far as you have it in this conversation, in your own words (empty — you do not have it)"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "GIST"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "SHARED_STATE"
+   }
+  ]
+ },
+ "turns": [
+  {
+   "id": "after-clear",
+   "input": {
+    "before": "You are the session shop-orders. This conversation was just cleared (there is no earlier history). [hub:m50 from user] Continue from where you stopped.\nYou ran `hub task show` and got:\n# d4120 — Fix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Kee\n\nSet by: shop · done by: shop-orders\n\n## Task\nFix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Keep the page size and the filters as they are. When done: the tests of ui/orders are green, branch task/orders-sort.\n\nYou are the executor of this task, shop raised you: the result of this turn goes to it by itself. The task record is `hub task show` (everyone reads and writes it: shop, the owner, the hub): read it first; context, decisions and progress — `hub task note \"<what>\"`. Handed in — you will fall asleep.\n\n## Progress\n- 09.11 10:02 · shop-orders: started, the sort key is `created`, not `updated`\n\n(fingerprint 5a4f8fdc0789 — for hub task head)",
+    "after": "You are the session shop-orders. This conversation was just cleared (there is no earlier history). [hub:m50 from user] Continue from where you stopped.\nYou ran `hub task show` and got:\n# d4120 — Fix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Kee\n\nSet by: shop · done by: shop-orders\n\n## Task\n(the task text is the first message of this task, unchanged; if you no longer have it — the whole text: hub task show d4120 --full)\n\n## Progress\n- 09.11 10:02 · shop-orders: started, the sort key is `created`, not `updated`\n\n(fingerprint 5a4f8fdc0789 — for hub task head)"
+   },
+   "checks": [
+    {
+     "id": "asks_full",
+     "type": "field",
+     "name": "commands_now",
+     "item_re": "hub task show\\b[^\\n]*--full",
+     "text": "the brief is not in hand: it runs `hub task show … --full` (or the record already is whole)"
+    }
+   ]
+  },
+  {
+   "id": "control-brief-in-hand",
+   "input": {
+    "before": "You are the session shop-orders. Your first message in this conversation was:\n---\nFix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Keep the page size and the filters as they are. When done: the tests of ui/orders are green, branch task/orders-sort.\n\nYou are the executor of this task, shop raised you: the result of this turn goes to it by itself. The task record is `hub task show` (everyone reads and writes it: shop, the owner, the hub): read it first; context, decisions and progress — `hub task note \"<what>\"`. Handed in — you will fall asleep.\n---\nYou have just started and, as the rule in it says, ran `hub task show`; it printed:\n# d4120 — Fix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Kee\n\nSet by: shop · done by: shop-orders\n\n## Task\nFix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Keep the page size and the filters as they are. When done: the tests of ui/orders are green, branch task/orders-sort.\n\nYou are the executor of this task, shop raised you: the result of this turn goes to it by itself. The task record is `hub task show` (everyone reads and writes it: shop, the owner, the hub): read it first; context, decisions and progress — `hub task note \"<what>\"`. Handed in — you will fall asleep.\n\n## Progress\n- 09.11 10:02 · shop-orders: started, the sort key is `created`, not `updated`\n\n(fingerprint 5a4f8fdc0789 — for hub task head)\nWhat do you do now?",
+    "after": "You are the session shop-orders. Your first message in this conversation was:\n---\nFix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Keep the page size and the filters as they are. When done: the tests of ui/orders are green, branch task/orders-sort.\n\nYou are the executor of this task, shop raised you: the result of this turn goes to it by itself. The task record is `hub task show` (everyone reads and writes it: shop, the owner, the hub): read it first; context, decisions and progress — `hub task note \"<what>\"`. Handed in — you will fall asleep.\n---\nYou have just started and, as the rule in it says, ran `hub task show`; it printed:\n# d4120 — Fix the sorting in the orders list: newest on top (ui/orders/list.py, the `sort_orders` helper). Kee\n\nSet by: shop · done by: shop-orders\n\n## Task\n(the task text is the first message of this task, unchanged; if you no longer have it — the whole text: hub task show d4120 --full)\n\n## Progress\n- 09.11 10:02 · shop-orders: started, the sort key is `created`, not `updated`\n\n(fingerprint 5a4f8fdc0789 — for hub task head)\nWhat do you do now?"
+   },
+   "checks": [
+    {
+     "id": "no_second_call",
+     "type": "field",
+     "name": "commands_now",
+     "item_not_re": "hub task show\\b[^\\n]*--full",
+     "text": "the brief is in the first message: no second call for the whole text"
+    },
+    {
+     "id": "works",
+     "type": "field",
+     "name": "commands_now",
+     "item_re": "orders|sort|git |pytest|unittest|grep|sed|cat ",
+     "text": "it goes to the work"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,93 @@
+{
+ "id": "direction-cards",
+ "title": "The board is the cards: the owner's word about a new order or a pause, an executor's hand-in, a lifted \"waits for X\" — the cards are edited in the same turn; a one-off question — leave the cards alone",
+ "note": "boards-sync E (27.10): the lead edited the cards only when the owner asked \"is the board up to date?\", and took \"the board\" to mean the plan (doc). The system prompt is the direction skill: \"before\" — main, \"after\" — the branch. Negative one-off-question: a one-off question with no change of work — no card edits.",
+ "model": "opus",
+ "effort": "medium",
+ "before": "main",
+ "prompt": {
+  "file": "modules/directions/plugin/skills/direction/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run right now, in this turn, one per item; none — an empty list"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "owner-new-order",
+   "input": "The maps session — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-6 \"Epic pause\" (In Progress, note \"paused — waiting for the owner's word\"), TASK-7 \"Slice 5: layer import\" (To Do, note \"paused\"). There is no card for syncing the database or for switching to the new server. Your executors' briefs for the import code and for the switchover plan are ready.\n\n[hub:m700 from user] The pause is lifted. From here on: first we do as much as possible on the import code, then we sync the database, the switchover — only on my command. Go.\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "pause_card",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task (edit|archive) (TASK-)?6\\b"
+    },
+    {
+     "id": "new_order_on_cards",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task create|task edit (TASK-)?7\\b"
+    }
+   ]
+  },
+  {
+   "id": "board-is-cards",
+   "input": "The maps session — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-3 \"Slice 2: export\" (In Progress, note \"waiting for a colleague's review\"), TASK-4 \"Slice 3: tiles\" (In Progress). Document doc-2 \"Plan\" is behind too: it still has the old order of slices, without the owner's decision from yesterday to do tiles before export. The review of TASK-3 came an hour ago with no remarks, the MR is merged; on TASK-4 the executor handed in this morning, you went through its result — the slice is closed.\n\n[hub:m701 from user] Will you bring the board up to date?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "edits_task_3",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task edit (TASK-)?3\\b"
+    },
+    {
+     "id": "edits_task_4",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task edit (TASK-)?4\\b"
+    }
+   ]
+  },
+  {
+   "id": "handin-clears-waiting",
+   "input": "The maps session — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-4 \"Slice 3: import\" (In Progress, executor maps-import), TASK-5 \"Slice 4: export\" (To Do, note \"waits for import — TASK-4\").\n\n[hub:m702 from maps-import, reply to task d690] Done: MR !31 merged into main, import works, tests are green; everything on TASK-4 is done.\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "clears_wait_on_5",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task edit (TASK-)?5\\b"
+    }
+   ]
+  },
+  {
+   "id": "one-off-question",
+   "input": "The maps session — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-4 \"Slice 3: import\" (In Progress, executor maps-import is working), TASK-5 \"Slice 4: export\" (To Do). The cards are fresh.\n\n[hub:m703 from user] How many tests are in the repo right now?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "cards_untouched",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task (edit|create|archive)"
+    }
+   ]
+  }
+ ]
+}

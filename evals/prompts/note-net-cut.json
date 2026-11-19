@@ -1,0 +1,116 @@
+{
+ "id": "note-net-cut",
+ "title": "Core note NET_CUT: a turn the network cut, after the API answers again — continue from where it stopped or the fixed token, without writing to the owner",
+ "note": "PR #544: a turn cut by the network (\"API Error: Can't reach the API server\") is continued by the core with NET_CUT. The system prompt is the hub skill + the core's addendum, the same for both versions; the core's own words are the constant of each version (⟦KEY⟧, a version without it gets an empty line — the baseline). Run with --before <main before the change> --trials 8 and --only before|after in two processes. Checks: unfinished — the session goes on with the work (runs the tests), does not answer the token, does not write to the owner; nothing-left — the work was finished and reported, so one line with the token and no rework (the token is core/delegations.py NOTHING).",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands and tool calls you make right now, in this turn, one per item; none — an empty list. The stand has no tools of its own: this field is how it records what you do (you do not run anything, and do not say that you cannot); a command you would run goes here, not into the reply"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "FIRST_ACTION"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "ASK_WHAT",
+    "optional": true
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "AUTONOMY"
+   }
+  ],
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "unfinished",
+   "input": "The maps session (agent: maps and geodata, folder /home/x/agents/maps, a git repo). The conversation so far:\n[hub:m200 from user] Fix the GeoJSON export crash on an empty layer (KeyError 'features') and run the tests.\nYou: read export/geojson.py, found the spot — `layer['features']` without a check; changed it to `layer.get('features', [])`.\nYou: ran `python3 -m pytest tests/test_export.py` — the turn ended with \"API Error: Can't reach the API server (ENOTFOUND)\" after Claude Code retried for a few minutes.\n\n[hub:m220x5-maps from core] ⟦NET_CUT⟧",
+   "consts": {
+    "NET_CUT": {
+     "file": "core/reducer.py",
+     "name": "NET_CUT",
+     "optional": true
+    }
+   },
+   "checks": [
+    {
+     "id": "continues",
+     "type": "field",
+     "name": "actions_now",
+     "re": "pytest|test"
+    },
+    {
+     "id": "not_nothing",
+     "type": "field",
+     "name": "says",
+     "not_re": "nothing to continue"
+    },
+    {
+     "id": "no_owner_message",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "hub (send|ask|notify)|AskUserQuestion|telegram",
+     "text": "does not write to the owner"
+    }
+   ]
+  },
+  {
+   "id": "nothing-left",
+   "input": "The maps session (agent: maps and geodata, folder /home/x/agents/maps, a git repo). The conversation so far:\n[hub:m210 from user] Fix the GeoJSON export crash on an empty layer and run the tests.\nYou: fixed export/geojson.py, `python3 -m pytest tests/test_export.py` — 14 passed, committed (a1b2c3d) and wrote the owner the result: \"Done: an empty layer exports, tests are green, commit a1b2c3d\". The owner replied 👍.\nThe next short turn (you were only going to answer \"you're welcome\") ended with \"API Error: Connection error.\"\n\n[hub:m230x5-maps from core] ⟦NET_CUT⟧",
+   "consts": {
+    "NET_CUT": {
+     "file": "core/reducer.py",
+     "name": "NET_CUT",
+     "optional": true
+    }
+   },
+   "checks": [
+    {
+     "id": "says_nothing",
+     "type": "field",
+     "name": "says",
+     "re": "nothing to continue"
+    },
+    {
+     "id": "no_rework",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "pytest|git commit|Edit|hub (send|ask|notify)|AskUserQuestion",
+     "text": "no rework, nobody written to"
+    }
+   ]
+  }
+ ]
+}

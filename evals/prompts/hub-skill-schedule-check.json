@@ -1,0 +1,44 @@
+{
+ "id": "hub-skill-schedule-check",
+ "title": "A specialist following the hub skill sets an \"is there anything new\" watcher with a --check pre-check, and a simple reminder without one",
+ "note": "System prompt — the version's plugins/hub-base/skills/hub/SKILL.md. Model and effort as for hub sessions. Metric: whether --check is in the schedule command. Without --check every tick of the watcher is a full session turn.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": ["commands_i_run", "says_to_user"],
+   "properties": {
+    "commands_i_run": {"type": "string", "description": "the exact shell commands you run in this turn, one per line"},
+    "says_to_user": {"type": "string"}
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "watch-mail",
+   "input": "Agent mail: sorts the owner's mail through the CLI `mailcli` (`mailcli list --unread --json` prints unread emails as a JSON array). Folder /home/x/agents/mail.\n\n[hub:m40 from user] Check my mail every 5 minutes and write to me if something new came in.",
+   "checks": [
+    {"id": "schedule_set", "type": "field", "name": "commands_i_run", "re": "hub schedule add"},
+    {"id": "with_check", "type": "field", "name": "commands_i_run", "re": "--check"}
+   ]
+  },
+  {
+   "id": "watch-tracker",
+   "input": "Agent tracker: keeps the owner's tasks in the tracker through the CLI `trk` (`trk search 'assignee = me AND updated > -10m' --json`). Folder /home/x/agents/tracker.\n\n[hub:m41 from user] Keep an eye on my tracker: every 5 minutes look whether there are new tasks or comments assigned to me, and write if something shows up.",
+   "checks": [
+    {"id": "schedule_set", "type": "field", "name": "commands_i_run", "re": "hub schedule add"},
+    {"id": "with_check", "type": "field", "name": "commands_i_run", "re": "--check"}
+   ]
+  },
+  {
+   "id": "remind-tomorrow",
+   "input": "Agent mail: sorts the owner's mail through the CLI `mailcli`. Folder /home/x/agents/mail.\n\n[hub:m42 from user] Remind me tomorrow at 9 am to reply to the accountant.",
+   "checks": [
+    {"id": "schedule_set", "type": "field", "name": "commands_i_run", "re": "hub schedule add"},
+    {"id": "no_check", "type": "field", "name": "commands_i_run", "not_re": "--check"}
+   ]
+  }
+ ]
+}

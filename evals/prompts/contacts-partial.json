@@ -1,0 +1,76 @@
+{
+ "id": "contacts-partial",
+ "title": "The person is in the book with an e-mail only; the chat shows her Teams: the Teams address goes into the same record",
+ "note": "Owner decision 2026-11-06: many hubs' books were empty — the rule lived only in the hub skill (opened by ~1% of sessions) and asked to record a person only when writing to them. \"before\" — main without the CONTACTS part of the system prompt (and its bin/hub), \"after\" — the part and bin/hub that merges records. hub_cli: the real bin/hub on the case's own state; `hub contacts` really runs (the book is <state>/config/contacts.json, seeded by `files`), what it was called with is checked. The people and addresses are made up.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash,Read",
+ "hub_cli": {
+  "session": "launch"
+ },
+ "prompt": {
+  "file": "hosts/streamjson.py",
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "CONTACTS",
+    "optional": true
+   }
+  ]
+ },
+ "system": "You are the session `launch` of the agents-hub hub: you help the owner run a product launch — the plan, notes, drafts of their correspondence. Your folder holds the files of the work. The hub's commands are `hub` in the shell (Bash). Agents of the hub — permanent sessions you may ask (`hub send <agent> \"…\"`): teams — the owner's Teams: reads their chats, writes to people in the owner's name on the owner's word; seo — SEO of the site. Answer the owner at the end of the turn in plain text. Today is 2026-11-06.",
+ "files": {
+  "chat.json": "{\n \"chatId\": \"19:7c1e5a0b2d@thread.v2\",\n \"topic\": \"Launch review\",\n \"messages\": [\n  {\n   \"from\": {\n    \"displayName\": \"Dana Whitfield\",\n    \"userPrincipalName\": \"dana.whitfield@example.com\"\n   },\n   \"createdDateTime\": \"2026-11-06T09:12:00Z\",\n   \"body\": \"Hi! Could we move the launch review to Thursday 15:00? Legal needs Wednesday for the final copy check.\"\n  },\n  {\n   \"from\": {\n    \"displayName\": \"Owner\"\n   },\n   \"createdDateTime\": \"2026-11-06T09:20:00Z\",\n   \"body\": \"Let me check and come back to you.\"\n  }\n ]\n}",
+  "calendar.txt": "Thursday 2026-11-12\n10:00-11:00 Design sync\n16:00-16:30 1:1 with finance\nWednesday 2026-11-11\n15:00-16:00 Launch review (current slot)\n",
+  "kickoff.md": "# Kickoff\n\n- Omar Haddad — design\n- Dana Whitfield — legal\n",
+  ".hub-eval/state/config/contacts.json": "[\n {\n  \"name\": \"Dana Whitfield\",\n  \"aliases\": [],\n  \"email\": \"dana.whitfield@example.com\",\n  \"source\": \"owner, m3\",\n  \"confirmed\": \"2026-10-20\"\n }\n]"
+ },
+ "turns": [
+  {
+   "id": "seen-in-chat",
+   "input": "[hub:m11 from user] Dana wrote to me in Teams about the launch review — the chat export is in chat.json. What does she want, and does that clash with anything in calendar.txt?",
+   "checks": [
+    {
+     "id": "fills_in",
+     "type": "any_call",
+     "re": "^contacts add '?Dana Whitfield\\b.*--(teams|teams-chat)\\b",
+     "text": "adds the Teams address to her record, under the same name"
+    },
+    {
+     "id": "no_duplicate",
+     "type": "no_call",
+     "re": "^contacts add (?!'?Dana Whitfield\\b)"
+    },
+    {
+     "id": "no_send",
+     "type": "no_call",
+     "re": "^send (teams|seo)\\b",
+     "text": "nobody is written to (the owner did not ask to answer)"
+    }
+   ]
+  },
+  {
+   "id": "asked-to-draft",
+   "input": "[hub:m14 from user] Dana pinged me in Teams (chat.json). Draft my answer: Thursday 15:00 works if we finish by 15:45 — show me the draft, I will send it myself.",
+   "checks": [
+    {
+     "id": "fills_in",
+     "type": "any_call",
+     "re": "^contacts add '?Dana Whitfield\\b.*--(teams|teams-chat)\\b",
+     "text": "adds the Teams address to her record, under the same name"
+    },
+    {
+     "id": "no_duplicate",
+     "type": "no_call",
+     "re": "^contacts add (?!'?Dana Whitfield\\b)"
+    },
+    {
+     "id": "no_send",
+     "type": "no_call",
+     "re": "^send (teams|seo)\\b",
+     "text": "nobody is written to (the owner did not ask to answer)"
+    }
+   ]
+  }
+ ]
+}

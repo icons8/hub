@@ -1,0 +1,1 @@
+{"name": "hello", "description": "Example: a process with turn statistics and a \"Hello\" tab", "run": ["python3", "main.py"], "web": "web/main.js", "why": "Start your own plugin: a process reads the journal and writes facts, a view on the page shows them."}

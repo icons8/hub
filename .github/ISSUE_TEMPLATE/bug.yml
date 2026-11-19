@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in the hub does not work as it should
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A bug that can be reproduced in a few steps gets fixed fastest.
+
+        **A security problem is not a bug report.** Do not open a public issue for it: use "Report a vulnerability" on the
+        Security tab (see SECURITY.md).
+
+        Pull requests from outside the maintainers' group are not accepted for now (see CONTRIBUTING.md); a good issue is
+        the most useful contribution.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The "About" page of the hub; for a hub installed from git, `git rev-parse HEAD` in its folder also works.
+      placeholder: A version number or a commit hash
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows (standard account)
+        - Windows (administrator)
+        - Other (say which below)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: The steps, as exact as you can.
+      placeholder: |
+        1. Started a session in a folder...
+        2. Sent the message...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: What you saw instead. A screenshot helps; cut anything private out of it first.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `hub doctor`
+      description: If the command fails or the hub does not start at all, paste the error instead.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: How you run the hub (git clone or a package, the channel, plugins and modules you added) and what you already tried.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I removed tokens, private paths and journal contents from everything I pasted.
+          required: true
+        - label: This is not a security vulnerability (those are reported privately, see SECURITY.md).
+          required: true

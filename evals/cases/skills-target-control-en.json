@@ -1,0 +1,169 @@
+{
+ "id": "skills-target-control-en",
+ "title": "Control: the agent does not open the skill on a task that does not need it",
+ "note": "Task d2548654, section 2.8: the control of skills-target-unnamed-en.",
+ "real": [
+  "maps"
+ ],
+ "timeout": 900,
+ "repos": {
+  "$work/geo-skills": {
+   ".claude-plugin/marketplace.json": {
+    "name": "geo-skills",
+    "owner": {
+     "name": "Maps team"
+    },
+    "plugins": [
+     {
+      "name": "proj",
+      "source": "./plugins/proj",
+      "description": "Map projections: pick and convert coordinate reference systems (EPSG codes, UTM zones), reproject layers. Use when a task mentions a projection, a CRS, EPSG, UTM, or coordinates that do not line up."
+     },
+     {
+      "name": "scale",
+      "source": "./plugins/scale",
+      "description": "Unit conversion for cooking recipes: grams, cups, ounces. Use when a recipe needs other units."
+     },
+     {
+      "name": "atlas",
+      "source": "./plugins/atlas",
+      "description": "Map tiles: fetch raster and vector tiles from the team's tile server through its MCP. Use when a task needs tiles of an area."
+     }
+    ]
+   },
+   "plugins/proj/.claude-plugin/plugin.json": {
+    "name": "proj",
+    "description": "Map projections: pick and convert coordinate reference systems (EPSG codes, UTM zones), reproject layers. Use when a task mentions a projection, a CRS, EPSG, UTM, or coordinates that do not line up."
+   },
+   "plugins/proj/skills/proj/SKILL.md": "---\nname: proj\ndescription: Map projections: pick and convert coordinate reference systems (EPSG codes, UTM zones), reproject layers. Use when a task mentions a projection, a CRS, EPSG, UTM, or coordinates that do not line up.\n---\n1. Read the layer's CRS.\n2. Pick the target EPSG code.\n3. Reproject with the project's GIS tool.\n",
+   "plugins/scale/.claude-plugin/plugin.json": {
+    "name": "scale",
+    "description": "Unit conversion for cooking recipes: grams, cups, ounces. Use when a recipe needs other units."
+   },
+   "plugins/scale/skills/scale/SKILL.md": "---\nname: scale\ndescription: Unit conversion for cooking recipes: grams, cups, ounces. Use when a recipe needs other units.\n---\nFollow the steps.\n",
+   "plugins/atlas/.claude-plugin/plugin.json": {
+    "name": "atlas",
+    "description": "Map tiles: fetch raster and vector tiles from the team's tile server through its MCP. Use when a task needs tiles of an area."
+   },
+   "plugins/atlas/.mcp.json": {
+    "mcpServers": {
+     "atlas": {
+      "command": "npx",
+      "args": [
+       "-y",
+       "atlas-tiles-mcp"
+      ]
+     }
+    }
+   },
+   "plugins/atlas/skills/atlas/SKILL.md": "---\nname: atlas\ndescription: Map tiles: fetch raster and vector tiles from the team's tile server through its MCP. Use when a task needs tiles of an area.\n---\nFollow the steps.\n"
+  }
+ },
+ "files": {
+  "agents/7a5e0c10-0000-4000-8000-000000000003/CLAUDE.md": "# maps\n\nBuilds and fixes the layers of the city map project in $work/maps.\n\n## Tools\n- A task with a projection, a CRS, EPSG, UTM or coordinates that do not line up — first step Skill proj.\n"
+ },
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "7a5e0c10-0000-4000-8000-000000000001",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "agent-dev",
+   "data": {
+    "cwd": "$work/agent-dev",
+    "session_id": "7a5e0c10-0000-4000-8000-000000000002",
+    "role": "agent",
+    "tools": [
+     "core:agent-developer"
+    ],
+    "about": "Agent Developer: creates the hub's agents and tunes them",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "agents.system",
+   "entity": null,
+   "data": {
+    "names": [
+     "agent-dev"
+    ],
+    "trainer": "agent-dev",
+    "channel": "core"
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "maps",
+   "data": {
+    "cwd": "$work/maps",
+    "session_id": "7a5e0c10-0000-4000-8000-000000000003",
+    "role": "agent",
+    "tools": [
+     "proj@geo-skills"
+    ],
+    "about": "Maps: builds and fixes the layers of the city map project",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "sonnet",
+  "effort": "medium",
+  "sets": [
+   {
+    "name": "geo-skills",
+    "path": "$work/geo-skills"
+   }
+  ]
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "How many layers does the city map project have? Just the number and their names, look at $work/maps.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "no_skill",
+   "type": "no_event",
+   "text": "does not call Skill proj",
+   "match": {
+    "type": "turn.tool",
+    "entity": "maps",
+    "data.name": "Skill",
+    "data.input.skill": {
+     "re": "proj"
+    }
+   }
+  }
+ ]
+}

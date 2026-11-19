@@ -1,0 +1,159 @@
+{
+ "id": "direction-board",
+ "title": "The direction board follows the facts: the core's line to the lead when an executor hands in (close / note), the \"no card\" line on hub task run, --board in the skill, \"the decision is already recorded\" — no extra actions",
+ "note": "Spec dir-sync (26.10, slice 1). System prompt — the direction skill: \"before\" — main, \"after\" — the branch (the --board line). Inputs k4-*: \"before\" — the core's message about lessons without the card line, \"after\" — with it (core/board.HANDED_*); nocard-* \"after\" — with board.NO_CARD in the hub task run output; decided-filed \"after\" — with the reducer's addendum \"the core has already recorded it\". Negatives: on \"left over\" and \"still working\" — no Done; one-off work — no task create; no restart of the executor.",
+ "model": "opus",
+ "effort": "medium",
+ "before": "main",
+ "prompt": {
+  "file": "modules/directions/plugin/skills/direction/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run right now, in this turn, one per item; nothing — an empty list"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "k4-merged-close",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-9 to the executor maps-kml. Its result reached you earlier: “MR !31 merged into main (commit 4f2a9c1), KML layer import works, tests green; everything for TASK-9 is done.”\n\n[hub:m500 from core] Executor maps-kml handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-kml):\n\n- the KML parser crashes on empty layers without a geometry check",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-9 to the executor maps-kml. Its result reached you earlier: “MR !31 merged into main (commit 4f2a9c1), KML layer import works, tests green; everything for TASK-9 is done.”\n\n[hub:m500 from core] Executor maps-kml handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-kml):\n\n- the KML parser crashes on empty layers without a geometry check\n\nCard TASK-9 (In Progress): maps-kml handed in; nobody else is working on it. Fully done — `hub direction maps task edit TASK-9 -s Done`; something left — a note on what is left and whom we are waiting for (`hub direction maps task edit TASK-9 --append-notes \"…\"`): it clears the “unsorted” mark on the board."
+   },
+   "checks": [
+    {
+     "id": "closes",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task edit (TASK-)?9\\b(?:(?!['\\\"], ['\\\"]).)*(-s|--status)[\\s=]+[\\\"']?Done"
+    }
+   ]
+  },
+  {
+   "id": "k4-partial-note",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-9 to the executor maps-kml. Its result reached you earlier: “Import of points and lines merged (MR !31); polygons not done — waiting for the client to say what style format they have in prod.”\n\n[hub:m500 from core] Executor maps-kml handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-kml):\n\n- the client's KML styles are non-standard — ask for a sample in advance",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-9 to the executor maps-kml. Its result reached you earlier: “Import of points and lines merged (MR !31); polygons not done — waiting for the client to say what style format they have in prod.”\n\n[hub:m500 from core] Executor maps-kml handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-kml):\n\n- the client's KML styles are non-standard — ask for a sample in advance\n\nCard TASK-9 (In Progress): maps-kml handed in; nobody else is working on it. Fully done — `hub direction maps task edit TASK-9 -s Done`; something left — a note on what is left and whom we are waiting for (`hub direction maps task edit TASK-9 --append-notes \"…\"`): it clears the “unsorted” mark on the board."
+   },
+   "checks": [
+    {
+     "id": "no_done",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task edit (TASK-)?9\\b(?:(?!['\\\"], ['\\\"]).)*(-s|--status)[\\s=]+[\\\"']?Done"
+    },
+    {
+     "id": "notes_left",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task edit (TASK-)?9\\b(?:(?!['\\\"], ['\\\"]).)*--(append-)?notes"
+    }
+   ]
+  },
+  {
+   "id": "k4-others-working",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-14 to the executor maps-cache. Its result reached you earlier: “On-disk tile cache done, MR !40 merged; invalidation is with maps-cache2, it is still working.”\n\n[hub:m500 from core] Executor maps-cache handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-cache):\n\n- tile cache — key includes the style version",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You assigned TASK-14 to the executor maps-cache. Its result reached you earlier: “On-disk tile cache done, MR !40 merged; invalidation is with maps-cache2, it is still working.”\n\n[hub:m500 from core] Executor maps-cache handed in its task and went to sleep. Lessons from its result — record in the direction's backlog (`hub direction maps doc create …` or a decision) whatever will be useful and is not recorded yet (the whole result — hub show maps-cache):\n\n- tile cache — key includes the style version\n\nCard TASK-14 (In Progress): maps-cache handed in; still being worked on by maps-cache2."
+   },
+   "checks": [
+    {
+     "id": "no_done",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task edit (TASK-)?14\\b(?:(?!['\\\"], ['\\\"]).)*(-s|--status)[\\s=]+[\\\"']?Done"
+    },
+    {
+     "id": "no_new_executor",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "(^\\[|, )['\\\"]hub task run [a-z0-9]"
+    }
+   ]
+  },
+  {
+   "id": "nocard-oneoff",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). The owner asked to fix a typo in the direction's CLAUDE.md. You have just assigned it to an executor:\n$ hub task run maps-claudemd \"Fix the typo in the direction's CLAUDE.md: “layrs” → “layers”\" --work normal\naccepted: task.run_requested maps-claudemd (#812)\n\nWhat next in this turn?",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). The owner asked to fix a typo in the direction's CLAUDE.md. You have just assigned it to an executor:\n$ hub task run maps-claudemd \"Fix the typo in the direction's CLAUDE.md: “layrs” → “layers”\" --work normal\naccepted: task.run_requested maps-claudemd (#812)\nThis task has no board card — the owner will not see it on the maps board. Work on a card — next time give it: --board TASK-N; one-off work without a card — leave it as is.\n\nWhat next in this turn?"
+   },
+   "checks": [
+    {
+     "id": "no_card_created",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task create"
+    },
+    {
+     "id": "no_rerun",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "(^\\[|, )['\\\"]hub task run [a-z0-9]"
+    }
+   ]
+  },
+  {
+   "id": "nocard-plan",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You have just assigned slice 4 to an executor:\n$ hub task run maps-lag \"Find out why the map freezes on large layers, and fix it\" --work normal\naccepted: task.run_requested maps-lag (#813)\n\nWhat next in this turn?",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You have just assigned slice 4 to an executor:\n$ hub task run maps-lag \"Find out why the map freezes on large layers, and fix it\" --work normal\naccepted: task.run_requested maps-lag (#813)\nThis task has no board card — the owner will not see it on the maps board. Work on a card — next time give it: --board TASK-N; one-off work without a card — leave it as is.\n\nWhat next in this turn?"
+   },
+   "checks": [
+    {
+     "id": "no_rerun",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "(^\\[|, )['\\\"]hub task run [a-z0-9]"
+    },
+    {
+     "id": "no_cancel",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task cancel|session (stop|remove)"
+    }
+   ]
+  },
+  {
+   "id": "dispatch-card",
+   "input": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). You are taking the next slice — TASK-12. Assign it to the executor maps-lag (its own working copy, work type normal). Exact commands.",
+   "checks": [
+    {
+     "id": "links_card",
+     "type": "field",
+     "name": "actions_now",
+     "re": "hub task run maps-lag(?:(?!['\\\"], ['\\\"]).)*(--board[\\s=]+(TASK-)?12\\b|[\\\"']\\s*[^\\n\\\"']{0,40}TASK-12)"
+    }
+   ]
+  },
+  {
+   "id": "decided-filed",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). [hub:m520 from core] Owner's decision (recorded by maps-kml): KML styles are taken from the client's file as is, without normalization · simpler and reversible · rollback — turn normalization on with a flag\nIf this concerns your area — add it to your CLAUDE.md, section “Owner's decisions”.",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-9 “Slice 3: KML layer import” (In Progress), TASK-12 “Slice 4: map freezes on large layers” (To Do), TASK-14 “Tiles: cache” (In Progress). [hub:m520 from core] Owner's decision (recorded by maps-kml): KML styles are taken from the client's file as is, without normalization · simpler and reversible · rollback — turn normalization on with a flag\nIf this concerns your area — add it to your CLAUDE.md, section “Owner's decisions”. The core puts it into the direction backlog's decisions itself — do not duplicate it with a separate entry."
+   },
+   "checks": [
+    {
+     "id": "no_second_decision",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "hub direction decide|decision create"
+    }
+   ]
+  }
+ ]
+}

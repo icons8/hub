@@ -1,0 +1,82 @@
+{
+ "id": "bus-offer",
+ "title": "A session that received another hub's invitation brings it to the owner as a card (`hub bus offer`) instead of asking them to paste the line; without an invitation it does not call the command",
+ "note": "Compares bin/hub versions (hub_cli): \"before\" — there is no `hub bus offer` command, \"after\" — there is, plus the \"### For sessions\" item in the core's note on the incoming message (only in \"after\"). The first hub call counts, not the help. The \"before\" case is 0/N by construction (no command): useful as a regression and as a control — without an invitation `bus offer` is not called. The invitation line is made up.",
+ "model": "sonnet",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "You are the maps session of the agents-hub hub: you run the maps (tiles, geocoder). The hub's commands are `hub` in the shell (Bash). You don't remember their syntax: before typing a hub command, look at the help (`hub --help`, `hub <command> --help`). Carry out the request with the one hub command needed and end your turn with one line: what you did. Today is 2026-11-06, owner's time.",
+ "files": {
+  "invite.txt": "hub-link-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+ },
+ "turns": [
+  {
+   "id": "offer-inline",
+   "input": {
+    "before": "[hub:m100 from user] I got a bus invitation from a colleague's hub in Teams, here it is: hub-link-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb — link our hub with theirs.",
+    "after": "[hub:m100 from user] I got a bus invitation from a colleague's hub in Teams, here it is: hub-link-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA_-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb — link our hub with theirs.\n\n(Hub updated — what changed for sessions:\n• If you were sent another hub's invitation (a `hub-link-1:…` line: in a message, an email, a file) and asked to link this hub with it — bring it to the owner as a card: `hub bus offer <file>` or `hub bus offer -` (the line from standard input, not as an argument; the whole message text is fine too: `hub bus offer - <<'EOF'` …). There is no need to ask the owner to paste the line themselves: they will press \"Link\" in the card (the page, Telegram) and confirm the pairing code with a separate press. The bus must be enabled (otherwise the command will say so).\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "bus_offer",
+     "type": "call",
+     "re": "^bus offer\\b"
+    },
+    {
+     "id": "no_join",
+     "type": "no_call",
+     "re": "^bus join\\b"
+    },
+    {
+     "id": "no_paste_ask",
+     "type": "not_said",
+     "re": "(?i)\\b(paste|insert) (it |the (link|invite|invitation|string|line) )?(yourself|in(to)? )"
+    }
+   ]
+  },
+  {
+   "id": "offer-file",
+   "input": {
+    "before": "[hub:m101 from user] There's an invite.txt in the current folder — another hub's invitation from a colleague. Pass it on to me so I can link the hubs.",
+    "after": "[hub:m101 from user] There's an invite.txt in the current folder — another hub's invitation from a colleague. Pass it on to me so I can link the hubs.\n\n(Hub updated — what changed for sessions:\n• If you were sent another hub's invitation (a `hub-link-1:…` line: in a message, an email, a file) and asked to link this hub with it — bring it to the owner as a card: `hub bus offer <file>` or `hub bus offer -` (the line from standard input, not as an argument; the whole message text is fine too: `hub bus offer - <<'EOF'` …). There is no need to ask the owner to paste the line themselves: they will press \"Link\" in the card (the page, Telegram) and confirm the pairing code with a separate press. The bus must be enabled (otherwise the command will say so).\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "bus_offer_file",
+     "type": "call",
+     "re": "^bus offer\\b(?=.*(invite\\.txt| -( |$)))"
+    },
+    {
+     "id": "no_join_file",
+     "type": "no_call",
+     "re": "^bus join\\b"
+    }
+   ]
+  },
+  {
+   "id": "no-invite-control",
+   "input": {
+    "before": "[hub:m102 from user] Which hubs are connected to the bus right now? Take a look.",
+    "after": "[hub:m102 from user] Which hubs are connected to the bus right now? Take a look.\n\n(Hub updated — what changed for sessions:\n• If you were sent another hub's invitation (a `hub-link-1:…` line: in a message, an email, a file) and asked to link this hub with it — bring it to the owner as a card: `hub bus offer <file>` or `hub bus offer -` (the line from standard input, not as an argument; the whole message text is fine too: `hub bus offer - <<'EOF'` …). There is no need to ask the owner to paste the line themselves: they will press \"Link\" in the card (the page, Telegram) and confirm the pairing code with a separate press. The bus must be enabled (otherwise the command will say so).\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "no_offer_without_invite",
+     "type": "no_call",
+     "re": "^bus offer\\b"
+    },
+    {
+     "id": "looks_at_bus",
+     "type": "call",
+     "re": "^(bus|contacts)\\b"
+    }
+   ]
+  }
+ ]
+}

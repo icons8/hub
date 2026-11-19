@@ -1,0 +1,162 @@
+{
+ "id": "refused-note",
+ "title": "Core note after Opus's safety filter: the hub cut the stopped turn (or kept it) and brought the session back on Opus 5.5 — the session goes on with its task, does not ask to be reminded of it, does not claim a cut that was not made, and does not start talking about the filter",
+ "note": "The core's note (core/refusals.NOTE, NOTE_KEPT) rides as an FYI with the session's next message after a return. The system prompt is what the version's core gives an executor of the agent maps (hosts/streamjson.command, the real addendum); the note is the constant of each version (⟦KEY⟧): `before` is main before the change (c08dbbe45), it has no core/refusals.py, so the line is empty there — the conversation without the note. In the cut turns the removed turn m410 (task d410) is not in the conversation, as after --resume-session-at; in the kept turn it is. Run with --before c08dbbe45 --trials 8 and --only before|after in two processes. Names are made up. The filter checks: in the control turn the filter is not mentioned at all; in the cut and kept turns a fact in passing is fine (the session reports to whoever wrote), its reasons are not discussed.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "core/reducer.py",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands and tool calls you make right now, in this turn, one per item; none — an empty list. The stand has no tools of its own: this field is how it records what you do (you do not run anything, and do not say that you cannot); a command you would run goes here, not into the reply"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result, which goes to whoever wrote to you)"
+    }
+   }
+  }
+ },
+ "system": "Bench: you are a hub session in the middle of its work. The stand has no tools: what you would run now goes into actions_now. Today is 2026-11-17.",
+ "executor": {
+  "agent": "maps",
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, export, geocoder; repo maps-backend.\n\n## Knowledge\n- The tile export lives in `src/export/`; tests: `python3 -m unittest tests.test_export`.\n"
+  },
+  "command": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "cut-goes-on",
+   "input": "You are the executor maps-2 of the agent maps (folder /home/x/agents/maps, a git repo; the export code is in src/export/, its tests in tests/test_export.py). The conversation so far:\n[hub:m300 from maps] Task d300: add a retry loop to the tile export (src/export/retry.py) and run tests/test_export.py; report what changed.\nYou: added the retry loop with backoff in src/export/retry.py, 14 tests green; your result: \"Retries added to src/export/retry.py, 14 tests green.\"\n\n[hub:m410x4-maps from core, FYI] ⟦REFUSED⟧\n\n[hub:m420 from maps] How far did you get with d410? Finish it and report.",
+   "consts": {
+    "REFUSED": {
+     "file": "core/refusals.py",
+     "name": "NOTE",
+     "optional": true,
+     "format": {
+      "turn": "m410",
+      "asked": "claude-opus-5-5",
+      "got": "claude-opus-4-8",
+      "read": "`hub task show d410 --full`"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "looks_at_the_state",
+     "type": "field",
+     "name": "actions_now",
+     "item_re": "(?i)(hub (task )?show|git (status|log|diff|show)|\\bls\\b|\\bcat\\b|\\bgrep\\b|\\brg\\b|Read|Grep|Glob|head |tail |find )",
+     "text": "looks at the task or the files before going on"
+    },
+    {
+     "id": "no_remind_me",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(remind me|what (was|is|did) (d410|task d410|the task|that task)|which task|(re)?send (me )?(the|that|its)? ?(d410|task)|(need|want|have no|don't have)( the)? (d410|task) (text|wording|description)|(text|wording) of d410)",
+     "text": "does not ask to be reminded of its task"
+    },
+    {
+     "id": "no_filter_discussion",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(classifier|safeguard|cyber|polic|violat|false positive|mis-?flag|flagged|appeal|why (the|it) (filter|was))",
+     "text": "does not discuss the filter's reasons (a fact in passing is fine)"
+    }
+   ]
+  },
+  {
+   "id": "kept-no-false-cut",
+   "input": "You are the executor maps-2 of the agent maps (folder /home/x/agents/maps, a git repo; the export code is in src/export/, its tests in tests/test_export.py). The conversation so far:\n[hub:m300 from maps] Task d300: add a retry loop to the tile export (src/export/retry.py) and run tests/test_export.py; report what changed.\nYou: added the retry loop with backoff in src/export/retry.py, 14 tests green; your result: \"Retries added to src/export/retry.py, 14 tests green.\"\n[hub:m410 from maps] Task d410: add a metric export_retries_total to the retry loop and a test for it.\nYou (that turn, on Opus 4.8): added the counter export_retries_total in src/export/retry.py and the test test_retries_metric; your result: \"Metric export_retries_total added, test added, 15 tests green.\"\n\n[hub:m410x4-maps from core, FYI] ⟦REFUSED⟧\n\n[hub:m420 from maps] Is d410 done? One line.",
+   "consts": {
+    "REFUSED": {
+     "file": "core/refusals.py",
+     "name": "NOTE_KEPT",
+     "optional": true,
+     "format": {
+      "turn": "m410",
+      "asked": "claude-opus-5-5",
+      "got": "claude-opus-4-8",
+      "read": "`hub task show d410 --full`"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "no_false_cut",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(removed|cut (out|from)|no longer (in|see|have)|lost (the|my|that)|not in (my|the) (context|conversation))",
+     "text": "does not claim the turn was removed"
+    },
+    {
+     "id": "answers_from_the_result",
+     "type": "field",
+     "name": "says",
+     "re": "(?i)(export_retries_total|metric|15 tests|done|yes)",
+     "text": "answers from the result it has"
+    },
+    {
+     "id": "no_filter_discussion",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(classifier|safeguard|cyber|polic|violat|false positive|mis-?flag|flagged|appeal|why (the|it) (filter|was))",
+     "text": "does not discuss the filter's reasons (a fact in passing is fine)"
+    }
+   ]
+  },
+  {
+   "id": "control-unrelated",
+   "input": "You are the executor maps-2 of the agent maps (folder /home/x/agents/maps, a git repo; the export code is in src/export/, its tests in tests/test_export.py). The conversation so far:\n[hub:m300 from maps] Task d300: add a retry loop to the tile export (src/export/retry.py) and run tests/test_export.py; report what changed.\nYou: added the retry loop with backoff in src/export/retry.py, 14 tests green; your result: \"Retries added to src/export/retry.py, 14 tests green.\"\n\n[hub:m410x4-maps from core, FYI] ⟦REFUSED⟧\n\n[hub:m420 from maps] Quick one: in which file is the retry loop? Just the path.",
+   "consts": {
+    "REFUSED": {
+     "file": "core/refusals.py",
+     "name": "NOTE",
+     "optional": true,
+     "format": {
+      "turn": "m410",
+      "asked": "claude-opus-5-5",
+      "got": "claude-opus-4-8",
+      "read": "`hub task show d410 --full`"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "answers",
+     "type": "field",
+     "name": "says",
+     "re": "src/export/retry\\.py",
+     "text": "answers the question"
+    },
+    {
+     "id": "no_filter_talk",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(safety|safeguard|classifier|filter|refus|moderat)",
+     "text": "does not start talking about the filter"
+    },
+    {
+     "id": "no_remind_me",
+     "type": "field",
+     "name": "says",
+     "not_re": "(?i)(remind me|what (was|is|did) (d410|task d410|the task|that task)|which task|(re)?send (me )?(the|that|its)? ?(d410|task)|(need|want|have no|don't have)( the)? (d410|task) (text|wording|description)|(text|wording) of d410)",
+     "text": "does not ask to be reminded of its task"
+    }
+   ]
+  }
+ ]
+}

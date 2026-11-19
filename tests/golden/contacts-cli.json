@@ -1,0 +1,129 @@
+{
+ "book": [
+  {
+   "name": "Anna Lee",
+   "aliases": [
+    "Annie"
+   ],
+   "telegram": {
+    "username": "annalee",
+    "id": 100200300
+   },
+   "source": "probe",
+   "confirmed": "<DATE>"
+  },
+  {
+   "name": "Mark Cole",
+   "aliases": [],
+   "teams_chat": "19:abc@unq.gbl.spaces",
+   "email": "m@example.org",
+   "note": "SEO",
+   "source": "probe",
+   "confirmed": "<DATE>"
+  }
+ ],
+ "runs": [
+  {
+   "args": [],
+   "rc": 0,
+   "out": "no addressees\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add",
+    "Anna Lee",
+    "--telegram",
+    "@annalee:100200300",
+    "--alias",
+    "Annie",
+    "--source",
+    "probe"
+   ],
+   "rc": 0,
+   "out": "added: Anna Lee · (also: Annie) · Telegram @annalee id 100200300 - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add",
+    "Mark Cole",
+    "--teams-chat",
+    "19:abc@unq.gbl.spaces",
+    "--email",
+    "m@example.org",
+    "--note",
+    "SEO",
+    "--source",
+    "probe"
+   ],
+   "rc": 0,
+   "out": "added: Mark Cole · Teams  19:abc@unq.gbl.spaces · email m@example.org · SEO - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [],
+   "rc": 0,
+   "out": "Anna Lee · (also: Annie) · Telegram @annalee id 100200300 - confirmed by: probe, <DATE>\nMark Cole · Teams  19:abc@unq.gbl.spaces · email m@example.org · SEO - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "find",
+    "annie"
+   ],
+   "rc": 0,
+   "out": "Anna Lee · (also: Annie) · Telegram @annalee id 100200300 - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "find",
+    "mark"
+   ],
+   "rc": 0,
+   "out": "Mark Cole · Teams  19:abc@unq.gbl.spaces · email m@example.org · SEO - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "find",
+    "nobody"
+   ],
+   "rc": 1,
+   "out": "«nobody» is not in the book. You saw their address in your work — record it: hub contacts add \"<full name>\" --telegram @user:id | --teams <UPN> | --teams-chat <id> | --email <address> --source \"<where you saw it>\". The book holds addresses, not permission: writing to them in the owner's name still takes the owner's word; not sure it is the same person — ask the owner with a form (AskUserQuestion), showing the name, @username and id\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "find",
+    "100200300"
+   ],
+   "rc": 0,
+   "out": "Anna Lee · (also: Annie) · Telegram @annalee id 100200300 - confirmed by: probe, <DATE>\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add",
+    "X"
+   ],
+   "rc": 2,
+   "out": "",
+   "err": "--source: who confirmed the addressee (for example \"the owner, m123\")\n"
+  },
+  {
+   "args": [
+    "add",
+    "X",
+    "--telegram",
+    "x",
+    "--source",
+    "s"
+   ],
+   "rc": 2,
+   "out": "",
+   "err": "--telegram: expected @username:id (the id is the number from Telegram), a name alone is not enough\n"
+  }
+ ]
+}

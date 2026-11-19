@@ -1,0 +1,9 @@
+{
+  "name": "usage",
+  "icon": "icon.svg",
+  "description": "“Usage” — Claude limits (5 hours and the week) with a forecast by pace and the price of a percent, session spending for today, 7 days and the limit windows — with executors under their session, and the most expensive turns",
+  "why": "You see who spends the limit and whether it lasts until the reset — without counting through the journal by hand",
+  "version": "1.0.0",
+  "hub": "^1.1",
+  "web": "main.js"
+}

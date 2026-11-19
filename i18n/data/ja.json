@@ -1,0 +1,14 @@
+{
+ "_about": "Language data of Japanese (core/langdata.py): what the core recognises in Japanese text.",
+ "secrets": {
+  "labels": [
+   "パスワード",
+   "トークン",
+   "アクセストークン",
+   "apiキー",
+   "シークレット",
+   "秘密鍵",
+   "シークレットキー"
+  ]
+ }
+}

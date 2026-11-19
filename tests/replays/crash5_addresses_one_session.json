@@ -1,0 +1,119 @@
+{
+ "about": "Failure 5: the socket address, pid, sessionId and name are one and the same session. An unknown address means not delivered.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.identified",
+   "entity": "a",
+   "data": {
+    "socket": "/tmp/cc/a.sock",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "sid-a",
+    "text": "1"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "101",
+    "text": "2"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "/tmp/cc/a.sock",
+    "text": "3"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "uds:/tmp/cc/a.sock",
+    "text": "4"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "5"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "nobody",
+    "text": "6"
+   }
+  }
+ ],
+ "expect": {
+  "messages": {
+   "m4": {
+    "session": "a",
+    "state": "typing"
+   },
+   "m5": {
+    "session": "a",
+    "state": "queued"
+   },
+   "m6": {
+    "session": "a",
+    "state": "queued"
+   },
+   "m7": {
+    "session": "a",
+    "state": "queued"
+   },
+   "m8": {
+    "session": "a",
+    "state": "queued"
+   },
+   "m9": {
+    "state": "failed",
+    "reason": "unknown address"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m4"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Hub update from the shared repository: a process under hub-up (modules/update/update.py)."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import platforms  # noqa: E402
+platforms.current.utf8_mode([os.path.realpath(__file__)] + sys.argv[1:])   # output and files are UTF-8 under any locale
+from modules.update.update import main  # noqa: E402
+
+main()

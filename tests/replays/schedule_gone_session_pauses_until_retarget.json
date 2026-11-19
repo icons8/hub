@@ -1,0 +1,152 @@
+{
+ "about": "The session is gone (removed): the hub gets \"decide whom to hand it to or take it down\", the recurring job is paused; retarget from whoever set it makes it work again and it reaches the new session.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "b",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-b"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "b",
+   "data": {
+    "session_id": "sid-b"
+   }
+  },
+  {
+   "t": 1790668805.0,
+   "type": "schedule.set",
+   "entity": "b-daily",
+   "data": {
+    "session": "b",
+    "cron": "0 9 * * *",
+    "prompt": "report",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668806.0,
+   "type": "session.ended",
+   "entity": "b",
+   "data": {
+    "reason": "prompt_input_exit"
+   }
+  },
+  {
+   "t": 1790668807.0,
+   "type": "session.remove_requested",
+   "entity": "b",
+   "data": {
+    "channel": "cli",
+    "owner": true
+   }
+  },
+  {
+   "t": 1790751630.0,
+   "type": "schedule.due",
+   "entity": "b-daily",
+   "data": {
+    "slot": 1790751600.0
+   }
+  },
+  {
+   "t": 1790751660.0,
+   "type": "schedule.due",
+   "entity": "b-daily",
+   "data": {
+    "slot": 1790751660.0
+   }
+  },
+  {
+   "t": 1790751700.0,
+   "type": "schedule.retarget",
+   "entity": "b-daily",
+   "data": {
+    "session": "a",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790838005.0,
+   "type": "schedule.due",
+   "entity": "b-daily",
+   "data": {
+    "slot": 1790838000.0
+   }
+  }
+ ],
+ "expect": {
+  "schedule": {
+   "b-daily": {
+    "state": "active",
+    "session": "a",
+    "by": "a",
+    "runs": 1,
+    "paused_why": null
+   }
+  },
+  "messages": {
+   "m11": {
+    "session": "hub",
+    "origin": " from schedule",
+    "text": "[⏰ schedule b-daily] session b is gone (removed) — decide whom to hand it to or remove it. The job is recurring (every day at 09:00 until 13.10) — paused until `hub schedule retarget b-daily <session>` or `hub schedule rm b-daily`: report"
+   },
+   "m14": {
+    "session": "a",
+    "text": "[⏰ schedule b-daily] report"
+   }
+  },
+  "rejected": 1
+ }
+}

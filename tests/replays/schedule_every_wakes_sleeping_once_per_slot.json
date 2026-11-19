@@ -1,0 +1,155 @@
+{
+ "about": "A slot of a repeating job fires once; it wakes a sleeping session and delivers; a slot older than 6 hours (the hub or the clock was not running) is skipped without a message.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668801.0,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 1790668802.0,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 1790668803.0,
+   "type": "session.ended",
+   "entity": "a",
+   "data": {
+    "reason": "prompt_input_exit"
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "schedule.set",
+   "entity": "a-check",
+   "data": {
+    "session": "a",
+    "every": "30m",
+    "prompt": "check CI",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 1790670615.0,
+   "type": "schedule.due",
+   "entity": "a-check",
+   "data": {
+    "slot": 1790670610.0
+   }
+  },
+  {
+   "t": 1790670616.0,
+   "type": "schedule.due",
+   "entity": "a-check",
+   "data": {
+    "slot": 1790670610.0
+   }
+  },
+  {
+   "t": 1790670630.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "source": "resume"
+   }
+  },
+  {
+   "t": 1790697610.0,
+   "type": "schedule.due",
+   "entity": "a-check",
+   "data": {
+    "slot": 1790672410.0
+   }
+  }
+ ],
+ "expect": {
+  "schedule": {
+   "a-check": {
+    "state": "active",
+    "session": "a",
+    "by": "hub",
+    "runs": 1,
+    "skipped": 1,
+    "last_slot": 1790672410.0
+   }
+  },
+  "messages": {
+   "m10": {
+    "session": "a",
+    "state": "typing",
+    "origin": " from schedule"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "hub"
+   },
+   {
+    "do": "spawn",
+    "session": "a"
+   },
+   {
+    "do": "spawn",
+    "session": "a",
+    "resume": true
+   },
+   {
+    "do": "type",
+    "session": "a",
+    "message": "m10",
+    "text": "[hub:m10 from schedule] [⏰ schedule a-check] check CI"
+   }
+  ],
+  "rejected": 1
+ }
+}

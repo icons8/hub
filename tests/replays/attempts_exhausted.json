@@ -1,0 +1,90 @@
+{
+ "about": "4 attempts without a turn carrying the marker - the message is not delivered, we stop typing it.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  },
+  {
+   "t": 32,
+   "type": "timer.fired",
+   "entity": "m3",
+   "data": {
+    "attempt": 1
+   }
+  },
+  {
+   "t": 62,
+   "type": "timer.fired",
+   "entity": "m3",
+   "data": {
+    "attempt": 2
+   }
+  },
+  {
+   "t": 92,
+   "type": "timer.fired",
+   "entity": "m3",
+   "data": {
+    "attempt": 3
+   }
+  },
+  {
+   "t": 122,
+   "type": "timer.fired",
+   "entity": "m3",
+   "data": {
+    "attempt": 4
+   }
+  }
+ ],
+ "expect": {
+  "messages": {
+   "m3": {
+    "state": "failed",
+    "reason": "not confirmed after 4 attempts"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type"
+   },
+   {
+    "do": "type"
+   },
+   {
+    "do": "type"
+   },
+   {
+    "do": "type"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,91 @@
+{
+ "about": "Failure 2: Enter was lost after /reload-plugins. Typing only when the session is free; no turn with the marker within 30 s - type again; a stale timer does nothing.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  },
+  {
+   "t": 5,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 35,
+   "type": "timer.fired",
+   "entity": "m4",
+   "data": {
+    "attempt": 1
+   }
+  },
+  {
+   "t": 36,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m4"
+   }
+  },
+  {
+   "t": 66,
+   "type": "timer.fired",
+   "entity": "m4",
+   "data": {
+    "attempt": 2
+   }
+  }
+ ],
+ "expect": {
+  "messages": {
+   "m4": {
+    "state": "delivered",
+    "attempt": 2
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m4"
+   },
+   {
+    "do": "type",
+    "message": "m4"
+   }
+  ],
+  "rejected": 0
+ }
+}

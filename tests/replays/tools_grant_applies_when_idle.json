@@ -1,0 +1,130 @@
+{
+ "about": "A session asked for jira and the hub granted it while it was working: the set is applied when the session is idle (--resume with the new plugin); the message waits for the start and is delivered.",
+ "events": [
+  {
+   "t": 0,
+   "type": "catalog.loaded",
+   "data": {
+    "tools": {
+     "jira@hub-skills": {
+      "kind": "plugin",
+      "risk": []
+     },
+     "stripe-live": {
+      "kind": "mcp",
+      "risk": [
+       "money"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "tools.requested",
+   "entity": "a",
+   "data": {
+    "tool": "jira@hub-skills",
+    "why": "need ticket task-78"
+   }
+  },
+  {
+   "t": 4,
+   "type": "tools.granted",
+   "entity": "a",
+   "data": {
+    "tool": "jira@hub-skills",
+    "channel": "session",
+    "owner": false
+   }
+  },
+  {
+   "t": 5,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "after"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 12,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 202
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "tools": [
+     "jira@hub-skills"
+    ],
+    "dirty": false,
+    "pid": 202
+   }
+  },
+  "messages": {
+   "m7": {
+    "state": "typing"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false,
+    "tools": []
+   },
+   {
+    "do": "release",
+    "session": "a"
+   },
+   {
+    "do": "spawn",
+    "resume": true,
+    "tools": [
+     "jira@hub-skills"
+    ]
+   },
+   {
+    "do": "type",
+    "message": "m7"
+   }
+  ],
+  "rejected": 0
+ }
+}

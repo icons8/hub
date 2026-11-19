@@ -1,0 +1,67 @@
+{
+  "about": "Does the hub understand which message the owner is replying to? The owner's reply carries the beginning of the message being answered: on one line, up to 150 characters, without \"]\" (the label is read up to the first \"] \"). A quote from a session is not the owner's word and does not go into the label.",
+  "events": [
+    {
+      "t": 0,
+      "type": "session.requested",
+      "entity": "hub",
+      "data": {
+        "cwd": "/w",
+        "session_id": "sid-hub",
+        "kind": "hub"
+      }
+    },
+    {
+      "t": 1,
+      "type": "session.started",
+      "entity": "hub",
+      "data": {
+        "session_id": "sid-hub",
+        "pid": 101
+      }
+    },
+    {
+      "t": 2,
+      "type": "message.received",
+      "data": {
+        "text": "yes",
+        "channel": "telegram",
+        "owner": true,
+        "quote": "I suggest:\n  keep it [for now] as is.\nOr redo it right away?"
+      }
+    },
+    {
+      "t": 3,
+      "type": "message.received",
+      "data": {
+        "text": "ok",
+        "channel": "web",
+        "owner": true,
+        "quote": "Aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa tails"
+      }
+    },
+    {
+      "t": 4,
+      "type": "message.received",
+      "data": {
+        "text": "hello",
+        "channel": "session",
+        "sender": "pay",
+        "quote": "foreign"
+      }
+    }
+  ],
+  "expect": {
+    "messages": {
+      "m3": {
+        "origin": " from user, in reply to: «I suggest: keep it (for now) as is. Or redo it right away?»"
+      },
+      "m4": {
+        "origin": " from user, in reply to: «Aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa aa…»"
+      },
+      "m5": {
+        "origin": " from pay"
+      }
+    }
+  }
+}

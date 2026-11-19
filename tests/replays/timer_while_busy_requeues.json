@@ -1,0 +1,76 @@
+{
+ "about": "The timer fired while the session is busy with someone else's turn (a person typed into the terminal) - the message is back in the queue and is typed when the session becomes free.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  },
+  {
+   "t": 5,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 33,
+   "type": "timer.fired",
+   "entity": "m3",
+   "data": {
+    "attempt": 1
+   }
+  },
+  {
+   "t": 40,
+   "type": "turn.stopped",
+   "entity": "a"
+  }
+ ],
+ "expect": {
+  "messages": {
+   "m3": {
+    "state": "typing",
+    "attempt": 2,
+    "deadline": 70
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,117 @@
+{
+ "about": "A one-off job fires once, even late, with a note; a finished one is kept for 7 days and then purged.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "schedule.set",
+   "entity": "remind",
+   "data": {
+    "session": "a",
+    "at": "2026-09-29 12:00",
+    "prompt": "call back",
+    "channel": "cli",
+    "owner": true
+   }
+  },
+  {
+   "t": 1790676600.0,
+   "type": "schedule.due",
+   "entity": "remind",
+   "data": {
+    "slot": 1790676000.0
+   }
+  },
+  {
+   "t": 1790676700.0,
+   "type": "schedule.due",
+   "entity": "remind",
+   "data": {
+    "slot": 1790676000.0
+   }
+  },
+  {
+   "t": 1790676800.0,
+   "type": "schedule.set",
+   "entity": "later",
+   "data": {
+    "session": "a",
+    "at": "2026-10-20 12:00",
+    "prompt": "x",
+    "channel": "cli",
+    "owner": true
+   }
+  },
+  {
+   "t": 1791360000.0,
+   "type": "schedule.set",
+   "entity": "later2",
+   "data": {
+    "session": "a",
+    "at": "2026-10-20 12:00",
+    "prompt": "x",
+    "channel": "cli",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "schedule": {
+   "later": {
+    "state": "active",
+    "by": "⟦legacy.who.owner⟧"
+   }
+  },
+  "schedule_absent": [
+   "remind"
+  ],
+  "messages": {
+   "m7": {
+    "session": "a",
+    "text": "[⏰ schedule remind] (late by 10 min: the hub or the clock was not running) call back"
+   }
+  },
+  "rejected": 1
+ }
+}

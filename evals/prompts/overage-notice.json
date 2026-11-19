@@ -1,0 +1,92 @@
+{
+ "id": "overage-notice",
+ "title": "The core's line that a Claude account is now billed as overage: the hub tells the owner once and does nothing else (no account switch, no settings, no sessions stopped); an ordinary account line moves it to no action either",
+ "note": "hub_cli as `hub-core`: the system prompt is hub-home/CLAUDE.md of the version (the same in both). The line is new: \"before\" is the same fact without its last sentence (\"Tell the owner once.\"), so the case measures what the instruction adds and whether it pulls the hub into acting. The control is an ordinary account switch line from the core. \"Once\" in time is the core's (one line per overage episode, tests/test_overage.py); the case checks one turn. Names are made up.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "hub-core"
+ },
+ "prompt": {
+  "file": "hub-home/CLAUDE.md",
+  "append": [
+   {
+    "file": "hub-home/CLAUDE.md"
+   }
+  ]
+ },
+ "system": "Bench: you are the hub session (`hub-core`) of a hub; your instructions follow (hub-home/CLAUDE.md). The hub's commands are `hub` in the shell (Bash). The owner reads your turn's result in the hub's feed. Today is 2026-11-13.",
+ "turns": [
+  {
+   "id": "overage-default",
+   "input": {
+    "before": "[hub:m500 from core] Claude account default: requests are now billed as overage (extra usage beyond the plan's limits, charged separately).",
+    "after": "[hub:m500 from core] Claude account default: requests are now billed as overage (extra usage beyond the plan's limits, charged separately). Tell the owner once."
+   },
+   "checks": [
+    {
+     "id": "tells_owner",
+     "type": "said",
+     "re": "(?i)overage|extra usage|billed|charged"
+    },
+    {
+     "id": "no_extra_action",
+     "type": "no_call",
+     "re": "^(accounts?|config|budget|economy|limits?|settings|module|restart|update|pool|stats|setup)\\b",
+     "text": "no account switch, no settings, no restart"
+    },
+    {
+     "id": "no_fleet_action",
+     "type": "no_call",
+     "re": "^(send|task|session|route)\\b",
+     "text": "no sessions told to stop or tasks moved"
+    }
+   ]
+  },
+  {
+   "id": "overage-named",
+   "input": {
+    "before": "[hub:m501 from core] Claude account work-2: requests are now billed as overage (extra usage beyond the plan's limits, charged separately).",
+    "after": "[hub:m501 from core] Claude account work-2: requests are now billed as overage (extra usage beyond the plan's limits, charged separately). Tell the owner once."
+   },
+   "checks": [
+    {
+     "id": "tells_owner",
+     "type": "said",
+     "re": "(?i)overage|extra usage|billed|charged"
+    },
+    {
+     "id": "no_extra_action",
+     "type": "no_call",
+     "re": "^(accounts?|config|budget|economy|limits?|settings|module|restart|update|pool|stats|setup)\\b",
+     "text": "no account switch, no settings, no restart"
+    },
+    {
+     "id": "no_fleet_action",
+     "type": "no_call",
+     "re": "^(send|task|session|route)\\b",
+     "text": "no sessions told to stop or tasks moved"
+    }
+   ]
+  },
+  {
+   "id": "control-switch",
+   "input": "[hub:m502 from core] Claude account: work-1 → work-2 (limit). Sessions on the accounts gateway are already on it, no restart",
+   "checks": [
+    {
+     "id": "no_extra_action",
+     "type": "no_call",
+     "re": "^(accounts?|config|budget|economy|limits?|settings|module|restart|update|pool|stats|setup)\\b",
+     "text": "no account switch, no settings, no restart"
+    },
+    {
+     "id": "no_fleet_action",
+     "type": "no_call",
+     "re": "^(send|task|session|route)\\b",
+     "text": "no sessions told to stop or tasks moved"
+    }
+   ]
+  }
+ ]
+}

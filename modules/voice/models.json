@@ -1,0 +1,622 @@
+{
+ "_": "The models the built-in voice downloads (modules/voice/install.py), made by tools/voice_catalog.py: list — every model pinned by its Hugging Face repository and revision, file, sha256 and size; pick — per hub language the rows of «Settings → Modules → Voice», the recommended first; vad — the speech detector for all; models — the one-model-per-language form of the first release, read by a page server older than this file.",
+ "source": "@handy-computer/models catalog (transcribe.cpp 0.4.0): errors on FLEURS test at Q8_0 (per 100 words; zh, ja, ko — characters), wait30 — seconds for 30 s of speech on a Ryzen 4750U processor",
+ "list": {
+  "gigaam-v3-e2e-rnnt": {
+   "name": "GigaAM v3",
+   "author": "SaluteDevices",
+   "url": "https://huggingface.co/handy-computer/gigaam-v3-e2e-rnnt-gguf/resolve/f719d70812344f4d0fb8c11c0887b190501a7465/gigaam-v3-e2e-rnnt-Q8_0.gguf",
+   "file": "gigaam-v3-e2e-rnnt-Q8_0.gguf",
+   "sha256": "78d63b47723b7f8d78c6113a6ef983b5a86e2a86f6c273e1f5cb6967b1c4467a",
+   "size": 273724832,
+   "license": "MIT",
+   "card": "https://huggingface.co/ai-sage/GigaAM-v3",
+   "languages": [
+    "ru"
+   ],
+   "detects": false,
+   "wait30": 3.8,
+   "errors": {
+    "ru": 5.3
+   }
+  },
+  "parakeet-ultra": {
+   "name": "Parakeet Ultra",
+   "author": "moondream (on NVIDIA Parakeet TDT 0.6B v3)",
+   "url": "https://huggingface.co/handy-computer/parakeet-ultra-gguf/resolve/39eeb55181f0d354fd934f06e92fd8d5037fed8e/parakeet-ultra-Q8_0.gguf",
+   "file": "parakeet-ultra-Q8_0.gguf",
+   "sha256": "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59",
+   "size": 740363168,
+   "license": "CC-BY-4.0",
+   "card": "https://huggingface.co/moondream/parakeet-ultra",
+   "languages": [
+    "en",
+    "de",
+    "fr",
+    "es",
+    "it",
+    "pt",
+    "ru",
+    "uk",
+    "hr",
+    "sl",
+    "lv",
+    "lt",
+    "et",
+    "fi",
+    "sv",
+    "da",
+    "nl",
+    "pl",
+    "cs",
+    "sk",
+    "hu",
+    "ro",
+    "bg",
+    "el",
+    "mt"
+   ],
+   "detects": true,
+   "wait30": 2.3,
+   "errors": {
+    "de": 4.6,
+    "en": 4.3,
+    "es": 3.1,
+    "fr": 4.7,
+    "pt": 4.2,
+    "ru": 5.6,
+    "uk": 5.7
+   }
+  },
+  "Qwen3-ASR-1.7B": {
+   "name": "Qwen3-ASR 1.7B",
+   "author": "Alibaba Qwen",
+   "url": "https://huggingface.co/handy-computer/Qwen3-ASR-1.7B-gguf/resolve/92282af1610a2db19d66f2bef1e260f5deca782d/Qwen3-ASR-1.7B-Q8_0.gguf",
+   "file": "Qwen3-ASR-1.7B-Q8_0.gguf",
+   "sha256": "9a0d81792dfea2d5f278b8a63deb3ea6e02139ce42c2301f32ea19c4f77526b7",
+   "size": 2185030624,
+   "license": "Apache-2.0",
+   "card": "https://huggingface.co/Qwen/Qwen3-ASR-1.7B",
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ar",
+    "de",
+    "fr",
+    "es",
+    "pt",
+    "id",
+    "it",
+    "ko",
+    "ru",
+    "th",
+    "vi",
+    "ja",
+    "tr",
+    "hi",
+    "ms",
+    "nl",
+    "sv",
+    "da",
+    "fi",
+    "pl",
+    "cs",
+    "fil",
+    "fa",
+    "el",
+    "ro",
+    "hu",
+    "mk"
+   ],
+   "detects": true,
+   "wait30": 12.1,
+   "errors": {
+    "ar": 14.9,
+    "de": 4.2,
+    "en": 3.2,
+    "es": 3.3,
+    "fr": 4.5,
+    "hi": 7.8,
+    "ja": 5.3,
+    "ko": 4.6,
+    "pt": 4.4,
+    "ru": 6.2,
+    "tr": 9.5,
+    "zh": 7.1
+   },
+   "memory": 2860000000
+  },
+  "cohere-transcribe-arabic-07-2026": {
+   "name": "Cohere Transcribe Arabic",
+   "author": "Cohere",
+   "url": "https://huggingface.co/handy-computer/cohere-transcribe-arabic-07-2026-gguf/resolve/715cbe09ca9b60fc1e497db1e4478fa9fcf4ac21/cohere-transcribe-arabic-07-2026-Q8_0.gguf",
+   "file": "cohere-transcribe-arabic-07-2026-Q8_0.gguf",
+   "sha256": "910de5c9c57f9fd8a280e1701f9cd96f63768878c1ca9e4ecf23638a5e0fef16",
+   "size": 2410655136,
+   "license": "Apache-2.0",
+   "card": "https://huggingface.co/CohereLabs/cohere-transcribe-arabic-07-2026",
+   "languages": [
+    "en",
+    "ar"
+   ],
+   "detects": false,
+   "wait30": 7.0,
+   "errors": {
+    "ar": 11.1,
+    "en": 4.9
+   },
+   "memory": 3750000000
+  },
+  "nemotron-3.5-asr-streaming-0.6b": {
+   "name": "Nemotron 3.5",
+   "author": "NVIDIA",
+   "url": "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/6d44e540bc31b0de1dbe174a3cea87f53a7f22fb/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+   "file": "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+   "sha256": "b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c",
+   "size": 751094240,
+   "license": "OpenMDW-1.1",
+   "card": "https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b",
+   "languages": [
+    "en-US",
+    "en-GB",
+    "es-US",
+    "es-ES",
+    "fr-FR",
+    "fr-CA",
+    "it-IT",
+    "pt-BR",
+    "pt-PT",
+    "nl-NL",
+    "de-DE",
+    "tr-TR",
+    "ru-RU",
+    "ar-AR",
+    "hi-IN",
+    "ja-JP",
+    "ko-KR",
+    "vi-VN",
+    "uk-UA",
+    "pl-PL",
+    "sv-SE",
+    "cs-CZ",
+    "nb-NO",
+    "da-DK",
+    "bg-BG",
+    "fi-FI",
+    "hr-HR",
+    "sk-SK",
+    "zh-CN",
+    "hu-HU",
+    "ro-RO",
+    "et-EE"
+   ],
+   "detects": true,
+   "wait30": 2.8,
+   "errors": {
+    "ar": 15.9,
+    "de": 10.3,
+    "en": 7.9,
+    "es": 6.3,
+    "fr": 10.8,
+    "hi": 8.6,
+    "ja": 13.5,
+    "ko": 8.9,
+    "pt": 8.5,
+    "ru": 12.6,
+    "tr": 15.4,
+    "uk": 14.9,
+    "zh": 18.9
+   }
+  },
+  "Fun-ASR-MLT-Nano-2512": {
+   "name": "Fun-ASR-MLT-Nano",
+   "author": "Alibaba FunAudioLLM",
+   "url": "https://huggingface.co/handy-computer/Fun-ASR-MLT-Nano-2512-gguf/resolve/0b8f9c7bc545a219658aeb1dd4eeaa55d1cf89f3/Fun-ASR-MLT-Nano-2512-Q8_0.gguf",
+   "file": "Fun-ASR-MLT-Nano-2512-Q8_0.gguf",
+   "sha256": "d12476d8d9f2baa0ebf738fa955fa05ed33a654f1567289033a810c45d9d9002",
+   "size": 891271232,
+   "license": "Apache-2.0",
+   "card": "https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512",
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "th",
+    "ms",
+    "tl",
+    "ar",
+    "hi",
+    "bg",
+    "hr",
+    "cs",
+    "da",
+    "nl",
+    "et",
+    "fi",
+    "el",
+    "hu",
+    "ga",
+    "lv",
+    "lt",
+    "mt",
+    "pl",
+    "pt",
+    "ro",
+    "sk",
+    "sl",
+    "sv"
+   ],
+   "detects": false,
+   "wait30": 5.5,
+   "errors": {
+    "ar": 25.8,
+    "en": 4.9,
+    "hi": 44.0,
+    "ja": 2.3,
+    "ko": 5.2,
+    "pt": 28.2,
+    "zh": 8.6
+   },
+   "file_license": "FunASR Model License 1.1"
+  },
+  "Qwen3-ASR-0.6B": {
+   "name": "Qwen3-ASR 0.6B",
+   "author": "Alibaba Qwen",
+   "url": "https://huggingface.co/handy-computer/Qwen3-ASR-0.6B-gguf/resolve/e4e16599b900eb0cb36e524514756bb92eb092b7/Qwen3-ASR-0.6B-Q8_0.gguf",
+   "file": "Qwen3-ASR-0.6B-Q8_0.gguf",
+   "sha256": "f081b2d5e23bd669d92cc331d722a8a0681943b8e6f34b48996fd5c319b5acd8",
+   "size": 850423456,
+   "license": "Apache-2.0",
+   "card": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ar",
+    "de",
+    "fr",
+    "es",
+    "pt",
+    "id",
+    "it",
+    "ko",
+    "ru",
+    "th",
+    "vi",
+    "ja",
+    "tr",
+    "hi",
+    "ms",
+    "nl",
+    "sv",
+    "da",
+    "fi",
+    "pl",
+    "cs",
+    "fil",
+    "fa",
+    "el",
+    "ro",
+    "hu",
+    "mk"
+   ],
+   "detects": true,
+   "wait30": 5.7,
+   "errors": {
+    "ar": 24.5,
+    "de": 6.8,
+    "en": 4.2,
+    "es": 4.9,
+    "fr": 7.8,
+    "hi": 12.7,
+    "ja": 8.6,
+    "ko": 5.8,
+    "pt": 6.6,
+    "ru": 10.3,
+    "tr": 16.7,
+    "zh": 7.6
+   }
+  },
+  "whisper-small": {
+   "name": "Whisper Small",
+   "author": "OpenAI",
+   "url": "https://huggingface.co/handy-computer/whisper-small-gguf/resolve/c0214bd34be9296695486f838e0142f900803159/whisper-small-Q8_0.gguf",
+   "file": "whisper-small-Q8_0.gguf",
+   "sha256": "9b9c8811bbcc82a7766f0fb0925614bdacb0923b2cc630daeac17108b655b860",
+   "size": 269751136,
+   "license": "Apache-2.0",
+   "card": "https://huggingface.co/openai/whisper-small",
+   "languages": [
+    "af",
+    "am",
+    "ar",
+    "as",
+    "az",
+    "ba",
+    "be",
+    "bg",
+    "bn",
+    "bo",
+    "br",
+    "bs",
+    "ca",
+    "cs",
+    "cy",
+    "da",
+    "de",
+    "el",
+    "en",
+    "es",
+    "et",
+    "eu",
+    "fa",
+    "fi",
+    "fo",
+    "fr",
+    "gl",
+    "gu",
+    "haw",
+    "ha",
+    "he",
+    "hi",
+    "hr",
+    "ht",
+    "hu",
+    "hy",
+    "id",
+    "is",
+    "it",
+    "ja",
+    "jw",
+    "ka",
+    "kk",
+    "km",
+    "kn",
+    "ko",
+    "la",
+    "lb",
+    "ln",
+    "lo",
+    "lt",
+    "lv",
+    "mg",
+    "mi",
+    "mk",
+    "ml",
+    "mn",
+    "mr",
+    "ms",
+    "mt",
+    "my",
+    "ne",
+    "nl",
+    "nn",
+    "no",
+    "oc",
+    "pa",
+    "pl",
+    "ps",
+    "pt",
+    "ro",
+    "ru",
+    "sa",
+    "sd",
+    "si",
+    "sk",
+    "sl",
+    "sn",
+    "so",
+    "sq",
+    "sr",
+    "su",
+    "sv",
+    "sw",
+    "ta",
+    "te",
+    "tg",
+    "th",
+    "tk",
+    "tl",
+    "tr",
+    "tt",
+    "uk",
+    "ur",
+    "uz",
+    "vi",
+    "yi",
+    "yo",
+    "zh"
+   ],
+   "detects": true,
+   "wait30": 5.1,
+   "errors": {
+    "ar": 32.1,
+    "de": 9.9,
+    "en": 6.5,
+    "es": 5.9,
+    "fr": 13.3,
+    "hi": 42.0,
+    "ja": 12.8,
+    "ko": 7.7,
+    "pt": 7.7,
+    "ru": 11.9,
+    "tr": 15.9,
+    "uk": 20.4,
+    "zh": 23.1
+   },
+   "lang_hint": true
+  }
+ },
+ "pick": {
+  "ru": [
+   [
+    "gigaam-v3-e2e-rnnt",
+    "recommended"
+   ],
+   [
+    "parakeet-ultra",
+    "more"
+   ]
+  ],
+  "en": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ],
+   [
+    "Qwen3-ASR-1.7B",
+    "accurate"
+   ]
+  ],
+  "uk": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "more"
+   ]
+  ],
+  "de": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ]
+  ],
+  "fr": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ]
+  ],
+  "es": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ]
+  ],
+  "pt": [
+   [
+    "parakeet-ultra",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ]
+  ],
+  "tr": [
+   [
+    "Qwen3-ASR-1.7B",
+    "recommended"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "faster"
+   ]
+  ],
+  "ar": [
+   [
+    "cohere-transcribe-arabic-07-2026",
+    "recommended"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "faster"
+   ]
+  ],
+  "hi": [
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "recommended"
+   ],
+   [
+    "Qwen3-ASR-1.7B",
+    "more"
+   ]
+  ],
+  "ja": [
+   [
+    "Fun-ASR-MLT-Nano-2512",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "faster"
+   ]
+  ],
+  "ko": [
+   [
+    "Fun-ASR-MLT-Nano-2512",
+    "recommended"
+   ],
+   [
+    "whisper-small",
+    "lighter"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "faster"
+   ],
+   [
+    "Qwen3-ASR-1.7B",
+    "accurate"
+   ]
+  ],
+  "zh": [
+   [
+    "Qwen3-ASR-0.6B",
+    "recommended"
+   ],
+   [
+    "nemotron-3.5-asr-streaming-0.6b",
+    "faster"
+   ]
+  ]
+ },
+ "vad": {
+  "id": "silero-vad-v6.2",
+  "url": "https://huggingface.co/handy-computer/silero-vad-v6.2-gguf/resolve/97bbd75179f535e4708bccdf61e9278b8b60dfc7/silero-vad-v6.2-F32.gguf",
+  "file": "silero-vad-v6.2-F32.gguf",
+  "sha256": "0d871a800c420fdd5d1b17a3aea4296d1c39608f0ff4a9295eb76457eb1c88e6",
+  "size": 1241056,
+  "license": "MIT (Silero VAD)"
+ },
+ "models": {
+  "ru": {
+   "id": "gigaam-v3-e2e-rnnt",
+   "name": "GigaAM v3",
+   "url": "https://huggingface.co/handy-computer/gigaam-v3-e2e-rnnt-gguf/resolve/f719d70812344f4d0fb8c11c0887b190501a7465/gigaam-v3-e2e-rnnt-Q8_0.gguf",
+   "file": "gigaam-v3-e2e-rnnt-Q8_0.gguf",
+   "sha256": "78d63b47723b7f8d78c6113a6ef983b5a86e2a86f6c273e1f5cb6967b1c4467a",
+   "size": 273724832,
+   "license": "MIT (GigaAM, SaluteDevices; the GGUF conversion: handy-computer)"
+  }
+ }
+}

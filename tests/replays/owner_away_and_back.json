@@ -1,0 +1,237 @@
+{
+ "about": "The owner went away and came back: \"I am away for 2 h\" - the session's question does not hold the session (the core answers \"away, the question is kept as a card\"), decisions made without the owner are recorded, the answer to a delegation goes to \"done\"; \"I am back\" - a summary, and the question is an open card with a deadline counted from the return. A session cannot go away on the owner's behalf.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668801.0,
+   "type": "owner.away",
+   "data": {
+    "hours": 2,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 1790668802.0,
+   "type": "owner.away",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668803.0,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 1790668804.0,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r1",
+    "tool": "AskUserQuestion",
+    "input": {
+     "questions": [
+      {
+       "question": "Which option?",
+       "options": [
+        {
+         "label": "A"
+        },
+        {
+         "label": "B"
+        }
+       ]
+      }
+     ]
+    },
+    "interactive": true
+   }
+  },
+  {
+   "t": 1790668805.0,
+   "type": "owner.decided",
+   "data": {
+    "text": "took option A · reversible · rollback: option B",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668806.0,
+   "type": "delegation.created",
+   "data": {
+    "session": "a",
+    "context": "calculate it",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 1790668807.0,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 1790668808.0,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m11"
+   }
+  },
+  {
+   "t": 1790668809.0,
+   "type": "turn.result",
+   "entity": "a",
+   "data": {
+    "text": "42"
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "owner.back",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "pending": [],
+    "asks": [
+     {
+      "id": "q9",
+      "request_id": "r1",
+      "tool": "AskUserQuestion",
+      "input": {
+       "questions": [
+        {
+         "question": "Which option?",
+         "options": [
+          {
+           "label": "A"
+          },
+          {
+           "label": "B"
+          }
+         ]
+        }
+       ]
+      },
+      "interactive": true,
+      "since": 1790668804.0,
+      "away": true,
+      "back_at": 1790668810.0
+     }
+    ]
+   }
+  },
+  "owner": {
+   "state": "present",
+   "summary": {
+    "decided": [
+     {
+      "session": "a",
+      "text": "took option A · reversible · rollback: option B",
+      "ts": 1790668805.0
+     }
+    ],
+    "waiting": [
+     {
+      "session": "a",
+      "text": "Which option?",
+      "card": "q9"
+     }
+    ],
+    "done": [
+     {
+      "session": "a",
+      "text": "42",
+      "delegation": "d11"
+     }
+    ],
+    "from": 1790668801.0,
+    "to": 1790668810.0,
+    "seq": 15
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "respond",
+    "session": "a",
+    "request_id": "r1",
+    "response": {
+     "behavior": "deny",
+     "message": "The owner is away until 12:00. Question q9 is saved as a card — they will see it when they are back; the answer will come as an ordinary message, the owner's answer to question q9. Do not hold the turn on it. Decide what is reversible yourself and record it: hub decided \"<what> · why · how to roll back\" — and withdraw the question: hub question withdraw q9 \"decided\"; put the owner's decision off and go on with other work. What you leave for them, the hub looks at after your turn and may answer for them unless it is their own decision; either answer comes as an ordinary message on q9."
+    }
+   },
+   {
+    "do": "type",
+    "message": "m11"
+   },
+   {
+    "do": "type",
+    "session": "hub",
+    "message": "m14"
+   }
+  ],
+  "rejected": 1
+ }
+}

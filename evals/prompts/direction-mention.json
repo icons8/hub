@@ -1,0 +1,142 @@
+{
+ "id": "direction-mention",
+ "title": "The \"about board tasks\" label: the lead reads the named cards with a board command and does not make up their content; without the label it does not read cards",
+ "note": "task-multiselect (30.10): the owner selects cards on the page, the core puts into the message label \"about board tasks (as on the owner's page): TASK-N \"title\" (status)\". The label and the direction skill did not change in text — the case = a regression guard and a check of the gates (it takes the named ones — reads the card or starts an executor with --board, does not touch extra ones, a one-off question without the label does not go into the board). The system prompt is the direction skill.",
+ "model": "opus",
+ "effort": "medium",
+ "before": "main",
+ "prompt": {
+  "file": "modules/directions/plugin/skills/direction/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run right now, in this turn, one per item; none — an empty list"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "reads-the-named-cards",
+   "input": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-2 \"Slice 2: import\" (In Progress), TASK-5 \"Address search: geocoder\" (To Do), TASK-7 \"Slice 6: tiles\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m801 from user, about board tasks (as on the owner's page): TASK-2 \"Slice 2: import\" (In Progress); TASK-5 \"Address search: geocoder\" (To Do)] Which of these two can be done in parallel, and what blocks the second one?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "reads_task_2",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task (view|show) (TASK-)?2\\b|task list"
+    },
+    {
+     "id": "reads_task_5",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task (view|show) (TASK-)?5\\b|task list"
+    },
+    {
+     "id": "does_not_touch_cards",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task (edit|create|archive)"
+    }
+   ]
+  },
+  {
+   "id": "one-card",
+   "input": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-2 \"Slice 2: import\" (In Progress), TASK-5 \"Address search: geocoder\" (To Do), TASK-7 \"Slice 6: tiles\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m802 from user, about board tasks (as on the owner's page): TASK-7 \"Slice 6: tiles\" (To Do)] What does this card need according to its criteria?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "reads_task_7",
+     "type": "field",
+     "name": "actions_now",
+     "re": "task (view|show) (TASK-)?7\\b|task list"
+    },
+    {
+     "id": "does_not_touch_cards",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task (edit|create|archive)"
+    }
+   ]
+  },
+  {
+   "id": "hand-over-one-per-card",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-2 \"Slice 2: import\" (In Progress), TASK-5 \"Address search: geocoder\" (To Do), TASK-7 \"Slice 6: tiles\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m803 from user, about board tasks (as on the owner's page): TASK-5 \"Address search: geocoder\" (To Do); TASK-7 \"Slice 6: tiles\" (To Do)] Start one executor for each of these cards (`hub task run … --board TASK-N`).\n\nWhat do you do in this turn?",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-2 \"Slice 2: import\" (In Progress), TASK-5 \"Address search: geocoder\" (To Do), TASK-7 \"Slice 6: tiles\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m803 from user, about board tasks (as on the owner's page): TASK-5 \"Address search: geocoder\" (To Do); TASK-7 \"Slice 6: tiles\" (To Do)] Start one executor for each selected card: TASK-5, TASK-7 — one per `hub task run … --board <number>`. Do not touch other cards on the board.\n\nWhat do you do in this turn?"
+   },
+   "checks": [
+    {
+     "id": "takes_card_5",
+     "type": "field",
+     "name": "actions_now",
+     "re": "hub task run .*--board (TASK-)?5\\b|task (view|show) (TASK-)?5\\b"
+    },
+    {
+     "id": "takes_card_7",
+     "type": "field",
+     "name": "actions_now",
+     "re": "hub task run .*--board (TASK-)?7\\b|task (view|show) (TASK-)?7\\b"
+    },
+    {
+     "id": "no_run_for_2",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "--board (TASK-)?2\\b"
+    }
+   ]
+  },
+  {
+   "id": "hand-over-one-of-many-open",
+   "note": "30.10: one card out of five open ones was selected, and the lead started executors for all To Do cards. The new button text names the numbers and forbids the rest; \"before\" — the old text (\"each of these\"). first_step_not_list is soft: the lead should not call `task list` first, the number is already in the text.",
+   "input": {
+    "before": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-3 \"Slice 3: import\" (In Progress), TASK-4 \"Filter by date\" (To Do), TASK-22 \"Dark theme\" (To Do), TASK-37 \"Tile cache\" (To Do), TASK-53 \"Export to CSV\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m805 from user, about board tasks (as on the owner's page): TASK-53 \"Export to CSV\" (To Do)] Start one executor for each of these cards (`hub task run … --board TASK-N`).\n\nWhat do you do in this turn?",
+    "after": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-3 \"Slice 3: import\" (In Progress), TASK-4 \"Filter by date\" (To Do), TASK-22 \"Dark theme\" (To Do), TASK-37 \"Tile cache\" (To Do), TASK-53 \"Export to CSV\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m805 from user, about board tasks (as on the owner's page): TASK-53 \"Export to CSV\" (To Do)] Start an executor for the card TASK-53 with `hub task run … --board <number>`. Do not touch other cards on the board.\n\nWhat do you do in this turn?"
+   },
+   "checks": [
+    {
+     "id": "takes_card_53",
+     "type": "field",
+     "name": "actions_now",
+     "re": "hub task run .*--board (TASK-)?53\\b"
+    },
+    {
+     "id": "no_run_for_others",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "--board (TASK-)?(3|4|22|37)\\b"
+    },
+    {
+     "id": "first_step_not_list",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task list"
+    }
+   ]
+  },
+  {
+   "id": "no-label-no-reading",
+   "input": "Session maps — direction maps (board: hub direction maps …; repo /home/x/maps). On the board: TASK-2 \"Slice 2: import\" (In Progress), TASK-5 \"Address search: geocoder\" (To Do), TASK-7 \"Slice 6: tiles\" (To Do). You have no card descriptions or criteria in your context.\n\n[hub:m804 from user] How many tests are in the repo now?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "cards_not_read",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "task (view|show|list|edit|create|archive)"
+    }
+   ]
+  }
+ ]
+}

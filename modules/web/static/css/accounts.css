@@ -1,0 +1,153 @@
+/* "Accounts": the pool of Claude logins and their limits. Page tokens, no colors of its own. */
+.ac { display: grid; gap: var(--space-4, 16px); max-width: 880px; font-variant-numeric: tabular-nums; }
+.ac-sum { margin: 0; font-size: var(--text-sm); }
+.ac-muted, .ac-note { color: var(--muted-foreground); }
+.ac-note { font-size: var(--text-xs); margin: 0; }
+.ac-note code { font-size: inherit; }
+.ac-stop { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); font-weight: 500;
+  background: color-mix(in srgb, var(--destructive) 12%, transparent); color: var(--destructive); }
+.ac-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-3); }
+.ac-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  background: var(--card); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2);
+  container-type: inline-size; }   /* the limit rows ask for the card's width, not the window's (.ac-lim below) */
+.ac-card.on { border-color: color-mix(in srgb, var(--primary) 55%, var(--border)); }
+.ac-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }   /* the badge or "Switch" drops under the title when the two do not fit */
+.ac-title { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.ac-num { color: var(--muted-foreground); font-size: var(--text-xs); }
+.ac-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-kind { color: var(--muted-foreground); font-size: var(--text-xs); white-space: nowrap; flex: 0 100 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* a long email is cut with an ellipsis (it gives way before the name), the card does not get wider */
+.ac-badge { font-size: var(--text-xs); padding: 2px var(--space-2); border-radius: 9999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+.ac-badge.busy { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.ac-go { font-size: var(--text-xs); }
+.ac-note-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); }   /* "Refresh" drops under the text, the text is not squeezed beside it */
+.ac-probe { flex: none; }   /* "Refresh": a reading without a switch (/api/accounts/probe) */
+.ac-probe-err { color: var(--destructive); }
+.ac-tools { display: flex; justify-content: flex-end; margin-bottom: calc(-1 * var(--space-2)); }
+.ac-tools-err { text-align: end; }
+.ac-lim { --lim: color-mix(in srgb, var(--success) 70%, var(--muted-foreground)); display: grid;
+  grid-template-columns: 7ch minmax(60px, 1fr) 4.5ch auto; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
+.ac-lim[data-level="warn"] { --lim: color-mix(in srgb, var(--warning) 75%, var(--muted-foreground)); }
+.ac-lim[data-level="high"] { --lim: color-mix(in srgb, var(--destructive) 75%, var(--muted-foreground)); }
+.ac-lim .ac-muted { font-size: var(--text-xs); white-space: nowrap; }
+.ac-lim .ac-lim-note { grid-column: 2 / -1; white-space: normal; }   /* in place of the bar, percent and reset: no reading */
+@container (max-width: 30em) {   /* a card too narrow for the reset beside the percent (two columns of cards, a phone): the reset goes under the bar */
+  .ac-lim { grid-template-columns: 7ch minmax(60px, 1fr) 4.5ch; }
+  .ac-lim .ac-muted:not(.ac-lim-note) { grid-column: 2 / -1; } }
+.ac-bar { height: 8px; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.ac-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--lim); }
+.ac-pct { text-align: end; font-weight: 500; }
+/* accounts gateway: a switch with an explanation and a status line (NOT WORKING is shown in the error color) */
+.ac-gw { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  background: var(--card); display: grid; gap: var(--space-2); }
+.ac-gw .opt small { display: block; color: var(--muted-foreground); }
+.ac-gw-note:empty { display: none; }
+.ac-gw-state { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.ac-gw-state[data-level="ok"] { color: var(--success); }
+.ac-gw-state[data-level="warn"] { color: var(--warning); }
+.ac-gw-state[data-level="bad"] { padding: var(--space-2) var(--space-3); border-radius: var(--radius); font-weight: 500;
+  background: color-mix(in srgb, var(--destructive) 12%, transparent); color: var(--destructive); }
+
+/* "Secrets" (js/secrets.js): the vault's cards reuse the account cards; the add/edit form is one more card */
+.sec-form h4 { margin: 0; font-size: var(--text-sm); }
+.sec-field { display: grid; gap: 4px; font-size: var(--text-sm); }
+.sec-field input, .sec-field textarea { width: 100%; max-width: 480px; box-sizing: border-box; font: inherit;
+  font-size: var(--text-sm); padding: 5px 9px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--background); color: var(--foreground); }   /* as the hubs list's field (.inst-input) */
+.sec-field small { font-size: var(--text-xs); }
+.sec-form .opt small { display: block; color: var(--muted-foreground); }
+.sec-prev { display: grid; gap: 4px; }   /* "Change": the previous values, each with "Return" (spec d2441132) */
+.sec-prev .ac-note { margin: 0; }
+
+/* "Setup" (js/setup.js): a new hub's checklist — one card per item, a state dot, the step's own controls. The band above
+   the page while a required item is red takes the primary color over the card backing (as the MCP band takes warning). */
+.setupbar { border-bottom: 1px solid color-mix(in oklab, var(--primary) 35%, var(--border));
+  background: color-mix(in oklab, var(--primary) 8%, var(--card)); }
+.setupbar[hidden] { display: none; }
+.setupbar-row { display: flex; align-items: center; gap: var(--space-3); min-height: 40px; box-sizing: border-box;
+  padding: 6px var(--space-6); font-size: var(--text-sm); color: var(--foreground); }
+.setupbar-t { flex: 1; min-width: 0; }
+.setupbar-row .btn { flex: none; }
+/* the app's band (js/setup.js appBand): a failure takes the destructive color; its reason and a progress bar sit under
+   the line; the code field and the buttons stay on the right */
+.setupbar[data-level="fail"] { border-bottom-color: color-mix(in oklab, var(--destructive) 40%, var(--border));
+  background: color-mix(in oklab, var(--destructive) 8%, var(--card)); }
+.setupbar-t { display: grid; gap: 4px; }
+.setupbar-why { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.setupbar[data-level="fail"] .setupbar-why { color: var(--destructive); }
+.setupbar-t .su-prog { max-width: 420px; }
+.setupbar-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); flex: none; }
+.setupbar-acts a.btn { text-decoration: none; }
+.setupbar-code { flex: 0 1 320px; }
+.setupbar-device { justify-self: start; font-size: var(--text-lg); }
+/* a root command to paste into a terminal (the agents' browser on Ubuntu): whole, selectable at one click */
+.setupbar-cmd { justify-self: start; max-width: 100%; font-size: var(--text-xs); overflow-wrap: anywhere;
+  user-select: all; padding: 2px 6px; border-radius: var(--radius-sm); background: var(--muted); }
+.app-setup { margin-bottom: var(--space-4); }
+.app-setup:empty { display: none; }
+.su { display: grid; gap: var(--space-3); max-width: 760px; }
+.su-item { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  background: var(--card); display: grid; gap: var(--space-2); }
+.su-item[data-state="failed"], .su-item[data-state="fail"] { border-color: color-mix(in oklab, var(--destructive) 45%, var(--border)); }
+.su-item[data-state="todo"] { border-color: color-mix(in oklab, var(--primary) 45%, var(--border)); }
+.su-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.su-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--muted-foreground); }
+.su-item[data-state="ok"] .su-dot { background: var(--success); }
+.su-item[data-state="todo"] .su-dot, .su-item[data-state="warn"] .su-dot { background: var(--warning); }
+.su-item[data-state="failed"] .su-dot, .su-item[data-state="fail"] .su-dot { background: var(--destructive); }
+.su-item[data-state="running"] .su-dot { background: transparent; border: 2px solid var(--border);
+  border-top-color: var(--primary); width: 8px; height: 8px; animation: spin 0.9s linear infinite; }
+.su-title { margin: 0; font-size: var(--text-sm); font-weight: 600; flex: 1; min-width: 0; }
+.su-state { flex: none; font-size: var(--text-xs); color: var(--muted-foreground); }
+.su-text { margin: 0; font-size: var(--text-sm); }
+.su-hint { color: var(--muted-foreground); font-size: var(--text-xs); }
+.su-wait { color: var(--muted-foreground); }
+.su-err { margin: 0; font-size: var(--text-xs); color: var(--destructive); overflow-wrap: anywhere; }
+.su-path { font-size: var(--text-xs); overflow-wrap: anywhere; color: var(--muted-foreground); }
+.su-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.su-acts .btn { text-decoration: none; }
+.su-acts a.btn:not(.primary) { color: var(--foreground); }
+.su-prog { display: grid; grid-template-columns: minmax(80px, 1fr) auto; gap: var(--space-2); align-items: center; }
+.su-bar { height: 8px; border-radius: 9999px; background: var(--muted); overflow: hidden; }
+.su-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--primary); }
+.su-pct { font-size: var(--text-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.su-code { display: flex; gap: var(--space-2); align-items: center; max-width: 520px; }
+.su-code input { flex: 1; min-width: 0; height: 30px; box-sizing: border-box; padding: 0 var(--space-2);
+  border: 1px solid var(--input); border-radius: var(--radius); background: var(--background); color: var(--foreground);
+  font: inherit; font-size: var(--text-sm); }
+.su-device { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.su-device-code { font-size: var(--text-xl); font-weight: 600; letter-spacing: 0.12em; padding: var(--space-1) var(--space-3);
+  border: 1px dashed var(--border); border-radius: var(--radius); background: var(--background); user-select: all; }
+.su-doc { margin: 0; padding-inline-start: var(--space-4); font-size: var(--text-xs); display: grid; gap: 2px; }
+.su-doc li[data-level="fail"] b { color: var(--destructive); }
+.su-doc li[data-level="warn"] b { color: var(--warning); }
+@media (max-width: 760px) {
+  .setupbar-row { flex-wrap: wrap; padding: var(--space-2) var(--space-4); }
+  .setupbar-row .btn, .su-acts .btn { min-height: 40px; }
+  .su-code input { height: 40px; } }
+@media (prefers-reduced-motion: reduce) { .su-item[data-state="running"] .su-dot { animation: none; } }
+
+/* "Codex" (a hub entirely on Codex, experiment): the device-code sign-in and the limits */
+.cx > .btn { justify-self: start; }
+.cx-lim { margin: 0; font-size: var(--text-sm); }
+.cx-code { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  background: var(--card); display: grid; gap: var(--space-2); justify-items: start; }
+.cx-code p { margin: 0; }
+.cx-usercode { font-size: var(--text-lg); letter-spacing: 0.08em; }
+/* the Codex account pool: a row per account — name and email, state, limits, "Sign in" */
+.cx-rows { display: grid; gap: var(--space-1); }
+.cx-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+.cx-who { display: grid; min-width: 0; }
+.cx-who > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-who .ac-muted { font-size: var(--text-xs); }
+.cx-state { font-size: var(--text-xs); color: var(--muted-foreground); }
+.cx-row[data-state="active"] .cx-state { color: var(--foreground); font-weight: 600; }
+.cx-row[data-state="lost"] .cx-state, .cx-row[data-state="no"] .cx-state { color: var(--attention); }
+.cx-for { font-weight: 600; }
+.cx-acts { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.cx-critic { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+.cx-critic .ac-sum { flex: 1 1 16rem; }
+@media (max-width: 760px) {
+  .cx-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cx-row .cx-lim { grid-column: 1; } }

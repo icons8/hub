@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+CLAUDE.local.md
+.publish-deny
+.publish-deny-case
+.open-deny
+.claude/worktrees/
+/dist/
+# the app shell writes its PACKAGED next to the code (tools/package/launch.py, core/packaged.py)
+/PACKAGED
+/PACKAGED.part

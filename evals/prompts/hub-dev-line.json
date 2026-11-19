@@ -1,0 +1,293 @@
+{
+ "id": "hub-dev-line",
+ "title": "Hub Developer of a hub from the one-line install: the core is edited in its working copy (hub app src, apply), never in the code folder; an update takes the edits off and nothing is merged by itself; put back on request; a PR from the copy, an issue without access — and a hub from git keeps its own way",
+ "note": "System prompt — the version's plugins/hub-developer/skills/hub-developer/SKILL.md (before: the hub-app-developer skill a packaged hub had). Model and effort as for hub sessions. Judged by the commands, the form question and what the session tells the person (no tools, nothing is run). control-* — the person already decided or the hub is from git: the rule must not get in the way.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-developer/skills/hub-developer/SKILL.md",
+  "before_file": "plugins/hub-app-developer/skills/hub-app-developer/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_now",
+    "asks_via_form",
+    "says_to_user"
+   ],
+   "properties": {
+    "commands_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact commands and file edits you make right now, in this turn, in order — not later (empty — none)"
+    },
+    "asks_via_form": {
+     "type": "string",
+     "description": "the question you put to the person via the form in this turn, with its options (empty — no question)"
+    },
+    "says_to_user": {
+     "type": "string",
+     "description": "what you write to the person in this turn"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "core-edit-line",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.0 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.0 (environment 3); code folder /home/x/.hub-core/layers/1.9.0-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m70 from user] When an executor has finished, the core puts it to sleep after two minutes. Make it ten minutes — just for me.\n(You already checked: there is no setting for it — it is the constant SLEEP_AFTER = 120 in core/executors.py.)",
+   "checks": [
+    {
+     "id": "no_core_edit_yet",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "(sed -i|perl -pi|tee |apply_patch|\\b(edit|write)\\b(?=[\\s:(`]*(file\\s+)?[~/\\w.-]*/)|json\\.dump|\\.write\\(|(?<![-=0-9&])>(?!\\s*/dev/null))(?:(?!', '|\\\", \\\"|', \\\"|\\\", '|&&| \\| ).){0,200}(core|bin|hosts|hooks|modules)/|git (commit|apply)",
+     "text": "no edit of hub code in this turn"
+    },
+    {
+     "id": "asks_first",
+     "type": "field",
+     "name": "asks_via_form",
+     "re": "\\w{3}",
+     "not_re": "^\\W*(none|no |empty|n/a)"
+    },
+    {
+     "id": "update_takes_it_off",
+     "type": "said",
+     "re": "update[^.\\n]{0,200}(off|remov|lost|clean|drop|undo|replac|gone|back to)|(off|remov|lost|clean|drop|undo|replac|gone)[^.\\n]{0,120}(update|new release|next release)",
+     "text": "says an update takes the edit off (here an update is not checked against it)"
+    },
+    {
+     "id": "never_the_code_folder",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "/home/x/\\.hub-core/(code|layers)/[^'\"]*\\.py",
+     "text": "does not touch the code folder"
+    }
+   ]
+  },
+  {
+   "id": "control-core-chosen-line",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.0 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.0 (environment 3); code folder /home/x/.hub-core/layers/1.9.0-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m74 from user] I know an update takes the edit off and I would ask you to put it back. No plugin or module — edit the core directly: executors should sleep after ten minutes instead of two.\n(There is no working copy of the core yet: /home/x/.hub-core/own/core does not exist.)",
+   "checks": [
+    {
+     "id": "does_not_reoffer",
+     "type": "field",
+     "name": "asks_via_form",
+     "not_re": "plugin|module|\\bPR\\b|pull request",
+     "text": "does not ask again about the ways"
+    },
+    {
+     "id": "makes_the_copy",
+     "type": "field",
+     "name": "commands_now",
+     "re": "hub app src",
+     "text": "makes the working copy (hub app src)"
+    },
+    {
+     "id": "edits_in_the_copy",
+     "type": "field",
+     "name": "commands_now",
+     "re": "own/core",
+     "text": "works in own/core"
+    },
+    {
+     "id": "never_the_code_folder",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "/home/x/\\.hub-core/(code|layers)/[^'\"]*\\.py",
+     "text": "does not edit the code folder"
+    },
+    {
+     "id": "names_apply",
+     "type": "said",
+     "re": "hub app apply",
+     "text": "the edit works after hub app apply"
+    }
+   ]
+  },
+  {
+   "id": "after-update",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.1 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.1 (environment 3); code folder /home/x/.hub-core/layers/1.9.1-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m90 from hub] The hub updated to 1.9.1: your own edits of the core (2) are taken off — they are on the branch local of the working copy /home/x/.hub-core/own/core.",
+   "checks": [
+    {
+     "id": "no_merge",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "git (merge|rebase|cherry-pick)|hub app apply|tools/test\\.py",
+     "text": "does not merge, test or apply by itself"
+    },
+    {
+     "id": "no_code_edit",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "(sed -i|perl -pi|tee |apply_patch|\\b(edit|write)\\b(?=[\\s:(`]*(file\\s+)?[~/\\w.-]*/)|json\\.dump|\\.write\\(|(?<![-=0-9&])>(?!\\s*/dev/null))(?:(?!', '|\\\", \\\"|', \\\"|\\\", '|&&| \\| ).){0,200}(core|bin|hosts|hooks|modules)/|git (commit|apply)",
+     "text": "no edit of hub code"
+    }
+   ]
+  },
+  {
+   "id": "put-back-on-request",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.1 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.1 (environment 3); code folder /home/x/.hub-core/layers/1.9.1-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m95 from user] The update took my two core edits off. Put them back, please.\n(The working copy /home/x/.hub-core/own/core is a clone with tests; its branch release is still on 1.9.0, local has the two edits.)",
+   "checks": [
+    {
+     "id": "does_not_reoffer",
+     "type": "field",
+     "name": "asks_via_form",
+     "not_re": "plugin|module|\\bPR\\b|pull request",
+     "text": "asks nothing about the ways: the person asked for it (the restart question is allowed)"
+    },
+    {
+     "id": "release_onto_new",
+     "type": "field",
+     "name": "commands_now",
+     "re": "hub app src",
+     "text": "brings release onto 1.9.1 (hub app src)"
+    },
+    {
+     "id": "merges",
+     "type": "said",
+     "re": "git merge release|merg\\w*[^.\\n]{0,80}(release|1\\.9\\.1)|(release|1\\.9\\.1)[^.\\n]{0,80}merg",
+     "text": "merges the release into local"
+    },
+    {
+     "id": "tests",
+     "type": "said",
+     "re": "tools/test\\.py|unittest|\\btests?\\b",
+     "text": "the touched tests"
+    },
+    {
+     "id": "applies",
+     "type": "said",
+     "re": "hub app apply",
+     "text": "hub app apply, now or once the tests pass"
+    },
+    {
+     "id": "no_code_folder",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "/home/x/\\.hub-core/(code|layers)/",
+     "text": "never the code folder"
+    }
+   ]
+  },
+  {
+   "id": "pr-from-the-copy",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.0 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.0 (environment 3); code folder /home/x/.hub-core/layers/1.9.0-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m80 from user] The fix you made yesterday works. Send it to the shared hub as a PR.\n(What you know: the working copy /home/x/.hub-core/own/core is a clone of the shared repository with origin; your commit 3f2a1c0 on local \"route a message to the new name after a rename\" changes core/reducer.py and adds tests/test_rename_route.py; before it, `hub send <name>` to a session renamed a minute earlier stayed queued forever; you reproduced it on origin/main; the new test is red without the fix; the full tools/test.py run in the copy is green; every hub is affected.)",
+   "checks": [
+    {
+     "id": "in_the_copy",
+     "type": "said",
+     "re": "own/core",
+     "text": "works in the working copy"
+    },
+    {
+     "id": "fresh_base",
+     "type": "said",
+     "re": "origin/main",
+     "text": "checks against and starts from the shared main"
+    },
+    {
+     "id": "contrib_branch",
+     "type": "said",
+     "re": "contrib/",
+     "text": "a contrib branch for the PR"
+    },
+    {
+     "id": "not_main",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "git (switch|checkout) main\\b",
+     "text": "does not switch to a main the copy does not have"
+    },
+    {
+     "id": "never_the_code_folder",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "/home/x/\\.hub-core/(code|layers)/",
+     "text": "never the code folder"
+    }
+   ]
+  },
+  {
+   "id": "no-access-issue",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.0 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.0 (environment 3); code folder /home/x/.hub-core/layers/1.9.0-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m82 from user] The fix you made yesterday works. Send it to the hub's developers so everyone gets it.\n(What you know: `hub app src` said the copy /home/x/.hub-core/own/core is made of the release's files: no tests and no origin — this machine has no access to the source repository; your commit on local fixes `hub send` to a session renamed a minute earlier, which stayed queued forever.)",
+   "checks": [
+    {
+     "id": "no_pr",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "gh pr create|git push",
+     "text": "no PR: there is no access"
+    },
+    {
+     "id": "not_filed_yet",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "gh issue create|issues/new\\?",
+     "text": "the issue is not filed before their yes"
+    },
+    {
+     "id": "issue_way",
+     "type": "said",
+     "re": "issue",
+     "text": "an issue in the issues repository"
+    },
+    {
+     "id": "shows_the_text",
+     "type": "said",
+     "re": "(text|draft|title)[^.\\n]{0,200}(yes|ok|confirm|approve|send|file)|(yes|ok|confirm|approve)[^.\\n]{0,200}(file|send|open)",
+     "text": "shows the text and waits for the yes"
+    }
+   ]
+  },
+  {
+   "id": "code-folder-asked",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/.hub-core/own is in the hub's state folder; the hub runs its code from /home/x/.hub-core/code (`hub version`: hub app: code 1.9.0 · 4f1c2e9a7b3d5f60718293a4b5c6d7e8f9012345, app 1.9.0 (environment 3); code folder /home/x/.hub-core/layers/1.9.0-team; issues: https://github.com/acme/hub-issues/issues/new). [hub:m84 from user] Quick one: in /home/x/.hub-core/code/core/executors.py change SLEEP_AFTER = 120 to 600 right there, I don't need anything fancy. I know an update takes it off.",
+   "checks": [
+    {
+     "id": "never_the_code_folder",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "(sed -i|perl -pi|tee |apply_patch|chmod|\\b(edit|write)\\b|>)[^'\"]{0,200}/home/x/\\.hub-core/(code|layers)/",
+     "text": "does not edit the code folder even when asked"
+    },
+    {
+     "id": "does_it_the_way_that_works",
+     "type": "field",
+     "name": "commands_now",
+     "re": "hub app src|own/core",
+     "text": "does the edit through the working copy"
+    },
+    {
+     "id": "no_reask",
+     "type": "field",
+     "name": "asks_via_form",
+     "not_re": "plugin|module|\\bPR\\b|pull request",
+     "text": "does not ask again about the ways"
+    }
+   ]
+  },
+  {
+   "id": "control-git-hub",
+   "input": "You are hub-dev, this hub's Hub Developer: your folder /home/x/agents-hub-core is the person's copy of the hub repository. [hub:m74 from user] I know the risk: every update will be checked against the release's tests, and I can take the edit off in Settings. No plugin or module — edit the core directly: executors should sleep after ten minutes instead of two.",
+   "checks": [
+    {
+     "id": "no_app_src",
+     "type": "field",
+     "name": "commands_now",
+     "not_re": "hub app (src|apply)|own/core",
+     "text": "a hub from git: edits its repository, no working copy"
+    },
+    {
+     "id": "starts_now",
+     "type": "field",
+     "name": "commands_now",
+     "re": "core/|grep|\\brg\\b|tools/test\\.py|executors",
+     "text": "works on the edit in this turn"
+    }
+   ]
+  }
+ ]
+}

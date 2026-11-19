@@ -1,0 +1,73 @@
+{
+ "id": "gist-short-answer-portable",
+ "title": "A short answer to the owner: no gist needed — does not call hub gist",
+ "note": "Guards a part of the core's gist addendum: a short result and a turn without other tools — no gist (an extra step costs).",
+ "real": [
+  "maps"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000006",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "maps",
+   "data": {
+    "cwd": "$work/maps",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000007",
+    "about": "Maps and their checks",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "What is 17 times 23? Answer with a single number.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "no_gist",
+   "type": "no_event",
+   "text": "no hub gist",
+   "match": {
+    "type": "session.gist",
+    "entity": "maps"
+   }
+  }
+ ]
+}

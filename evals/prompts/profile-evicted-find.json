@@ -1,0 +1,90 @@
+{
+ "id": "profile-evicted-find",
+ "title": "A recipe that lives only in the agent's evicted items: the agent finds it with `hub profile evicted` and applies it",
+ "note": "Owner decision 2026-11-08 (m1899782, m1900588): the core moves old unpinned items out of an agent's CLAUDE.md over the cap; the agent sees the line EVICTED and the command `hub profile evicted --grep <topic>`. \"before\" — main: no line, no command (its bin/hub refuses it); \"after\" — the line and the command on the case's own state (the evicted file seeded by `files`). Control turn: the same recipe right in the file. The recipe and names are made up. The seeded file lies in the model's folder (the stand's state): a find counts only through the command (via_command; the first run without it: \"before\" 4/8 by reading the stand's file). Threshold set before the run: in-evicted after >= 3/8 found and applied, else the owner hears plainly that an evicted item is lost for one-turn work (the agent-dev measure: \"read the file on the topic\" 0/44).",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash,Read",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "system": "You are the agent `maps` of the agents-hub hub: a permanent session, Backend Developer of the maps service. The hub's commands are `hub` in the shell (Bash). Below, after a line, is your own CLAUDE.md as the core gives it to you at every start (its file is <state>/agents/s-maps/CLAUDE.md).\n\n---\n\n# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## 📌 Owner's decisions\n- Never deploy maps on Friday (the owner, 12.10).\n- Production rollouts only on the owner's explicit yes.\n- Release notes go to the owner in the result text, not as a card asking \"publish?\".\n\n## Knowledge\n- Tiles: rebuild only from a version tag, never from `latest` — a rebuild from latest served half old tiles.\n- The staging database is shared with search: never truncate its tables.\n- Routing API tests need the fake OSRM: `make fake-osrm` before `make test`.\n- A failing tile job: look at `jobs/tiles.log` first, the queue second.\n- Search for a street name goes through the geocoder's `/v2/lookup`, not `/v1` (v1 drops diacritics).\n- Large GeoJSON uploads: split by 50 MB, the gateway refuses bigger bodies.\n- The nightly tile diff report lands in `reports/diff-<date>.html`; an empty report means the job did not run.\n- Map styles live in `styles/`; a style change needs `make sprites` or icons go missing.\n\n## Lessons\n- Run the routing tests before a commit: `make test` (about 2 min).\n- A tile cache purge needs the CDN token from the vault, not the repo.\n",
+ "prompt": {
+  "file": "hosts/streamjson.py",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands",
+    "reply"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you will run for the task on staging, in order (not the hub commands you used to look things up)"
+    },
+    "reply": {
+     "type": "string",
+     "description": "the text of your reply in this turn"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LESSONS"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "EVICTED",
+    "optional": true
+   }
+  ]
+ },
+ "files": {
+  ".hub-eval/state/journal.jsonl": "{\"seq\": 1, \"ts\": 1762600000, \"type\": \"session.requested\", \"entity\": \"maps\", \"data\": {\"cwd\": \"/w/maps\", \"session_id\": \"s-maps\", \"role\": \"agent\", \"about\": \"maps\", \"channel\": \"cli\", \"owner\": true}}\n",
+  ".hub-eval/state/agents/s-maps/CLAUDE.evicted.md": "# Evicted from CLAUDE.md\n\nItems the core moved out of the agent's CLAUDE.md over its size cap, whole, as they were (the core writes this file; `hub profile restore <id>` puts one back).\n\n## e1f2a3b4c5d6a · 2026-11-07 09:00 UTC · ## Knowledge\n- Geocoder reindex on staging: first `make geo-freeze SHARD=<region>`, then `make geo-reindex SHARD=<region>`, then `make geo-thaw SHARD=<region>`; a reindex of an unfrozen shard locks the shared database for an hour.\n\n## e6d5c4b3a2f1b · 2026-11-07 09:00 UTC · ## Knowledge\n- Old routing pool size was 8; raised to 20 on 02.11.\n\n## e0a9b8c7d6e5c · 2026-11-07 09:00 UTC · ## Knowledge\n- Purging the CDN for one map style: `tools/edge-flush --surrogate style-<name>`; a flush without the surrogate key drops the whole cache and cold tiles take 30 min to warm.\n"
+ },
+ "turns": [
+  {
+   "id": "in-evicted",
+   "input": "[hub:m140 from user] Reindex the geocoder for the region eu-west on staging — search shows stale addresses there. Plan it now: which exact commands will you run?",
+   "checks": [
+    {
+     "id": "freeze",
+     "type": "field",
+     "name": "commands",
+     "re": "geo-freeze SHARD=eu-west.*geo-reindex SHARD=eu-west",
+     "text": "the shard is frozen before the reindex"
+    },
+    {
+     "id": "via_command",
+     "type": "any_call",
+     "re": "^profile evicted\\b",
+     "text": "found through hub profile evicted, not by reading the stand's files"
+    }
+   ]
+  },
+  {
+   "id": "in-evicted-purge",
+   "input": "[hub:m141 from user] The night style shows broken icons after yesterday's style change — purge its cached tiles on the CDN. Plan it now: which exact commands will you run?",
+   "checks": [
+    {
+     "id": "surrogate",
+     "type": "field",
+     "name": "commands",
+     "re": "edge-flush\\s+--surrogate\\s+style-night",
+     "text": "the flush is scoped to the style's surrogate key"
+    },
+    {
+     "id": "via_command",
+     "type": "any_call",
+     "re": "^profile evicted\\b",
+     "text": "found through hub profile evicted, not by reading the stand's files"
+    }
+   ]
+  }
+ ]
+}

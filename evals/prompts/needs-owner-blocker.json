@@ -1,0 +1,120 @@
+{
+ "id": "needs-owner-blocker",
+ "title": "The watchdog's “waits for the owner” question: a blocker the session only reports (a locked screen, a service down) with the step scheduled or retried by itself is not the owner's action; a direct request to the owner still is",
+ "note": "Live case: a result that said the computer is locked, so the message can't go now, and it is scheduled for 08:15, became an owner to-do “unlock the computer before 08:15 and send”. Texts are made up and neutral. locked-no-retry and code-no-ask: a reported obstacle with no step of the session's own stays the owner's (the true branch: a physical action, a login). Input = the language line + the end of the result, as the watchdog sends it (no open cards).",
+ "prompt": {
+  "file": "modules/watch/watch.py",
+  "name": "NEEDS_PROMPT",
+  "schema_name": "NEEDS_SCHEMA"
+ },
+ "turns": [
+  {
+   "id": "locked-screen-reported",
+   "input": "Owner's language: English.\nAt 08:15 the shop gets a question about the price and timing of a repair. Right now the computer is locked, and the chat app does not send from it.\n\n- **Why:** the team looks for a backup option, the two other shops are silent.\n- **Message:** the team's text unchanged, in your name, no signature. We have not written to them before.\n- **Reply:** any reply, even a bot's, I pass to the team word for word and will not ask again.\n- **Call:** not touching it. Around 13:40 the team decides on the 16:00 call and sends what to confirm.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "locked-screen-scheduled",
+   "input": "Owner's language: English.\nThe send to the shop goes out at 08:15: a question about the price and timing of a repair. The computer is locked right now, so the chat app can't send from it now; the send is scheduled for 08:15.\n\n- **Why:** the team needs a backup option, two other shops are silent.\n- **Message:** the team's text unchanged, in your name, no signature.\n- **Reply:** any reply, even a bot's, I pass to the team word for word.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "locked-screen-retry",
+   "input": "Owner's language: English.\nCouldn't post the reply in the chat: the screen is locked and the browser can't reach the page now. I'll retry automatically at 09:00 and report the result.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "service-down-later",
+   "input": "Owner's language: English.\nThe calendar API is down right now (503), so the event is not created yet. A retry is queued for 14:00; nothing else changes.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "locked-no-retry",
+   "input": "Owner's language: English.\nThe computer is locked, so the message to the shop did not go out. Nothing else is pending.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "code-no-ask",
+   "input": "Owner's language: English.\nThe hosting panel login asks for a code from an SMS, it came to your phone. Can't get any further without it.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "asks-unlock",
+   "input": "Owner's language: English.\nThe send is stuck: the computer is locked and only you can unlock it. Please unlock it before 08:15 so the message goes out on time.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "asks-login",
+   "input": "Owner's language: English.\nWhatsApp Web logged out on this computer. Scan the QR code on the screen with your phone so I can send the message to the studio.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "asks-decision",
+   "input": "Owner's language: English.\nTwo studios answered: A asks $300 and 5 days, B asks $250 and 10 days. Which one do we take?",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  }
+ ]
+}

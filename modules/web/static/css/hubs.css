@@ -1,0 +1,131 @@
+/* The hub bus (js/hubs.js): Settings → Hubs, the «Hubs» group of the list, a linked hub's page. Page tokens only:
+   themes color it through them. */
+.bus-tab { display: grid; gap: var(--space-3); max-width: 820px; }
+.bus-tab .lead { font-size: var(--text-base); line-height: 1.55; margin: 0; }
+.bus-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.bus-head .day { margin: 0; }
+.bus-panel { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3) var(--space-4);
+  background: var(--card); display: grid; gap: var(--space-2); min-width: 0; }
+.bus-row { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; min-width: 0; }
+.bus-tab .hint, .bus-view .hint, .bus-feed .hint { font-size: var(--text-xs); color: var(--muted-foreground); line-height: 1.5; margin: 0; }
+/* a finger: the buttons of the tab are 40 px high (the Settings' own are 26 — a mouse's size) */
+@media (pointer: coarse), (max-width: 760px) { .bus-tab .btn { min-height: 40px; padding: 0 var(--space-3); } }
+.bus-chip { display: inline-block; font-size: calc(11px * var(--ui-scale, 1)); line-height: 1; padding: 3px 8px; border-radius: 9999px; font-weight: 600;
+  white-space: nowrap; background: color-mix(in oklab, var(--primary) 16%, var(--card)); color: var(--primary); }
+.bus-chip.ok { background: color-mix(in oklab, var(--success) 18%, var(--card)); color: color-mix(in oklab, var(--success) 75%, var(--foreground)); }
+.bus-chip.warn { background: color-mix(in oklab, var(--warning) 22%, var(--card)); color: color-mix(in oklab, var(--warning) 60%, var(--foreground)); }
+.bus-chip.mute { background: var(--muted); color: var(--muted-foreground); }
+.bus-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--text-sm); }
+.bus-step { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.bus-step .m { width: 18px; text-align: center; flex: none; }
+.bus-step.ok .m { color: var(--success); } .bus-step.run .m { color: var(--primary); }
+.bus-step.fail { color: var(--destructive); } .bus-step.wait { color: var(--muted-foreground); padding-inline-start: 28px; }
+.bus-step .why { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.bus-fail { display: grid; gap: var(--space-2); }
+.bus-fail p { margin: 0; }
+.bus-cmd { display: block; font: var(--text-xs)/1.5 var(--font-mono); padding: var(--space-2) var(--space-3); border-radius: var(--radius);
+  background: var(--code-bg, var(--muted)); overflow-wrap: anywhere; user-select: all; }
+.bus-err { color: var(--destructive); font-size: var(--text-sm); margin: 0; }
+.bus-link, .bus-paste { width: 100%; box-sizing: border-box; font: calc(12px * var(--ui-scale, 1))/1.5 var(--font-mono); padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius); border: 1px dashed var(--border); background: var(--muted); color: var(--foreground); resize: vertical;
+  word-break: break-all; }
+.bus-paste { border-style: solid; background: var(--background); min-height: 2.8em; }
+.bus-link:focus, .bus-paste:focus { outline: 2px solid color-mix(in oklab, var(--primary) 60%, transparent); outline-offset: 1px; }
+.bus-wait { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); border-top: 1px solid var(--border); padding-top: var(--space-2); }
+/* an open invitation: its line, and — when «Show» opened it — its text and buttons right under the line, in place */
+.bus-inv { display: grid; gap: var(--space-2); min-width: 0; }
+.bus-inv + .bus-inv { border-top: 1px solid var(--border); padding-top: var(--space-2); }
+.bus-inv-who { display: grid; gap: 2px; min-width: 0; flex: 1 1 12em; }
+.bus-inv-name { font-size: var(--text-base); font-weight: 650; overflow-wrap: anywhere; }
+.bus-inv-who .hint { overflow-wrap: anywhere; }
+.bus-inv-open { display: grid; gap: var(--space-2); min-width: 0; }
+@media (max-width: 560px) { .bus-inv .bus-acts { margin-inline-start: 0; } }
+.bus-banner { border-radius: var(--radius); padding: var(--space-2) var(--space-3); font-weight: 600; display: flex;
+  align-items: center; gap: var(--space-2);
+  background: color-mix(in oklab, var(--success) 14%, var(--card)); border: 1px solid color-mix(in oklab, var(--success) 40%, var(--border)); }
+.bus-consent { margin: 0; padding-inline-start: 1.2em; line-height: 1.65; font-size: var(--text-sm); }
+.bus-q { margin: 0; font-size: var(--text-base); }
+.bus-kv { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px var(--space-3); margin: 0; font-size: var(--text-sm); }
+.bus-kv dt { color: var(--muted-foreground); } .bus-kv dd { margin: 0; overflow-wrap: anywhere; }
+.bus-name { font-size: var(--text-base); font-weight: 650; overflow-wrap: anywhere; }
+.bus-acts { margin-inline-start: auto; display: inline-flex; gap: var(--space-2); flex-wrap: wrap; }
+.bus-code-line { font: 600 calc(14px * var(--ui-scale, 1)) var(--font-mono); letter-spacing: .04em; padding: 3px 10px;
+  border-radius: var(--radius); background: var(--muted); }
+.bus-code-line.quiet { font: var(--text-xs) var(--font-mono); font-weight: 400; padding: 0; background: none; color: var(--muted-foreground); }
+.bus-rename { font: inherit; font-size: var(--text-base); font-weight: 650; min-width: 12em; max-width: 100%; padding: 3px 8px;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+.bus-stated { margin: 0; align-self: center; }
+.bus-code-in { font: var(--text-sm) var(--font-mono); width: 17em; max-width: 100%; padding: 5px 8px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--background); color: var(--foreground); }
+.bus-contact { gap: var(--space-1); }
+.bus-contact .set-more > summary { padding: 2px 0; }
+/* whose hub: a person of the contacts book */
+.bus-person-field { display: grid; gap: var(--space-1); }
+.bus-person, .bus-person-new { font: inherit; font-size: var(--text-sm); box-sizing: border-box; max-width: 28em; padding: 4px 8px;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+.bus-person-new[hidden] { display: none; }
+.bus-personrow { display: grid; gap: var(--space-1); }
+.bus-personrow > .bus-row > span { font-size: var(--text-sm); color: var(--muted-foreground); }
+.bus-person-name { color: var(--muted-foreground); }
+.bus-hubname-in, .bus-invite-name { font: inherit; font-size: var(--text-sm); box-sizing: border-box; min-width: 12em; max-width: 28em;
+  padding: 5px 9px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
+.bus-hubname-in { flex: 1 1 14em; }
+.bus-invite-name { width: 100%; }
+.bus-hubname.unset { border-color: color-mix(in oklab, var(--warning) 70%, var(--border)); }
+.bus-invite-field { display: grid; gap: var(--space-1); }
+.bus-joinrow { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.bus-mono { font-family: var(--font-mono); }
+@media (max-width: 560px) { .bus-kv { grid-template-columns: minmax(0, 1fr); } .bus-kv dd { margin-bottom: var(--space-2); } }
+
+/* the session list's group */
+.bus-srow { text-decoration: none; color: inherit; }
+
+/* a linked hub's page: the owners' bubbles and the liaison's threads in one feed */
+.bus-vhead .bus-hchips { display: inline-flex; gap: var(--space-2); flex-wrap: wrap; }
+.bus-vhead .bus-htools { margin-inline-start: auto; display: inline-flex; gap: var(--space-2); }
+.bus-vhead .bus-code { flex-basis: 100%; }
+.bus-feed { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--space-4); }
+.bus-feed .day { text-align: center; font-size: var(--text-xs); color: var(--muted-foreground); margin: var(--space-4) 0 var(--space-1); }
+.bus-bub { display: flex; flex-direction: column; margin: 4px 0; }
+.bus-bub .bub { max-width: min(78%, 640px); padding: 8px 12px; border-radius: 14px; line-height: 1.5; font-size: var(--text-base);
+  white-space: pre-wrap; overflow-wrap: anywhere; }
+.bus-bub.me { align-items: flex-end; } .bus-bub.me .bub { background: color-mix(in oklab, var(--primary) 16%, var(--card)); }
+.bus-bub.you { align-items: flex-start; }
+.bus-bub.you .bub { border: 1px dashed color-mix(in oklab, var(--primary) 50%, var(--border)); border-inline-start: 3px solid var(--primary);
+  background: var(--card); }
+.bus-bub .st, .bus-bub .fr { font-size: calc(11px * var(--ui-scale, 1)); color: var(--muted-foreground); margin: 2px 6px 0; }
+.bus-bub .fr { margin: 0 4px 3px; }
+.bus-bub .st.delivered { color: color-mix(in oklab, var(--success) 75%, var(--foreground)); }
+.bus-bub .st.expired, .bus-bub .st.refused { color: var(--destructive); }
+.bus-ex { margin: var(--space-2) 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card);
+  display: grid; overflow: hidden; }
+.bus-ex-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: center; width: 100%; border: 0;
+  border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 55%, var(--card)); color: var(--muted-foreground);
+  font: inherit; font-size: var(--text-xs); padding: 4px var(--space-4); cursor: pointer; text-align: start; }
+.bus-ex-head:hover { color: var(--foreground); }
+.bus-ex-toggle { text-decoration: underline; text-underline-offset: 2px; }
+.bus-m { display: grid; gap: 4px; padding: 8px var(--space-4); border-inline-start: 3px solid var(--border); }
+.bus-m + .bus-m { border-top: 1px solid var(--border); }
+.bus-m.in { border-inline-start-color: var(--primary); }
+.bus-m .bus-by { display: flex; gap: var(--space-2); align-items: baseline; font-size: var(--text-xs); color: var(--muted-foreground); }
+.bus-m .bus-who { color: var(--foreground); font-weight: 600; overflow-wrap: anywhere; }
+.bus-m .bus-when { margin-inline-start: auto; white-space: nowrap; }
+.bus-m .bus-t { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.bus-m .bus-foot { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.bus-chip.bad { background: color-mix(in oklab, var(--destructive) 16%, var(--card)); color: var(--destructive); }
+.bus-empty { text-align: center; margin: var(--space-6) auto; max-width: 460px; display: grid; gap: var(--space-2); }
+.bus-empty h3 { margin: 0; font-size: var(--text-base); }
+/* «Tell the hub»: the field is the session field's component (dock.css); only the note before the check is its own */
+.bus-dock .bus-unchecked { margin: var(--space-2) 0 0; }
+.bus-dock[hidden], .bus-dock .bus-unchecked[hidden] { display: none; }
+html.glass .bus-panel, html.glass .bus-ex { background: color-mix(in oklab, var(--card) 82%, transparent); }
+/* themes with a picture under the feed: the small lines get a plate like feed blocks (base.css art-plates) */
+html.art-plates .bus-feed .day, html.art-plates .bus-bub .fr, html.art-plates .bus-bub .st,
+html.art-plates .bus-feed > .hint {
+  background: color-mix(in oklch, var(--card) 90%, transparent); border-radius: var(--radius); padding: 2px var(--space-2); }
+html.art-plates .bus-feed .day { align-self: center; }
+html.art-plates .bus-bub .fr, html.art-plates .bus-bub .st { align-self: inherit; }
+html.art-plates .bus-bub.me .st { align-self: flex-end; } html.art-plates .bus-bub.you .fr, html.art-plates .bus-bub.you .st { align-self: flex-start; }
+.bus-ttl-pick { padding-block: 3px; padding-inline-start: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background-color: var(--card); font-size: var(--text-sm); }
+.bus-bub .bub.gone { color: var(--muted-foreground); font-style: italic; }

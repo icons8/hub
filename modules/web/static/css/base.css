@@ -1,0 +1,247 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+html, body { background: var(--shell); }   /* gray shell; the window with the feed is white */
+body { background: var(--shell); color: var(--foreground); font: var(--text-md)/var(--leading) var(--font);
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+/* digits, time and percentages — Onest with tabular figures; mono is only for code, paths and commands */
+::selection { background: var(--selection); color: var(--foreground); }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
+/* theme art (js/themes.js): an image under a veil of the background color — the theme sets the veil density, the text
+   stays readable; glass — panels are translucent (--card with transparency) and blur the art beneath them */
+html.has-art body { background: linear-gradient(var(--art-tint), var(--art-tint)),
+  var(--art-image) var(--art-position) / cover no-repeat fixed, var(--shell);
+  --art-tint: color-mix(in oklch, var(--background) var(--art-veil), transparent); }
+html.glass aside, html.glass .composer, html.glass dialog, html.glass .summary, html.glass .menu, html.glass .select-foot { backdrop-filter: blur(18px) saturate(1.3); }
+/* plates: under each feed block — a plate in the card color, the art shows between blocks */
+html.art-plates main .feed .row > .b, html.art-plates main .status:not(:empty) {
+  background: color-mix(in oklch, var(--card) 90%, transparent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
+html.glass main > .head { background: color-mix(in oklch, var(--background) 45%, transparent); backdrop-filter: blur(18px) saturate(1.3); }
+button, input, select, textarea { font: inherit; color: inherit; }
+/* custom select arrow: the system one has no right inset, stuck to the border and sat crooked; same as .theme-pick in "Files".
+   Own select rules paint background-color and set padding-left/-block, resetting neither the arrow nor its room */
+select { appearance: none; -webkit-appearance: none; padding-inline-end: 22px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-size: 4px 4px; background-repeat: no-repeat;
+  background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; }
+[dir="rtl"] select { background-position: 8px 50%, 12px 50%; }   /* the arrow at the line end */
+/* links without a class of their own use the accent (blue = clickable); link buttons and list items are colored by their own rules */
+a:not([class]) { color: var(--primary); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+/* thin scrollbars */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.icon { width: 16px; height: 16px; fill: currentColor; flex: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.muted { color: var(--muted-foreground); }
+/* hidden always hides: a class's own display (.flow-tip is grid) overrode the browser rule */
+[hidden] { display: none !important; }
+
+.app { --left-w: 296px; --right-w: clamp(320px, 30vw, 440px); --gap: 8px; position: relative; display: grid;
+  grid-template-columns: var(--left-w) minmax(0, 1fr); column-gap: var(--gap); padding-block: var(--gap); padding-inline: 0 var(--gap);
+  box-sizing: border-box; height: 100vh; height: 100dvh; }
+/* window: white, large rounding, a hairline frame instead of borders; content is clipped inside */
+main, .side { background: var(--background); border-radius: var(--radius-xl); box-shadow: var(--shadow-plate); overflow: hidden; }
+/* theme art sits under the windows: a solid background would cover it; glass below makes .side translucent again */
+html.has-art main, html.has-art .side { background: transparent; }
+.app.left-folded { padding-inline-start: var(--gap); }
+/* the panel to the right of the session — the home of session.aside plugins (API 1.6): threads next to the conversation */
+.app.with-side { grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w); }
+.app > aside { min-width: 0; }
+.app.left-folded > aside { visibility: hidden; overflow: hidden; border-inline-end: 0; }
+/* dividers: drag to resize, drag to the edge to fold, drag from the edge to pull out */
+.grip { position: absolute; top: 0; bottom: 0; z-index: var(--z-grip); width: 9px; cursor: col-resize; touch-action: none; outline: 0; }
+/* in the middle of the gap between windows (the right one used to sit inside the panel window); .app also has a --gap padding on the right */
+.grip.left { inset-inline-start: calc(var(--left-w) + var(--gap) / 2 - 4.5px); }
+.grip.right { inset-inline-end: calc(var(--right-w) + var(--gap) * 1.5 - 4.5px); }
+.app.left-folded .grip.left { inset-inline-start: 0; }
+.app:not(.with-side) .grip.right { inset-inline-end: 0; }
+.grip::after { content: ""; position: absolute; top: 0; bottom: 0; inset-inline-start: 4px; width: 1px; background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out); }
+.grip:hover::after, .grip:focus-visible::after, .grip.dragging::after { inset-inline-start: 3px; width: 3px; background: var(--ring); }
+.grip.folding::after { background: var(--muted-foreground); }
+/* a folded panel is a visible strip at the edge, used to pull it out */
+.app.left-folded .grip.left::after, .app:not(.with-side) .grip.right::after { inset-inline-start: 3px; width: 3px; background: var(--border); }
+/* a folded panel gets a tab in the middle of the edge: it shows the panel can be pulled out */
+.app.left-folded .grip.left::before, .app:not(.with-side) .grip.right::before { position: absolute; top: 50%; width: 14px;
+  height: 36px; margin-top: -18px; display: grid; place-items: center; border: 1px solid var(--border); background: var(--card);
+  color: var(--muted-foreground); font-size: var(--text-xs); line-height: 1; }
+.app.left-folded .grip.left::before { content: "›"; inset-inline-start: 0; border-inline-start: 0; border-radius: 0; border-start-end-radius: var(--radius); border-end-end-radius: var(--radius); }
+.app:not(.with-side) .grip.right::before { content: "‹"; inset-inline-end: 0; border-inline-end: 0; border-radius: 0; border-start-start-radius: var(--radius); border-end-start-radius: var(--radius); }
+/* a right-to-left page (Arabic) mirrors through the logical properties; ‹ and › turn by themselves (bidi-mirrored glyphs) */
+/* code, paths and commands stay left to right inside right-to-left text */
+[dir="rtl"] :is(pre, code, kbd) { direction: ltr; unicode-bidi: isolate; }
+[dir="rtl"] pre { text-align: left; }
+/* what people and sessions write is in any language: in a right-to-left page each paragraph takes the direction of its
+   first letter (an English result stays left to right, an Arabic one right to left), and so does typing in a field */
+[dir="rtl"] :is(textarea, input:not([type]), input[type="text"], input[type="search"], .row > .b, .md :is(p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6), legend, label.opt :is(b, span, small), .strip-row .t) { unicode-bidi: plaintext; }
+.grip:hover::before { color: var(--foreground); }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe { pointer-events: none; }   /* an embedded frame (a file in the panel) does not capture mouse movement */
+.side { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.side > .slot { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+html.glass .side { background: color-mix(in oklch, var(--background) 45%, transparent); backdrop-filter: blur(18px) saturate(1.3); }
+
+/* ---- main part ---- */
+main { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; position: relative; }
+/* rows are pinned: a hidden banner doesn't drop out of the grid, otherwise the feed would size to its text and the input
+   box would get the remainder of the window and "jump" toward the text */
+main > .top { grid-row: 1; min-width: 0; } .top[hidden] { display: none; } main > .banner { grid-row: 2; } main > .head { grid-row: 3; } main > .feed { grid-row: 4; }
+main > .dock { grid-row: 5; }
+.head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-6); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  min-width: 0; }   /* a board or background row without wrapping doesn't stretch the header wider than the screen */
+/* the session name stays on one line (a name wrapping to a second line looks ugly);
+   if it doesn't fit — an ellipsis, the full name on hover */
+.head h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0; max-width: 100%; }
+.pill { font-size: var(--text-xs); padding: 1px var(--space-2); border-radius: 9999px; background: var(--muted); color: var(--muted-foreground); }
+/* state label: the state color mixed with the text color — contrast on the gray pill background is at least 4.5:1 in both themes (measured) */
+.pill[data-s="busy"] { color: color-mix(in oklch, var(--st-work) 70%, var(--foreground)); }
+.pill[data-s="dialog"] { color: color-mix(in oklch, var(--st-wait) 70%, var(--foreground)); }
+.pill[data-s="idle"] { color: color-mix(in oklch, var(--st-free) 75%, var(--foreground)); }
+.pill[data-s="failed"] { color: color-mix(in oklch, var(--st-wait) 70%, var(--foreground)); }
+/* an executor stopped at once (owner, hub): a stop, not sleep after handing in */
+.pill[data-s="stopped"] { color: var(--destructive); background: color-mix(in oklch, var(--destructive) 12%, var(--muted)); }
+.head .spacer { flex: 1; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+/* in the header the chips shrink with an ellipsis before the buttons wrap to a second line (with the right panel open,
+   "Stop" and "More" used to wrap) — basis 0, they grow into the free space, one line inside */
+.head > .chips { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.head > .chips > .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+.head > .chips ~ .spacer { flex: 0 0 0; }
+.chip { font-size: var(--text-xs); padding: 0 var(--space-2); border-radius: 9999px; border: 1px solid var(--border); color: var(--muted-foreground); }
+button.chip { background: transparent; font: inherit; font-size: var(--text-xs); cursor: pointer; }
+button.chip:hover { color: var(--foreground); border-color: var(--input); }
+.chip.warn { border-color: var(--warning); color: var(--foreground); }
+.btn.back { display: none; }
+/* the way back is a sign, one on every screen: the text stays for screen readers and search */
+.btn.back { font-size: 0; min-width: 36px; justify-content: center; }
+.btn.back::before { content: "‹"; content: "‹" / ""; font-size: calc(var(--text-lg) * 1.5); line-height: 1; color: var(--foreground); }
+
+.btn { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 30px; padding: 0 var(--space-3);
+  border-radius: var(--radius); border: 1px solid var(--input); background: var(--card); cursor: pointer; }
+.btn:hover { background: var(--accent); }
+.btn:disabled { cursor: not-allowed; color: var(--muted-foreground); }
+.btn.primary { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
+.btn.primary:hover { background: color-mix(in srgb, var(--primary) 88%, var(--foreground)); }
+.btn.quiet { border-color: transparent; background: transparent; }
+.btn.quiet:hover { background: var(--accent); }
+.btn.danger { color: var(--destructive); }
+
+/* medium windows: a narrower list, smaller feed and input-box padding — the session header doesn't break (≤1100) */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .app { --left-w: 264px; }
+  .head { padding-inline: var(--space-4); gap: var(--space-2); }
+  .feed { padding-inline: var(--space-4); }
+  .dock { padding-inline: var(--space-4); }
+}
+@media (max-width: 760px) {
+  .head { padding: var(--space-2) var(--space-3); }
+  .feed { padding-inline: var(--space-3); }
+  .dock { padding-inline: var(--space-3); }
+  .app { grid-template-columns: 1fr; padding: 0; column-gap: 0; }
+  main, .side { border-radius: 0; box-shadow: none; }
+  .app[data-view="list"] aside { background: var(--shell); }
+  .app[data-view="session"] aside { display: none; }
+  .app[data-view="list"] main { display: none; }
+  .app.with-side { grid-template-columns: 1fr; }
+  .grip { display: none; }
+  .app.left-folded > aside { visibility: visible; overflow: visible; }   /* narrow screen: the list is a separate view */
+  .side { position: fixed; inset: 0; z-index: var(--z-panel); border-inline-start: 0; }   /* narrow screen: the panel overlays the feed, opened by a button */
+  .btn.back { display: inline-flex; }
+  .head, .feed, .dock { padding-inline-start: var(--space-4); padding-inline-end: var(--space-4); }
+  .search kbd { display: none; }
+}
+
+/* theme kit (theme API 1.3): icons and avatars as images, a font for headings and names */
+.kit-img { display: inline-block; background: center / contain no-repeat; image-rendering: pixelated; vertical-align: middle; }
+.icon.kit-img { width: 16px; height: 16px; }
+.avatar.kit-img { width: 1.15em; height: 1.15em; }
+.chip-glyph.kit-img, .g-img.kit-img { width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
+/* "smooth" themes — images are not pixel art (Icons8 icons and the like): smooth them when scaled down */
+:root.theme-smooth .kit-img { image-rendering: auto; }
+/* headings only: names in the list set in the theme font (a pixel font is wide) got clipped */
+main > .head h2, .head h2, .day, .sched-title, .tw-top h2 { font-family: var(--font-display, var(--font)); }
+
+/* the "More" menu: session header, dangerous and secondary actions (js/menu.js) */
+.menu-wrap { position: relative; }
+.menu-btn::after { content: ""; width: 6px; height: 6px; margin-block: -3px 0; margin-inline: 2px 0; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(45deg); }   /* a drawn chevron: physical, it turns by rotate */
+.menu-btn[aria-expanded="true"]::after { margin-block: 3px 0; margin-inline: 2px 0; transform: rotate(-135deg); }
+.menu { position: absolute; inset-inline-end: 0; top: calc(100% + var(--space-1)); min-width: 220px; max-width: min(320px, 80vw); padding: var(--space-1);
+  background: var(--card); border-radius: var(--radius-lg); box-shadow: var(--shadow-lift); z-index: var(--z-menu); }
+.menu.from-left { inset-inline-end: auto; inset-inline-start: 0; }
+.menu.up { top: auto; bottom: calc(100% + var(--space-1)); }
+.menu.enter { animation: menu-in var(--dur-fast) var(--ease-out); }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px); } }
+.menu-item { display: block; width: 100%; padding: 7px var(--space-3); border: 0; border-radius: calc(var(--radius-lg) - var(--space-1)); background: transparent;
+  color: var(--foreground); font: var(--text-sm)/1.4 var(--font); text-align: start; cursor: pointer; }
+.menu-item:hover { background: var(--accent); }
+.menu-item:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+/* check item (menuitemcheckbox): room for the mark is always reserved, the mark shows when on */
+.menu-item.check::before { content: ""; display: inline-block; width: 1.2em; }
+.menu-item.check[aria-checked="true"]::before { content: "✓"; }
+.menu-item[aria-disabled="true"] { color: var(--muted-foreground); cursor: not-allowed; }
+.menu-item[aria-disabled="true"]:hover { background: none; }
+.menu-text { padding: 6px var(--space-3); color: var(--muted-foreground); font-size: var(--text-xs); }
+.menu-text.bad { color: var(--destructive); }
+/* a menu with something red inside (the agent-dev stops audit) — a dot on its button */
+.menu-btn.alert::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%;
+  background: var(--destructive); vertical-align: middle; }
+.menu-sep { height: 1px; margin: var(--space-1) 0; background: var(--border); }
+
+/* primary action button: nearly black, not the accent (the accent means "in progress", the action means "do it") */
+.btn.action { background: var(--action); color: var(--background); border-color: transparent; }
+.btn.action:hover { background: color-mix(in oklch, var(--action) 85%, var(--background)); }
+.btn.small { min-height: 26px; padding: 0 var(--space-2); font-size: var(--text-xs); }
+
+/* phone: "Stop" and "More" in one row under the name (otherwise "More" drops to a third row) */
+@media (max-width: 760px) {
+  .head { gap: var(--space-2); }
+  .head .btn { padding-inline: var(--space-2); }
+  .head .seg button { padding-inline: var(--space-2); }
+  .head .spacer { display: none; }   /* in a wrapping row the spacer would take an empty line by itself */
+}
+/* "Brief | Detailed" and "Feed | Board" are also items of the "More" menu (main.js head); the button that only holds them is drawn with them.
+   They are hidden while the header has room for the switches; in a header narrower than 480px (a phone, a narrow window with the right panel
+   open) the switches leave it and the items show. A theme with its own header widths (Clean) shows the items itself */
+.menu .head-fold, .menu-wrap.head-fold-only { display: none; }
+@container head (max-width: 480px) {
+  .head > .fold-seg { display: none; }
+  .menu .head-fold { display: block; }
+  .menu-wrap.head-fold-only { display: block; }
+}
+/* transition between sessions (View Transitions): the main window changed its content — opacity only, 140 ms, no movement.
+   The name is set only for the duration of the transition (html.vt-pane is set by main.js) so that main doesn't hold a permanent stacking context; nothing else is animated */
+html.vt-pane main { view-transition-name: pane; }
+::view-transition-group(root), ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+::view-transition-group(pane) { animation: none; }   /* the built-in group animation moves size and position — the window must not slide, only dissolve */
+::view-transition-old(pane), ::view-transition-new(pane) { animation-duration: var(--dur-pane); animation-timing-function: var(--ease-out); }
+
+/* press and hover on buttons: press is feedback, 160 ms; hover changes color, 120 ms, and only where there is a real mouse
+   (hover is false on touch). The round "Send" has its own press (dock.css) */
+.btn, .seg button, button.chip { transition: transform var(--dur-fast) var(--ease-out); }
+.btn:active:not(:disabled):not(.send), .seg button:active:not(:disabled), button.chip:active:not(:disabled) { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .btn, .seg button, button.chip { transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-hover) ease,
+    color var(--dur-hover) ease, border-color var(--dur-hover) ease; }
+  .menu-item { transition: background-color var(--dur-hover) ease, color var(--dur-hover) ease; }
+}
+/* appearing without layout changes: opacity only — banner, drag-and-drop highlight, plugin side panel */
+@keyframes fade-in { from { opacity: 0; } }
+.side:not([hidden]) { animation: fade-in var(--dur-fast) var(--ease-out); }
+/* "reduce motion": the press doesn't scale; the general rule above switches off the rest (including @starting-style entries) */
+@media (prefers-reduced-motion: reduce) {
+  .btn:active:not(:disabled):not(.send), .seg button:active:not(:disabled), button.chip:active:not(:disabled), .btn.round.send:active { transform: none; }
+}
+/* a theme with "font_scope": "all" (API 1.8) — its font for the whole page, the standard ones as a fallback for missing glyphs */
+:root.theme-font-all { --font: "hub-theme-font", var(--font-ui); --font-mono: "hub-theme-font", var(--font-code); }
+/* 1.9: monospace only — in the same places where the system theme uses IBM Plex Mono */
+:root.theme-font-mono { --font-code: "hub-theme-font", "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-mono: var(--font-code); }
+
+/* the spinner of a working session: a strip of the frames under a one-line window, moved by a compositor animation.
+   The text (the first frame) stays for copying and tests but is not painted; changing it from a timer relaid out the page */
+.spin { position: relative; overflow: hidden; -webkit-text-fill-color: transparent; }
+.spin::after { content: "\280B\A\2819\A\2839\A\2838\A\283C\A\2834\A\2826\A\2827\A\2807\A\280F"; white-space: pre;
+  position: absolute; inset: 0 0 auto; text-align: center; -webkit-text-fill-color: currentColor; animation: spin-frames 1s steps(10) infinite; }
+@keyframes spin-frames { to { transform: translateY(-100%); } }
+@media (prefers-reduced-motion: reduce) { .spin::after { animation: none; } }

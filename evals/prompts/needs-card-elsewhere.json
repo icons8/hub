@@ -1,0 +1,72 @@
+{
+ "id": "needs-card-elsewhere",
+ "title": "The watchdog's “waits for the owner” question: the owner's yes on a card another session brings is a future step, not a wait on the owner now; the same yes asked right here still is",
+ "note": "Live case: a session answered another session's “may I roll out now?” and ended with “the permission for prod is yours, the card comes from that session”. The same ending got the mark in 7 of 8 tries and no mark in 8 of 8 tries with other wording, so the owner saw “answer?” next to a result that asked him nothing, and then the card itself. Texts are made up and neutral. ask-here and asks-now-no-card are the true branch: the yes asked in the result itself. Input = the language line + the end of the result, as the watchdog sends it (no open cards).",
+ "prompt": {
+  "file": "modules/watch/watch.py",
+  "name": "NEEDS_PROMPT",
+  "schema_name": "NEEDS_SCHEMA"
+ },
+ "turns": [
+  {
+   "id": "card-from-them",
+   "input": "Owner's language: English.\nSession auth asked whether it can update its settings on prod now. Nothing on the maps side is in the way, so I told them: now is fine, only not 03:05–04:45, when the maps night jobs run.\n\nThe permission to change prod is yours; session auth brings the card.",
+   "checks": [
+    {
+     "id": "no_need",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "card-they-bring",
+   "input": "Owner's language: English.\nSession auth checked: the update does not change anything maps calls, they stay compatible. They will say the rollout time in advance. The release itself goes on your yes; they bring the card.",
+   "checks": [
+    {
+     "id": "no_need",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "card-they-bring-list",
+   "input": "Owner's language: English.\nI only asked them to stay out of the maps night jobs, 03:05–04:45, and to tell me if the update changes what maps calls — then I check that the two work together.\n\nThe release to prod itself — on your yes, the card comes from that session.",
+   "checks": [
+    {
+     "id": "no_need",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "ask-here",
+   "input": "Owner's language: English.\nSession auth asked whether it can update its settings on prod now. Nothing on the maps side is in the way.\n\nThey won't bring a card: say yes here and I pass it on to them. Without your yes they wait.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "asks-now-no-card",
+   "input": "Owner's language: English.\nThe maps 1.4 release is ready: staging is checked, the rollback plan is written. Roll it out to prod now? I won't start without your yes.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  }
+ ]
+}

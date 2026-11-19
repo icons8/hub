@@ -1,0 +1,169 @@
+{
+ "about": "Checks of one `hub wait` (<session>-wait-<mark>-<n>): while the previous one sits in the queue of a busy session, new ones are not added — the hub was down overnight, and in the morning 8 checks of two waits arrived in a batch. Another wait is its own.",
+ "events": [
+  {
+   "t": 1790668800.0,
+   "type": "owner.settings",
+   "data": {
+    "timezone": "Europe/Berlin"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668800.0,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1790668801.0,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "schedule.set",
+   "entity": "a-wait-ab12-1",
+   "data": {
+    "session": "a",
+    "at": 1790669000.0,
+    "prompt": "[waiting for reply] reply on the report. Check now",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "schedule.set",
+   "entity": "a-wait-ab12-2",
+   "data": {
+    "session": "a",
+    "at": 1790669300.0,
+    "prompt": "[waiting for reply] reply on the report. Check now",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "schedule.set",
+   "entity": "a-wait-ab12-3",
+   "data": {
+    "session": "a",
+    "at": 1790669900.0,
+    "prompt": "[waiting for reply] reply on the report. Check now",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790668810.0,
+   "type": "schedule.set",
+   "entity": "a-wait-cd34-1",
+   "data": {
+    "session": "a",
+    "at": 1790669000.0,
+    "prompt": "[waiting for reply] reply on the report. Check now",
+    "channel": "session",
+    "owner": false,
+    "sender": "a"
+   }
+  },
+  {
+   "t": 1790669001.0,
+   "type": "schedule.due",
+   "entity": "a-wait-ab12-1",
+   "data": {
+    "slot": 1790669000.0
+   }
+  },
+  {
+   "t": 1790669001.0,
+   "type": "schedule.due",
+   "entity": "a-wait-cd34-1",
+   "data": {
+    "slot": 1790669000.0
+   }
+  },
+  {
+   "t": 1790669301.0,
+   "type": "schedule.due",
+   "entity": "a-wait-ab12-2",
+   "data": {
+    "slot": 1790669300.0
+   }
+  },
+  {
+   "t": 1790700000.0,
+   "type": "schedule.due",
+   "entity": "a-wait-ab12-3",
+   "data": {
+    "slot": 1790669900.0
+   }
+  }
+ ],
+ "expect": {
+  "messages": {
+   "m11": {
+    "session": "a",
+    "state": "queued"
+   },
+   "m12": {
+    "session": "a",
+    "state": "queued"
+   }
+  },
+  "messages_absent": [
+   "m13",
+   "m14"
+  ],
+  "schedule": {
+   "a-wait-ab12-2": {
+    "skipped": 1,
+    "runs": 0
+   },
+   "a-wait-ab12-3": {
+    "skipped": 1,
+    "runs": 0
+   },
+   "a-wait-cd34-1": {
+    "runs": 1
+   }
+  },
+  "rejected": 0
+ }
+}

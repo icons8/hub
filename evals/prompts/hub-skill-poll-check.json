@@ -1,0 +1,136 @@
+{
+ "id": "hub-skill-poll-check",
+ "title": "A session following the hub skill sets a polling job (new MR comments, a deploy) with --check, and a reminder without one",
+ "note": "System prompt — the version's plugins/hub-base/skills/hub/SKILL.md, on the sessions' default model. Metric: whether --check is in the schedule command. Without --check every tick of a polling job is a full session turn. The reminders are the control: nothing to check by a command, so --check there is a miss too.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_i_run",
+    "says_to_user"
+   ],
+   "properties": {
+    "commands_i_run": {
+     "type": "string",
+     "description": "the plan of this turn: the exact shell commands you will run, one per line (you have no tools in this answer, so list them here, not as done)"
+    },
+    "says_to_user": {
+     "type": "string"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "watch-mr-comments",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps. The merge requests are in the GitLab CLI `glab` (`glab mr view 12 --comments` prints the comments of MR !12).\n\n[hub:m50 from user] Follow the new comments in MR !12 every 10 minutes.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "with_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "--check"
+    }
+   ]
+  },
+  {
+   "id": "wait-deploy",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps. The stage answers `curl -s https://stage.example.test/version` with the deployed version.\n\n[hub:m51 from user] Wait for the stage deploy of version 4.2 and tell me when it is there — look every 5 minutes.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "with_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "--check"
+    }
+   ]
+  },
+  {
+   "id": "watch-mr-bare",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps.\n\n[hub:m54 from user] Follow the new comments in MR !12 every 10 minutes.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "with_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "--check"
+    }
+   ]
+  },
+  {
+   "id": "watch-pipeline",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps.\n\n[hub:m55 from user] Check the pipeline of my branch every 15 minutes, and tell me when it is finished.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "with_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "--check"
+    }
+   ]
+  },
+  {
+   "id": "remind-tomorrow",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps.\n\n[hub:m52 from user] Remind me tomorrow at 9:00 to call the accountant.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "no_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "not_re": "--check"
+    }
+   ]
+  },
+  {
+   "id": "remind-daily",
+   "input": "Agent maps: works on the maps service. Folder /home/x/maps.\n\n[hub:m53 from user] Every weekday at 9:00 remind me to look at the board.",
+   "checks": [
+    {
+     "id": "schedule_set",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub schedule add"
+    },
+    {
+     "id": "no_check",
+     "type": "field",
+     "name": "commands_i_run",
+     "not_re": "--check"
+    }
+   ]
+  }
+ ]
+}

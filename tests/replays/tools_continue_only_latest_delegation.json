@@ -1,0 +1,166 @@
+{
+ "about": "A live check: after \"connected, continue\" the old delegation, which the hub had already replaced with a new one, came back to work and hung \"in progress\" after the new one was closed. Only the latest one is continued.",
+ "events": [
+  {
+   "t": 0,
+   "type": "catalog.loaded",
+   "data": {
+    "tools": {
+     "browser:mac": {
+      "kind": "mcp",
+      "risk": [
+       "owner-data"
+      ],
+      "server": {}
+     }
+    }
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "text": "check the mail",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 3,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 5,
+   "type": "delegation.created",
+   "data": {
+    "session": "w",
+    "for": "m4",
+    "context": "first attempt",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m7"
+   }
+  },
+  {
+   "t": 7,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "cannot: no browser"
+   }
+  },
+  {
+   "t": 8,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 9,
+   "type": "tools.granted",
+   "entity": "w",
+   "data": {
+    "tool": "browser:mac",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 10,
+   "type": "delegation.created",
+   "data": {
+    "session": "w",
+    "for": "m4",
+    "context": "second attempt",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 11,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m12"
+   }
+  },
+  {
+   "t": 12,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "waiting for the browser"
+   }
+  },
+  {
+   "t": 13,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 14,
+   "type": "tools.approved",
+   "entity": "w",
+   "data": {
+    "tool": "browser:mac",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "delegations": {
+   "d7": {
+    "state": "replied"
+   },
+   "d12": {
+    "state": "working",
+    "message": "m16x2"
+   }
+  },
+  "rejected": 0
+ }
+}

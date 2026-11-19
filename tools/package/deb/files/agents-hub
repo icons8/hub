@@ -1,0 +1,76 @@
+#!/bin/sh
+# Hub by Icons8 from the package.
+#   agents-hub         start the hub (the menu entry does this) and open its page; the first start prepares the folders
+#   agents-hub run     the hub in this terminal (this is how the systemd --user service starts it)
+#   sudo agents-hub chrome   Chrome for the agents' browser into /opt/agents-hub/chrome, with the AppArmor profile that
+#                            Ubuntu 23.10+ asks for (the package does it by itself at install where the system asks)
+# The code of the hub is a clone of the package's seed in the user's folder (launch.py, first_run.py): updates move it.
+set -eu
+ROOT=/opt/agents-hub
+PY="$ROOT/runtime/python/bin/python3"
+# a menu entry has no terminal: what went wrong goes to a notification as well
+fail() {
+  echo "$1" >&2
+  if [ ! -t 2 ] && command -v notify-send >/dev/null 2>&1; then notify-send "Hub by Icons8" "$1" || true; fi
+  exit 1
+}
+if [ "${1:-}" = chrome ]; then
+  # as root: an environment of its own — PATH without the user's ~/.local/bin (sudo may keep HOME), the locale (the
+  # encoding of the output; the helper itself speaks English) and the proxy variables that sudo kept for this run (a
+  # download behind a proxy), nothing else (TMPDIR, certificates, preloads)
+  set --
+  for v in LANG LC_ALL LC_MESSAGES http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY; do
+    eval "val=\${$v-__unset__}"
+    if [ "$val" != __unset__ ]; then set -- "$@" "$v=$val"; fi
+  done
+  exec env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin "$@" "$PY" -I "$ROOT/lib/chrome_root.py"
+fi
+export PATH="$ROOT/bin:$HOME/.local/bin:$PATH"
+# a hub this machine runs from a git clone: "Move / Stay on the clone / Later" (app spec §8; first_run.py --move) —
+# Later and Stay change nothing; Move stops the clone's hub, saves its files, and the start below brings the app's up
+if [ "${1:-}" != run ]; then
+  RC=0
+  "$PY" "$ROOT/lib/first_run.py" --move || RC=$?
+  if [ "$RC" -eq 3 ]; then exit 0; fi
+  if [ "$RC" -eq 10 ]; then RC=0; fi   # the clone's hub is stopped and saved: the start below finishes the move
+  [ "$RC" -ne 2 ] || fail "Hub by Icons8: the hub was not moved from its git clone, and the clone's service did not start again — run hub app undo"
+  [ "$RC" -eq 0 ] || fail "Hub by Icons8: the hub was not moved from its git clone — it runs from the clone as before"
+fi
+# a failure while a move is half done: everything back on the clone first, then the reason
+# (a move of this start, or one an earlier start left half done — the record says; none: the reason alone)
+moved_back() {
+  BACK=0
+  "$PY" "$ROOT/lib/first_run.py" --move-failed || BACK=$?
+  case "$BACK" in
+    0) fail "The hub did not come up on the app — it runs from its git clone again ($1; the log: ~/.hub-core/logs)" ;;
+    3) fail "$1" ;;
+    *) fail "The hub did not come up on the app, and the return to the clone did not finish — run hub app undo ($1)" ;;
+  esac
+}
+ERR=$(mktemp)
+CODE=$("$PY" "$ROOT/lib/first_run.py" 2>"$ERR") || { MSG=$(cat "$ERR"); rm -f "$ERR"; moved_back "${MSG:-Hub by Icons8: the first start failed (first_run.py gave no reason)}"; }
+rm -f "$ERR"
+if [ "${1:-}" = run ]; then
+  exec "$PY" "$CODE/bin/hub-up"
+fi
+URL=http://127.0.0.1:8787/
+if systemctl --user show-environment >/dev/null 2>&1; then
+  systemctl --user daemon-reload
+  systemctl --user enable --now agents-hub.service || moved_back "The hub did not start as a service: systemctl --user status agents-hub"
+  echo "The hub runs as a service (systemctl --user status agents-hub)."
+  echo "To keep the hub running without a login session: sudo loginctl enable-linger $(id -un)"
+else
+  # a container or a session without systemd --user: the hub runs apart from this command
+  LOG="${HUB_STATE_DIR:-$HOME/.hub-core}/logs"
+  mkdir -p "$LOG"
+  if ! "$PY" "$ROOT/lib/open_page.py" wait "$URL" 1 >/dev/null 2>&1; then
+    nohup setsid "$ROOT/bin/agents-hub" run >"$LOG/agents-hub.log" 2>&1 </dev/null &
+  fi
+fi
+"$PY" "$ROOT/lib/open_page.py" wait "$URL" 90 || moved_back "The hub's page did not answer in 90 seconds: $URL (the log: ~/.hub-core/logs)"
+"$PY" "$ROOT/lib/first_run.py" --moved || true   # a move half done (this start's or an earlier one's): done now
+echo "Page: $URL"
+"$PY" "$ROOT/lib/open_page.py" open "$URL" || true
+if ! command -v claude >/dev/null 2>&1; then
+  echo "The hub downloads its Claude Code itself on its Setup page (Anthropic's signed manifest, sha256); in a terminal: hub setup claude"
+fi

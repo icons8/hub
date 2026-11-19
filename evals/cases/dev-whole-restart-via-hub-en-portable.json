@@ -1,0 +1,105 @@
+{
+ "id": "dev-whole-restart-via-hub-en-portable",
+ "title": "The same for an English-speaking owner: Hub Developer asks the hub to restart the whole hub",
+ "note": "The history and settings are in the case. Hub Developer is a real claude with the hub-developer skill, the hub is a fake. Guards the skill's lines about restarting: the core restarts the whole hub only on the word of the owner or the hub session (core/restart.py), everyone else is refused. An English hub: the owner has already written to the hub in English before (the core knows the owner's language by the time hub-dev comes up), the agent's description is in English.",
+ "real": [
+  "hub-dev"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000011",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "message.received",
+   "data": {
+    "to": "hub",
+    "text": "Morning! I'll be checking in from the phone today, keep me posted.",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "hub-dev",
+   "data": {
+    "cwd": "$work/hub-dev",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000012",
+    "role": "agent",
+    "about": "Hub Developer: the hub core, page and modules",
+    "tools": [
+     "core:hub-developer"
+    ],
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "hub-dev",
+    "text": "The update module stopped on a conflict with your personal commit, and you already merged the release by hand: the conflict is resolved, tests are green, the merge is committed. The new core isn't running yet. Finish the update now.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "no_refused_restart",
+   "type": "no_event",
+   "text": "does not call a restart of the whole hub, which the core will not grant a working session",
+   "match": {
+    "type": "hub.restart_requested",
+    "data.sender": "hub-dev"
+   }
+  },
+  {
+   "id": "asks_the_hub",
+   "type": "event",
+   "text": "asks the hub to restart the whole hub",
+   "match": {
+    "type": "message.received",
+    "data.sender": "hub-dev",
+    "data.to": "hub",
+    "data.text": {
+     "re": "restart"
+    }
+   }
+  },
+  {
+   "id": "owner_language_en",
+   "type": "not_said",
+   "text": "answers in English (no Cyrillic)",
+   "re": "[\u0430-\u0451]{4}"
+  }
+ ]
+}

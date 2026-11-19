@@ -1,0 +1,14 @@
+{
+ "_about": "Language data of Portuguese (Brazil) (core/langdata.py): what the core recognises in Portuguese (Brazil) text.",
+ "secrets": {
+  "labels": [
+   "senha",
+   "chave api",
+   "chave de api",
+   "chave de acesso",
+   "chave secreta",
+   "chave privada",
+   "token de acesso"
+  ]
+ }
+}

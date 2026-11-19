@@ -1,0 +1,16 @@
+{
+ "_about": "Language data of Chinese (Simplified) (core/langdata.py): what the core recognises in Chinese (Simplified) text.",
+ "secrets": {
+  "labels": [
+   "密码",
+   "口令",
+   "令牌",
+   "访问令牌",
+   "api密钥",
+   "api 密钥",
+   "密钥",
+   "秘钥",
+   "私钥"
+  ]
+ }
+}

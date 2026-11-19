@@ -1,0 +1,72 @@
+{
+ "id": "critic-evidence",
+ "title": "With the critic on, a session lists several evidence files after one --evidence joined by commas, with full paths (no ~ after a comma); a call with one evidence file keeps its form",
+ "note": "Compares the critic's rule in the session's prompt (modules/critic/critic.py): before — NOTE with its own `[--evidence <paths>]`, after — NOTE_TEXT filled with the help's form and example (core/hubhelp.txt, `hub critic`), as note() does. hub_cli: the version's bin/hub, `hub critic` is recorded, not run. Measured on the transcripts of 06–13.11: 42 runs with paths separated by spaces (39 refused), 16 with ~ after a comma (16 pointed at no file). The checks hold the rule's own form (one comma list, no ~ after a comma); whether the version's parser takes the call is counted apart, by replaying the recorded calls through each version's critic (the after parser takes spaces and ~ too). one-evidence is the control: a call that was right stays right (draft first, --task, the one path).",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "files": {
+  "cache-spec.md": "# Tile cache\n\nMove the rendered tiles to a CDN cache in front of the renderer; expected: p95 latency halves.\n",
+  "load-test.txt": "renderer p95 420 ms at 300 rps\n",
+  "latency.csv": "zoom,p50,p95\n12,80,410\n14,95,430\n",
+  "plan.md": "1. CDN in front of /tiles\n2. purge on publish\n"
+ },
+ "prompt": {
+  "file": "modules/critic/critic.py",
+  "append": [
+   {
+    "file": "modules/critic/critic.py",
+    "before_name": "NOTE",
+    "name": "NOTE_TEXT"
+   }
+  ],
+  "format": {
+   "form": "hub critic <draft> [--task \"<the task in one line>\"] [--evidence path,path]",
+   "example": "hub critic /home/x/maps/spec.md --task \"tile cache on a CDN\" --evidence /home/x/maps/load.txt,/home/x/maps/plan.md"
+  }
+ },
+ "system": "You are the maps session of the agents-hub hub: you run maps (tiles, the geocoder) in the folder you are in. The hub's commands are `hub` in the shell (Bash); `hub --help` lists them. Do what the owner asks with the tools you have, and end the turn with one line: what you did. Today is 2026-11-13, the owner's time 10:00.",
+ "turns": [
+  {
+   "id": "three-evidence",
+   "input": "[hub:m400 from user] Before I choose the tile cache design, give it to the critic: the draft is cache-spec.md in your folder, the evidence is load-test.txt, latency.csv and plan.md next to it. The task: a tile cache for the map renderer.",
+   "checks": [
+    {
+     "id": "commas",
+     "type": "any_call",
+     "re": "^critic \\S+.* --evidence [^ ,]+,[^ ,]+,[^ ,]+( --|$)"
+    }
+   ]
+  },
+  {
+   "id": "home-paths",
+   "input": "[hub:m401 from user] Run the geocoder migration plan past the critic right away. The draft: ~/maps/geocoder/migration.md; the evidence: ~/maps/geocoder/benchmarks.txt and ~/maps/geocoder/rollback.md — the geocoder executor wrote them on its machine a minute ago, you will not see them from here and need not look: the critic reads them. The task: move the geocoder to the new index.",
+   "checks": [
+    {
+     "id": "one_list_no_tilde_after_comma",
+     "type": "any_call",
+     "re": "^critic \\S+.* --evidence [^ ,]+,[^ ~][^ ,]*( --|$)"
+    }
+   ]
+  },
+  {
+   "id": "one-evidence",
+   "input": "[hub:m402 from user] Give cache-spec.md to the critic with load-test.txt as the evidence. The task: a tile cache for the map renderer.",
+   "checks": [
+    {
+     "id": "same_form",
+     "type": "any_call",
+     "re": "^critic \\S*cache-spec\\.md( --task .+)? --evidence \\S*load-test\\.txt( --task .+)?$"
+    },
+    {
+     "id": "task_given",
+     "type": "any_call",
+     "re": "^critic .*--task "
+    }
+   ]
+  }
+ ]
+}

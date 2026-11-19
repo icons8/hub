@@ -1,0 +1,111 @@
+{
+ "id": "result-deferred-action",
+ "title": "A result names what the owner must do later with its condition and time, not as needed now: the build still runs, the pick-up comes after it",
+ "note": "Live case: a session that summed up other sessions' open items wrote “[Your action] take the part off the machine. At 07:13 it was at 89%” under “Needed from you” an hour before the job ended; the recap and the hub repeated it as the owner's next step. The texts are made up and neutral. Before the rule the first line reads “three things need you: …, collect the USB stick around 16:30, …” — one list of needs with a clock time; the check wants the first line to name the condition (after / once / when the build ends). Controls: already-done (the owner took the file: the first line does not ask for it) and approve-now (a yes the owner can give now for the build that starts later: the first line asks for it).",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "result"
+   ],
+   "properties": {
+    "result": {
+     "type": "string",
+     "description": "the whole text of your turn's result, as the owner will read it"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "GIST"
+   }
+  ],
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "sum-up",
+   "input": "[hub:m1 from user] Sum up what is unfinished around the workshop and what you need from me.\n\n(test stand: you have already collected everything; below are your working notes. Write the result of this turn.)\n\nNotes:\n- labels: reprinted, done, nothing open.\n- backup disk: the session `disks` checks it itself tonight, nothing from the owner.\n- phone: the owner's phone has the VPN switched off since yesterday 14:06, so it does not see the hub; only the owner can switch it on (the VPN app, the toggle).\n- build machine: session `builds` runs the first build, at 15:13 it was at 89%, by its pace it ends about 16:30 (it is 15:15 now). The file lands on the machine's USB stick; the owner picks it up by hand, then `builds` starts the second build, about 5 hours.\n- router: firmware from 2017 and no admin password; update and set one, or leave it — the owner's decision.",
+   "checks": [
+    {
+     "id": "conditioned",
+     "type": "field",
+     "name": "result",
+     "re": "(?i)\\A[^\\n]*\\b(after|once|when|later|not yet)\\b",
+     "text": "the first line gives the pick-up its condition (after / once / when the build ends), not a bare place in the list of needs"
+    },
+    {
+     "id": "vpn_kept",
+     "type": "said",
+     "re": "(?i)vpn",
+     "text": "the action possible now is still asked"
+    }
+   ]
+  },
+  {
+   "id": "possible-now",
+   "input": "[hub:m1 from user] Sum up what is unfinished around the workshop and what you need from me.\n\n(test stand: you have already collected everything; below are your working notes. Write the result of this turn.)\n\nNotes:\n- labels: reprinted, done, nothing open.\n- backup disk: the session `disks` checks it itself tonight, nothing from the owner.\n- phone: the owner's phone has the VPN switched off since yesterday 14:06, so it does not see the hub; only the owner can switch it on (the VPN app, the toggle).\n- build machine: session `builds` runs the first build, the build ended at 16:31 (it is 16:40 now) and the file is on the machine's USB stick; the owner picks it up by hand, then `builds` starts the second build, about 5 hours.\n- router: firmware from 2017 and no admin password; update and set one, or leave it — the owner's decision.",
+   "checks": [
+    {
+     "id": "pickup_now",
+     "type": "field",
+     "name": "result",
+     "re": "(?i)\\A[^\\n]*\\b(pick|collect|take|usb|stick|file)",
+     "text": "the build is over: the first line asks for the pick-up as something the owner can do now"
+    },
+    {
+     "id": "no_false_wait",
+     "type": "field",
+     "name": "result",
+     "not_re": "(?i)\\A[^\\n]*\\b(once|when) the (first )?build (ends|finishes|is done)",
+     "text": "a pick-up possible now is not put off behind a build that has already ended"
+    }
+   ]
+  },
+  {
+   "id": "already-done",
+   "input": "[hub:m1 from user] Sum up what is unfinished around the workshop and what you need from me.\n\n(test stand: you have already collected everything; below are your working notes. Write the result of this turn.)\n\nNotes:\n- labels: reprinted, done, nothing open.\n- backup disk: the session `disks` checks it itself tonight, nothing from the owner.\n- phone: the owner's phone has the VPN switched off since yesterday 14:06, so it does not see the hub; only the owner can switch it on (the VPN app, the toggle).\n- build machine: session `builds` ran the first build; it ended at 16:31, the owner picked the file up from the USB stick at 16:35 and wrote “taken”; `builds` started the second build, about 5 hours (it is 16:40 now).\n- router: firmware from 2017 and no admin password; update and set one, or leave it — the owner's decision.",
+   "checks": [
+    {
+     "id": "no_pickup_ask",
+     "type": "field",
+     "name": "result",
+     "not_re": "(?i)\\A[^\\n]*\\b(pick (it |the file )?up|collect)\\b",
+     "text": "the pick-up is done: the first line does not ask for it"
+    },
+    {
+     "id": "vpn_kept",
+     "type": "said",
+     "re": "(?i)vpn"
+    }
+   ]
+  },
+  {
+   "id": "approve-now",
+   "input": "[hub:m1 from user] Sum up what is unfinished around the workshop and what you need from me.\n\n(test stand: you have already collected everything; below are your working notes. Write the result of this turn.)\n\nNotes:\n- labels: reprinted, done, nothing open.\n- backup disk: the session `disks` checks it itself tonight, nothing from the owner.\n- phone: the owner's phone has the VPN switched off since yesterday 14:06, so it does not see the hub; only the owner can switch it on (the VPN app, the toggle).\n- build machine: session `builds` runs the first build, at 15:13 it was at 89%, by its pace it ends about 16:30 (it is 15:15 now). The second build starts right after it, but only with the owner's yes: it costs 40 hours of the rented machine; the yes can be given now.\n- router: firmware from 2017 and no admin password; update and set one, or leave it — the owner's decision.",
+   "checks": [
+    {
+     "id": "yes_now",
+     "type": "field",
+     "name": "result",
+     "re": "(?i)\\A[^\\n]*(\\byes\\b|\\bok\\b|approv|(decid|decision)[^\\n]{0,30}second build)",
+     "text": "the yes is possible now: the first line asks for it"
+    }
+   ]
+  }
+ ]
+}

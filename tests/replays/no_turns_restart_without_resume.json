@@ -1,0 +1,59 @@
+{
+ "about": "Failure: the session started but got no turn at all, so there is no conversation on disk; after hubd restarts it must be brought up with the same --session-id, not --resume (otherwise \"No conversation found\" and failed).",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "demo",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-demo"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "demo",
+   "data": {
+    "session_id": "sid-demo"
+   }
+  },
+  {
+   "t": 5,
+   "type": "session.exited",
+   "entity": "demo",
+   "data": {
+    "why": "reconcile"
+   }
+  },
+  {
+   "t": 7,
+   "type": "session.started",
+   "entity": "demo",
+   "data": {
+    "session_id": "sid-demo"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "demo": {
+    "state": "idle",
+    "restarts": 0
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "resume": false,
+    "session_id": "sid-demo"
+   },
+   {
+    "do": "spawn",
+    "resume": false,
+    "session_id": "sid-demo"
+   }
+  ],
+  "rejected": 0
+ }
+}

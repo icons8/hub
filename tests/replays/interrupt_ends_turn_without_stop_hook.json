@@ -1,0 +1,107 @@
+{
+ "about": "Live check on a Mac: \"Stop\" makes claude interrupt the turn and send a turn result with an error, but the Stop hook does not fire on an interrupt; the core kept the session as busy: a second \"Stop\" was accepted and the owner's message sat in the queue. A turn result from the host means the turn is over.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "w",
+    "text": "update the design",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m3"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.interrupt_requested",
+   "entity": "w",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 5,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "",
+    "subtype": "error_during_execution",
+    "is_error": true
+   }
+  },
+  {
+   "t": 6,
+   "type": "session.interrupt_requested",
+   "entity": "w",
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 7,
+   "type": "message.received",
+   "data": {
+    "to": "w",
+    "text": "here is how it looks in Claude Code",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "idle"
+   }
+  },
+  "messages": {
+   "m8": {
+    "state": "typing"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   },
+   {
+    "do": "interrupt"
+   },
+   {
+    "do": "type",
+    "message": "m8"
+   }
+  ],
+  "rejected": 1
+ }
+}

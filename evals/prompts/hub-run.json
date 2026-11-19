@@ -1,0 +1,80 @@
+{
+ "id": "hub-run",
+ "title": "Work that must outlive a hub restart or run for hours goes to `hub run`; a short run, a dev server and a run already going do not start one",
+ "note": "Compares hosts/streamjson BACKGROUND with and without the `hub run` sentence, on revisions that both have the command and its help (hub_cli: the version's bin/hub, `hub run` is recorded, not run). The two controls (a one-minute test run, a dev server) and the run already going hold the other side: the sentence must not send ordinary background work to `hub run`. Starting a run is a `run` call that is not list, stop or help. The folder has the eval script, the Makefile, the tests and package.json the messages name. Measured ×8 (sonnet, medium) before the release: with the sentence 6/8, 1/8, 8/8, 8/8, 8/8; without it 8/8, 2/8, 8/8, 8/8, 7/8 — the sentence did not raise the share, so BACKGROUND stays without it and the help entry is what sessions use. world-tiles is weak: the model reads the stub Makefile and runs it at once.",
+ "model": "sonnet",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "hosts/streamjson.py",
+  "name": "BACKGROUND"
+ },
+ "system": "You are the maps session of the agents-hub hub: you run the maps (tiles, geocoder) in the repo you are in. The hub's commands are `hub` in the shell (Bash); `hub --help` lists them. Do what the message asks with the tools you have, then end your turn with one line: what you did. Today is 2026-11-11, owner's time 14:00.",
+ "turns": [
+  {
+   "id": "long-eval-restart",
+   "input": "[hub:m300 from user] Run the full eval suite: `python3 evals/run.py --only after` — it takes about three hours. The hub will be restarted this afternoon, the run has to survive that. Tell me the result when it is done.",
+   "checks": [
+    {
+     "id": "hub_run",
+     "type": "any_call",
+     "re": "^run (?!(list|stop|--help|-h)\\b)"
+    }
+   ]
+  },
+  {
+   "id": "world-tiles",
+   "input": "[hub:m301 from user] Build the full world tile set: `make tiles-world` — it takes about six hours. You will hand this task in and fall asleep meanwhile; the build has to keep going. Report when it is done.",
+   "checks": [
+    {
+     "id": "hub_run",
+     "type": "any_call",
+     "re": "^run (?!(list|stop|--help|-h)\\b)"
+    }
+   ]
+  },
+  {
+   "id": "short-tests-control",
+   "input": "[hub:m302 from user] Run the unit tests of the tiles module: `python3 -m unittest tests.test_tiles` (about a minute) and tell me whether they pass.",
+   "checks": [
+    {
+     "id": "no_hub_run",
+     "type": "no_call",
+     "re": "^run (?!(list|stop|--help|-h)\\b)"
+    }
+   ]
+  },
+  {
+   "id": "dev-server-control",
+   "input": "[hub:m303 from user] Start the dev server (`npm run dev`, port 5173) so I can open the page and look at the new tiles.",
+   "checks": [
+    {
+     "id": "no_hub_run",
+     "type": "no_call",
+     "re": "^run (?!(list|stop|--help|-h)\\b)"
+    }
+   ]
+  },
+  {
+   "id": "already-going-control",
+   "input": "[hub:m304 from user] Is the eval done yet? (An hour ago you started it with `hub run --until 4h 'python3 evals/run.py --only after'` — run2061001; its result comes to you as a message when it ends.)",
+   "checks": [
+    {
+     "id": "no_second_run",
+     "type": "no_call",
+     "re": "^run (?!(list|stop|--help|-h)\\b)"
+    }
+   ]
+  }
+ ],
+ "files": {
+  "evals/run.py": "\"\"\"The full eval suite of the maps service: every case against the live model (about three hours).\"\"\"\nimport sys\nprint('running', sys.argv[1:])\n",
+  "tests/__init__.py": "",
+  "tests/test_tiles.py": "import unittest\n\n\nclass Tiles(unittest.TestCase):\n    def test_zoom(self):\n        self.assertEqual(2 ** 3, 8)\n",
+  "package.json": "{\"name\": \"maps-web\", \"scripts\": {\"dev\": \"vite --port 5173\"}}\n",
+  "Makefile": "# the whole world at every zoom level: about six hours on the build machine\ntiles-world:\n\t@echo building the world tile set\n"
+ }
+}

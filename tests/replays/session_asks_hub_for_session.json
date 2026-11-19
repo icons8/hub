@@ -1,0 +1,183 @@
+{
+ "about": "New sessions are opened by the hub. A working session does not open one itself: its `session new` becomes a request to the hub; the hub opens it and hands over the task `--for-session`, the executor's reply goes to the session that asked, and the hub's delegation is REPLIED.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/h",
+    "session_id": "h",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "h"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.requested",
+   "entity": "x",
+   "data": {
+    "cwd": "/p",
+    "session_id": "sid-x",
+    "task": "count the tests",
+    "channel": "session",
+    "owner": false,
+    "sender": "w"
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "hub",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.stopped",
+   "entity": "hub"
+  },
+  {
+   "t": 5,
+   "type": "session.requested",
+   "entity": "x",
+   "data": {
+    "cwd": "/p",
+    "session_id": "sid-x",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 6,
+   "type": "session.started",
+   "entity": "x",
+   "data": {
+    "session_id": "sid-x"
+   }
+  },
+  {
+   "t": 7,
+   "type": "delegation.created",
+   "data": {
+    "session": "x",
+    "for_session": "w",
+    "context": "count the tests",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 8,
+   "type": "turn.started",
+   "entity": "x",
+   "data": {
+    "marker": "m10"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.result",
+   "entity": "x",
+   "data": {
+    "text": "53 tests"
+   }
+  },
+  {
+   "t": 9,
+   "type": "turn.stopped",
+   "entity": "x"
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "x": {
+    "state": "idle"
+   },
+   "w": {
+    "state": "idle"
+   }
+  },
+  "delegations": {
+   "d10": {
+    "state": "replied",
+    "for_session": "w"
+   }
+  },
+  "messages": {
+   "m5": {
+    "session": "hub",
+    "origin": " from w"
+   },
+   "m12x1": {
+    "session": "w",
+    "text": "53 tests",
+    "state": "typing"
+   },
+   "m12": {
+    "session": "hub"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "hub"
+   },
+   {
+    "do": "spawn",
+    "session": "w"
+   },
+   {
+    "do": "type",
+    "message": "m5"
+   },
+   {
+    "do": "spawn",
+    "session": "x"
+   },
+   {
+    "do": "type",
+    "message": "m10"
+   },
+   {
+    "do": "type",
+    "message": "m12"
+   },
+   {
+    "do": "type",
+    "message": "m12x1",
+    "text": "[hub:m12x1 from x, reply to task d10] 53 tests"
+   }
+  ],
+  "rejected": 0
+ }
+}

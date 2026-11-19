@@ -1,0 +1,153 @@
+{
+ "id": "profile-lessons",
+ "title": "The lessons note (variant C): an agent does not write again a lesson its CLAUDE.md already holds, writes a new one as one fact without PR numbers and dates, pins an owner's correction",
+ "note": "Owner decision 2026-11-08 (q1899103, \"yes, stricter\"): the profiles grew 0.5-0.7 KB per handed-in executor, mostly lessons rephrased again. \"before\" — main: the note \"record what will be useful and is not recorded yet\" and the agent's rule LESSONS without the line rule; \"after\" — the note \"only what will change the next decision; find the line first — correct it, do not add; one fact — one line, no PR numbers or dates\" with the pin and the size, and LESSONS with the same rule and the pin. The profile is the case's system (made up); the agent answers what it adds and corrects (JSON), nothing is edited. Threshold set before the run: after already-recorded >= 6/8 and new-lesson >= 6/8, not worse than before by more than 1.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash,Read",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "system": "You are the agent `maps` of the agents-hub hub: a permanent session, Backend Developer of the maps service. The hub's commands are `hub` in the shell (Bash). Below, after a line, is your own CLAUDE.md as the core gives it to you at every start (its file is <state>/agents/s-maps/CLAUDE.md).\n\n---\n\n# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## 📌 Owner's decisions\n- Never deploy maps on Friday (the owner, 12.10).\n- Production rollouts only on the owner's explicit yes.\n- Release notes go to the owner in the result text, not as a card asking \"publish?\".\n\n## Knowledge\n- Tiles: rebuild only from a version tag, never from `latest` — a rebuild from latest served half old tiles.\n- The staging database is shared with search: never truncate its tables.\n- Routing API tests need the fake OSRM: `make fake-osrm` before `make test`.\n- A failing tile job: look at `jobs/tiles.log` first, the queue second.\n- Search for a street name goes through the geocoder's `/v2/lookup`, not `/v1` (v1 drops diacritics).\n- Large GeoJSON uploads: split by 50 MB, the gateway refuses bigger bodies.\n- The nightly tile diff report lands in `reports/diff-<date>.html`; an empty report means the job did not run.\n- Map styles live in `styles/`; a style change needs `make sprites` or icons go missing.\n\n## Lessons\n- Run the routing tests before a commit: `make test` (about 2 min).\n- A tile cache purge needs the CDN token from the vault, not the repo.\n",
+ "prompt": {
+  "file": "hosts/streamjson.py",
+  "schema": {
+   "type": "object",
+   "required": [
+    "added",
+    "changed",
+    "reply"
+   ],
+   "properties": {
+    "added": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "each whole new line you add to your CLAUDE.md in this turn, as it will read (empty — none)"
+    },
+    "changed": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "each existing line of your CLAUDE.md you correct in this turn, as it reads after the correction (empty — none)"
+    },
+    "reply": {
+     "type": "string",
+     "description": "the text of your reply in this turn"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LESSONS"
+   }
+  ]
+ },
+ "turns": [
+  {
+   "id": "already-recorded",
+   "consts": {
+    "NOTE": {
+     "file": "core/reducer.py",
+     "name": "LESSONS_TAKE",
+     "format": {
+      "where": "into your CLAUDE.md",
+      "form": "an owner's correction — as \"do it like this\", not \"ask them before X\"; a stop — only on their direct \"ask me\" (their words and the date) or about money, prod, clients, the irreversible, a repo's gate",
+      "name": "maps-7",
+      "agent": "; an owner's correction or decision, a prohibition, a gate — with 📌 at the start of its line: over the size cap the core never moves those out; your CLAUDE.md is 3 KB of the 250 KB cap"
+     }
+    }
+   },
+   "input": "[hub:m120 from core] Executor maps-7 handed in its task and fell asleep. ⟦NOTE⟧\n\n**Lessons**\n- Tile rebuilds must use a tagged version, not `latest` (PR #412, 03.11: a rebuild from latest mixed old and new tiles).\n",
+   "checks": [
+    {
+     "id": "no_repeat",
+     "type": "field",
+     "name": "added",
+     "item_not_re": "(?i)\\btile",
+     "text": "the tiles lesson is in the file already: no second line"
+    }
+   ]
+  },
+  {
+   "id": "new-lesson",
+   "consts": {
+    "NOTE": {
+     "file": "core/reducer.py",
+     "name": "LESSONS_TAKE",
+     "format": {
+      "where": "into your CLAUDE.md",
+      "form": "an owner's correction — as \"do it like this\", not \"ask them before X\"; a stop — only on their direct \"ask me\" (their words and the date) or about money, prod, clients, the irreversible, a repo's gate",
+      "name": "maps-7",
+      "agent": "; an owner's correction or decision, a prohibition, a gate — with 📌 at the start of its line: over the size cap the core never moves those out; your CLAUDE.md is 3 KB of the 250 KB cap"
+     }
+    }
+   },
+   "input": "[hub:m120 from core] Executor maps-7 handed in its task and fell asleep. ⟦NOTE⟧\n\n**Lessons**\n- The geocoder cache key must include the locale: without it a German query got the French answer (PR #530, 05.11).\n",
+   "checks": [
+    {
+     "id": "written",
+     "type": "any_of",
+     "text": "the new lesson is written",
+     "checks": [
+      {
+       "type": "field",
+       "name": "added",
+       "re": "(?i)geocod|locale"
+      },
+      {
+       "type": "field",
+       "name": "changed",
+       "re": "(?i)geocod|locale"
+      }
+     ]
+    },
+    {
+     "id": "no_pr_or_date",
+     "type": "field",
+     "name": "added",
+     "item_not_re": "(?i)#\\d|\\bPR ?\\d|\\bMR ?!?\\d|\\b\\d{1,2}\\.\\d{1,2}\\b|\\b[0-9a-f]{7,40}\\b",
+     "text": "no PR numbers, commits or dates in the added lines"
+    }
+   ]
+  },
+  {
+   "id": "owner-correction",
+   "consts": {
+    "NOTE": {
+     "file": "core/reducer.py",
+     "name": "LESSONS_TAKE",
+     "format": {
+      "where": "into your CLAUDE.md",
+      "form": "an owner's correction — as \"do it like this\", not \"ask them before X\"; a stop — only on their direct \"ask me\" (their words and the date) or about money, prod, clients, the irreversible, a repo's gate",
+      "name": "maps-7",
+      "agent": "; an owner's correction or decision, a prohibition, a gate — with 📌 at the start of its line: over the size cap the core never moves those out; your CLAUDE.md is 3 KB of the 250 KB cap"
+     }
+    }
+   },
+   "input": "[hub:m120 from core] Executor maps-7 handed in its task and fell asleep. ⟦NOTE⟧\n\n**Lessons**\n- The owner corrected me: a hotfix branch is cut from the release tag, not from main (the owner: \"never from main for a hotfix\").\n",
+   "checks": [
+    {
+     "id": "pinned",
+     "type": "any_of",
+     "text": "the owner's correction is pinned",
+     "checks": [
+      {
+       "type": "field",
+       "name": "added",
+       "re": "📌"
+      },
+      {
+       "type": "field",
+       "name": "changed",
+       "re": "📌"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

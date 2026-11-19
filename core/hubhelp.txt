@@ -1,0 +1,1078 @@
+# hub command help: one source for `hub --help`, `hub <command> --help` and flag checks (core/clihelp.py).
+# Line markup by the first character:
+#   = Group                   an index section
+#   hub <command> …           a call form (several lines in a row — several forms of one command)
+#   : text                    one index line: what it does (up to ~60 chars)
+#   two spaces, text          details
+#   --flag VALUE  text        a flag (and -n N); the description comes after two spaces
+#   @ who, who — note         who may (words: anyone, owner, hub, session, self, raiser, setter, mini-hub, agent-dev,
+#                             terminal, job, liaison); tests/test_clihelp.py checks it against the real core
+#   $ hub …                   an example (invented names: session maps, executor maps-1)
+#   ! text                    a common mistake
+#   > module:NAME | i18n:key  detailed help — from the command's own parser (it has its own help)
+#   {model_rule}                the --work rule with the pairs from this hub's settings goes here
+# Output section captions; argparse — commands whose parser takes a flag's start and --flag=value:
+% head hub — commands for sessions and the owner. Details: hub <command> --help (or -h, hub help <command>).
+% head2 Ask the owner — the AskUserQuestion form (not a hub command); write to them — with the turn's result.
+% flags Flags:
+% who Who:
+% examples Examples:
+% errors Common mistakes:
+% more details — hub {key} --help
+% near closest:
+% example e.g.
+% argparse schedule remote
+% modules Core module commands:
+% module module command {module}: {about}
+
+= Sessions
+hub session new <name> [--cwd DIR] [--mode M] [--icon E] ["<task…>"]
+hub session new <name> [--cwd DIR] --agent --about "<what it does>" [--icon E]
+: raise a claude session (or an agent — with --agent)
+  Without --cwd — its own folder <state>/workspaces/<name>. Name: Latin letters, digits, hyphen, up to 40 chars.
+  From a work session — a request to the hub: the core hands it the task, it opens it. Task in your repo — hub task run.
+--cwd DIR  the session's folder
+--mode M  Claude Code permission mode (default bypassPermissions)
+--agent  a permanent agent: a professional with its own tools, not put to sleep until the owner dismisses it
+--about "…"  what the agent does (shown in the list and to other sessions)
+--icon E  the icon in the list (emoji)
+@ owner, hub; session — by a request to the hub
+$ hub session new maps --cwd /home/x/maps "fix the map tiles"
+$ hub session new maps --agent --about "maps: tiles and geocoder" --icon 🗺
+! an executor for your own task is not session new but hub task run (the result comes back to you)
+
+hub session rename <name> <new>
+: rename an asleep session; the old name stays an address
+  The conversation, messages and schedule go with it.
+@ owner, hub
+$ hub session rename maps maps-tiles
+
+hub session role <name> agent --about "…" [--icon E]
+hub session role <name> worker [--for mN|qN]
+: make a session an agent / dismiss an agent (worker)
+  System sessions (hub-dev, agent-dev) cannot be dismissed, put to sleep or removed.
+--about "…"  what the agent does
+--icon E  the icon
+--for mN|qN  the owner's word (to dismiss from the hub session)
+@ owner, hub — dismissing: on the owner's word
+$ hub session role maps agent --about "maps" --icon 🗺
+
+hub session icon <name> <emoji>|--clear
+: the session's own icon in the list; --clear removes it
+--clear  remove the icon
+@ owner, hub
+$ hub session icon maps 🗺
+
+hub session close <name>
+: put to sleep: first it hands over (HANDOFF-DONE), then the process exits
+  The conversation stays; hub session wake or a message wakes it.
+@ owner, hub, raiser
+$ hub session close maps
+
+hub session compact [<name>]
+: compact the session's conversation (/compact) when it is idle
+  Without a name — yourself. A long session gets cheaper and does not lose the thread.
+@ owner, hub, self
+$ hub session compact maps
+
+hub session effort [<name>] <low|medium|high|xhigh|max|default>
+: the session's reasoning effort; default — from settings again
+  An idle one is restarted with its conversation. Without a name — for yourself.
+@ owner, hub, self
+$ hub session effort maps high
+! an executor's model and effort are set when it is raised: hub task run … --work risky
+
+hub session model [<name>] <opus|sonnet|fable|haiku|claude-…|default>
+: the session's model; default — from settings again
+  An idle one is restarted with its conversation. Without a name — for yourself.
+@ owner, hub, self
+$ hub session model maps sonnet
+
+hub session cwd <name> <folder>
+: the session's folder moved: same session and conversation — in the new folder
+  Move the folder first, then run this command.
+@ owner, hub
+$ hub session cwd maps /home/x/maps-new
+
+hub session parallel <name> <0..N|default>
+: an own executor count for an agent or a direction
+  0 — "solo", no executors; N — a mini-hub, up to N at once; default — the shared "Parallelism" from settings.
+@ owner, hub, agent-dev
+$ hub session parallel maps 3
+
+hub session solo <name> on|off
+: "solo" — no executors (same as parallel <name> 0); off — undo it
+@ owner, hub, agent-dev
+$ hub session solo maps on
+
+hub session stop <executor…>
+: stop an executor now: cut its turn, shut it down, put it to sleep
+@ owner, hub, raiser
+$ hub session stop maps-1
+! the executor is still in the queue (not raised) — hub task cancel <name>
+
+hub session interrupt <name…>
+: cut the current turn of any session, like Esc; the session stays
+@ owner, hub, raiser
+$ hub session interrupt maps
+
+hub session wake <name> [--about dN] ["<what to do>" | --file PATH | -]
+: wake an asleep session; an executor that handed in — for rework (--about dN)
+  With a text — wake it and give it work at once. Messages do not wake an executor that handed in — only this command.
+  A mini-hub wakes its executor only for rework of its task, with a text: without --about — the one task it gave it.
+--about dN  rework of task dN (right after the name; a mini-hub with several tasks of this executor names one)
+--file PATH  the text from a file; `-` alone — from stdin (<<'EOF'), as for hub send
+@ owner, hub, raiser
+$ hub session wake maps-1 --about d12 "fix the review comments: …"
+! a mini-hub without a text — the core refuses; with several handed-in tasks of the executor and no --about — too
+! there is no --work here: the executor keeps its model; another kind of work — a new executor (hub task run)
+! no free places — it joins the queue (hub task queue) and starts by itself
+
+hub session reload <name>
+: restart the process with the same conversation (MCP did not connect, it hung)
+  An idle one at once; a busy one after its turn. An asleep one — hub session wake.
+@ owner, hub, self
+$ hub session reload maps
+
+hub session revive <name>
+: bring back a removed session with its conversation and tools
+  An executor — also by whoever raised it (not a direction): the same conversation and folder, and the places of a new
+  executor are needed.
+@ owner, hub, raiser
+$ hub session revive maps
+
+hub session kit [<name>|--fleet] [--days 7|30|all] [--json]
+: skills and MCP: loaded against opened
+  What the page shows in "Skills and MCP", without the page. A session: per skill — how often it was opened (the model's
+  Skill step, a /command, a read of its SKILL.md), in how many of the period's conversations, when last; what is loaded
+  and never opened, with its tokens in the model's list; the MCP servers with their calls; the period's conversations
+  and turns. Without a name — yourself. --fleet: the same per skill and server over the hub — in how many sessions it is
+  loaded, how many opened it. The first call after an update reads the journal archives once (up to a minute).
+--fleet  every session of the hub, executors too
+--days D  the period: 7 (default), 30 or all
+--json  the answer as the page gets it
+@ anyone
+$ hub session kit maps --days 30
+$ hub session kit --fleet --json
+! tokens are the model's skill list (Claude Code's get_context_usage): Codex does not say them — a dash
+
+hub session remove <name…>
+: remove an asleep or crashed session or an idle executor from the list
+  The conversation stays on disk: claude --resume <id>.
+@ owner, hub, raiser
+$ hub session remove maps-1
+
+hub close-ready "<done/open/handed over>"
+: (from a session) all done — hand over and go to sleep
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ self
+$ hub close-ready "done: tiles; open: geocoder — with maps-1"
+
+hub slash "/<skill> <arguments>"
+: (from a session) type a Claude Code command to yourself — after the turn
+  Typed as a human would. The repo's scaffold (/ship, /…-work) the model cannot invoke itself. For another session — hub send <session> "/…".
+@ self
+$ hub slash "/ship maps-1"
+
+hub take <name>
+: take a session into this terminal (claude --resume); on exit it returns to the hub
+@ terminal
+
+hub give <name>
+: return a session to the hub by hand (if the take terminal closed abnormally)
+@ terminal
+
+hub attach <name>
+: tmux host only: open the session in this terminal (tmux -L hub)
+@ terminal
+
+= Messages and questions
+hub send <to> [--now|--fyi] "<text>"
+hub send <session> [--now] --about dN|mN "<text>"
+hub send <session> [--now] --for mN [--card qN] "<the owner's words>"
+hub send liaison --to <contact> [--thread T] "<what to pass on>"
+: message to a session (address: name, sessionId, pid, socket); hub — to the hub
+  A busy one gets it in its queue, after the turn. The text goes in quotes as one word; with $ or backticks in it — see --file.
+--now  urgent: a busy one gets it mid-turn now, skipping the queue (hub, owner)
+--fyi  for info: does not wake it, arrives with its next turn; only what does not change its next step
+--about dN|mN  an addition to a task — reaches whoever is doing it
+--for mN  (hub) the owner's words mN — to the session; its result goes to the owner where he wrote from
+--card qN  (with --for) his words are the answer to its card qN
+--to <contact>  to the liaison: pass on to a contact of another hub; to the owner's own hub (checked, bound to a person, no rule) the core sends it itself
+--thread T  (with --to) the thread your words answer in, when you have several matters with that hub
+--file PATH  the text from a file; the text `-` alone (or `--file -`) — from stdin (<<'EOF'). The shell runs backticks and eats $… in quotes, these do not
+@ session, hub, owner — --now: hub, owner; --for: hub
+$ hub send maps "tiles on stage are ready, check them"
+$ hub send maps --about d12 "also: dark theme"
+$ hub send maps --fyi "CI green on main"
+$ hub send maps - <<'EOF'
+! a message does not wake an executor that handed in: it goes to the raiser; a mini-hub's own executor with one task from it — a rework of that task, otherwise refused: hub session wake <name> --about dN "…"
+! there is no --caption or --text: the text is one word in quotes after the name; --thread only with --to
+! a review result, a request, a question — without --fyi: --fyi does not wake
+! --fyi cannot be combined with --now, --for, --about, --card
+! a script outside a session (systemd, cron) sets HUB_SCHEDULE_JOB=<name>: its text is then not the owner's word
+
+hub answer <name> <answer> [<answer>…]
+hub answer <name> --card qN <answer> [<answer>…] --why "<why · how to roll back>"
+: answer a session's AskUserQuestion (answers in question order)
+  While the owner is away the hub answers a session's card for them — not their own decision (money, prod, people, the
+  irreversible, a repo's gate, access): the session gets the hub's answer, not the owner's word; it goes into their
+  return summary, and `hub decided undo <seq>` withdraws it.
+--card qN  (hub, owner away) the card answered
+--why "…"  (hub, owner away) why this answer and how to roll it back
+@ owner, hub
+$ hub answer maps "Yes"
+$ hub answer maps --card q305 "tiles.toml" --why "short, like the files next to it · rename the file"
+
+hub allow <name>
+: allow the action the session is asking about
+@ owner, hub
+
+hub deny <name> [reason]
+: deny the action the session is asking about
+@ owner, hub
+
+hub question withdraw <qN> ["why"]
+: withdraw a question to the owner — a duplicate or stale
+@ self, hub — own card; hub — any
+$ hub question withdraw q41 "already decided in m90"
+
+hub question show <qN>
+: (hub) show a session's question in its own chat as the same card
+@ hub, owner
+
+hub decided "<what> · <why> · <rollback>"
+hub decided list
+hub decided undo <seq>
+: (from a session) decided something reversible without the owner — into his summary
+  list — the last recorded decisions (#seq, who, text; a withdrawn one marked). The core keeps the last 100; a hub
+  updated to this version finds the earlier ones at its first start in the last 32 MB of the journal file, not in the
+  journal archives.
+  undo — withdraw a decision recorded by mistake: its author, the hub or the owner. It leaves the owner's summary and the
+  direction's backlog, and whoever was told about it hears it is withdrawn; what was already done on it stays. A core
+  started before this version refuses it until hub restart.
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ session
+$ hub decided "tile cache 1 h · lowers load · rollback: TTL=0 in config"
+$ hub decided undo 812
+! flags like --q, --text are not needed here: everything goes as one text in quotes
+
+hub notify [--urgent] [--title T] [--id ID] [--topic T] [--urgency now|later [--due TERM]] [--session S] [--no-push] "<text>" | -
+hub notify --resolve ID
+: (schedule command job) a message to the owner in Telegram and on the page
+  A session writes to the owner with its turn result, not hub notify (the core refuses); - — text from standard input.
+--urgent  urgent
+--title T  title
+--id ID  the same id updates the open notification
+--topic T  push topic
+--urgency now|later  when to ring
+--due TERM  by what deadline (with --urgency)
+--session S  where tapping the notification leads
+--no-push  no push to the phone
+--resolve ID  the cause is gone — remove your notification (and the banner)
+@ job, owner
+$ hub notify --id maps-ci --title "CI maps" "main is red: 2 tests"
+$ hub notify --resolve maps-ci
+! from a session — refused: "a session writes to the owner with its turn result"
+
+hub waiting "<who/what awaited>" | --clear
+hub waiting <session> "<…>" | <session> --clear
+: what you wait for — shown in the list instead of "free"
+  Without a check nobody catches the answer: next to it, a hub wait or a schedule job.
+--clear  remove
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ self, hub, owner — for another session: hub, owner
+$ hub waiting "maps answer on the review of MR !12"
+
+hub gist "<gist>" | --clear
+hub gist <session> "<gist>"
+: your line in the owner's session list, up to 160 chars
+--clear  remove
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ self, hub, owner — for another session: hub, owner
+$ hub gist "tiles ready, waiting for review of MR !12"
+
+hub attention off [<session>]
+: remove a "waiting for you" mark that is on: the result needs nothing
+  Only for a mark that is set (the owner or the core told you so); no mark — do not call it. The watchdog does
+  not set it again until the session's next turn; the hub and the owner remove a mark already set — once it is
+  gone, the watchdog judges the session's result as usual.
+@ self, hub, owner — for another session: hub, owner
+$ hub attention off
+
+hub wait "<what awaited, where-to-look>" [--for 4h]
+hub wait done [<label>]
+: (from a session) wait for a person's answer: checks in 10 min and at the end of the term
+  done — the answer came, remove the remaining checks; with a label (a piece of what you wait for), only that wait's.
+--for 30m|2h|4h  term (default 4h)
+@ self
+$ hub wait "answer in the MR !12 thread in GitLab" --for 2h
+! from a terminal — refused: checks are set for a session
+! there is no --every: one wait checks in 10 min and at the end of --for; a repeating check — hub schedule add --every
+
+hub run [--until 90m|6h|18:30] [--cwd DIR] "<command>"
+hub run [--until T] [--cwd DIR] -
+hub run list [--all]
+hub run stop <id>
+: up to 24 h outside the session, survives restarts; the result comes as a message
+  For work that ends by itself and must outlive a hub restart or run past 2 h (an eval, a build, a wait for CI): the
+  hub runs it in bash outside your session and sends you the exit code, the last lines and the log path. Not for a
+  server (a dev server — run_in_background). Exports of your shell do not carry over: put them into the command.
+  - — the command from stdin (a script with quotes). The log keeps the last 128 MB. Linux under systemd: all runs
+  together get at most half of the memory. On macOS and Linux without systemd a process that detaches itself inside
+  the command outlives the term. What the command leaves running when it exits is stopped: a run is the command and
+  all it started. list — your runs and your executors'; stop — the whole run.
+--until T  the term: 90m, 6h, 1h30m or 18:30 (the owner's time); default and at most 24 h
+--cwd DIR  the folder (default: the current one)
+--all  (list) every run of the hub — hub, owner
+@ self — stop: self, raiser, hub, owner; list --all: hub, owner
+$ hub run --until 4h "python3 evals/run.py --only after"
+$ hub run stop run2061001
+! setsid, nohup or a schedule job for long work — use hub run: they die with the hub's service or an executor's hand-in
+
+hub away [--hours N]
+hub away --status
+: "I am away": questions pile up, urgent ones go to Telegram
+--hours N  for how many hours
+--status  whether away now
+@ owner, hub — on his word
+
+hub back
+: "I am back"
+@ owner, hub — on his word
+
+hub contacts [find <who>]
+hub contacts add "<name>" [--telegram @user:id] [--teams-chat ID] [--teams T] [--email E] [--alias A] [--note "…"] [--source "…"]
+hub contacts link "<person>" <hub> | unlink <hub> | rename "<person>" "<new>" | remove "<person>"
+: the owner's addressees — whom to write to in his name (Telegram, Teams, mail)
+  Saw a person's address at work — find; none or partial — add with --source: appends, never changes an address; write on the owner's word.
+--telegram @user:id  Telegram: @username and id
+--teams-chat ID  Teams chat
+--teams T  Teams (email or id)
+--email E  email
+--alias A  another name (can repeat)
+--note "…"  note
+--source "…"  where we know it from (owner, mN, chat)
+@ anyone — link, unlink, rename, remove: owner
+$ hub contacts find Masha
+$ hub contacts add "Masha" --telegram @masha:123 --source "owner, m90"
+
+hub post <plugin> "<text>" [--reply pN]
+: a post to the plugin's channel in your own name
+--reply pN  reply to post pN
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF')
+@ session, hub, owner
+
+hub feed <plugin> [--last N]
+: the plugin's channel posts
+--last N  how many latest (default 30)
+@ anyone
+
+= Tasks and executors
+hub task new <to> "<what to do, why, when it is done>" [--work normal|risky] [--now]
+hub task new <session> --for mN [--card qN] "<context>"
+hub task new <session> --for-session S "<task>"
+: a task for a session: the result comes back to you (with --for, to the owner)
+--for mN  (hub) a task from the owner's message: his words go verbatim, the result goes to him
+--card qN  (with --for) his words are the answer to this session's open card qN
+--for-session S  at session S's request, the result goes to it
+--work normal|risky  kind of work, in case the hub hands it to an executor
+--model M  explicit executor model (owner from the terminal)
+--effort E  explicit executor effort (owner from the terminal)
+--now  urgent: to a busy session mid-turn, right now (hub, owner)
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ session, hub, owner — --now: hub, owner; --for: hub
+$ hub task new maps "add a dark tile theme; done = screenshots at 390 and 1440"
+! you do not set a task for yourself: for later work, use hub task note or the direction's board
+
+hub task run <name> "<task: what, why, when it is done>" --work normal|risky [--repo PATH [--here]] [--branch B] [--from-main] [--for mN|qN] [--tools id,id] [--board TASK-N] [--spec]
+: raise an executor for a task: own copy, the result to you
+  {model_rule}
+  Own working copy (branch task/<name>) from the folder's current branch; your CLAUDE.md; handed in, it falls asleep by itself. No free slots: a queue.
+  The name is the gist of the task in Latin letters: tiles-dark, geocoder-fix (up to 40 chars, not taken).
+--work normal|risky  kind of work: a model pair from "Settings → Executors" (required from a session)
+--model M  explicit model (owner from the terminal; overrides --work)
+--effort E  explicit effort (owner from the terminal)
+--repo PATH  which repo (default: your folder)
+--here  right in the existing copy PATH, without its own (where nobody works)
+--branch B  a copy on the existing branch B
+--from-main  a branch from the repo's main branch (from origin, if the local one is behind)
+--for mN|qN  the owner's word: even above 85% of the weekly limit
+--tools id,id  starts with these tools already
+--board TASK-N  the direction's board card the work is for
+--spec  spec mode (only with specs on — a person's /spec on): it writes only the spec (specs/<dN>/spec.md) until the owner accepts it
+--spec-dir NAME  the spec's folder in specs/ instead of dN: a new spec of a topic next to its earlier one
+--file PATH  the task text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ session, hub, owner
+$ hub task run tiles-dark "dark tile theme; done = screenshots 390/1440 and green tests" --work normal
+$ hub task run geocoder-fix "fix the geocoder on prod data" --work risky --repo /home/x/maps --from-main
+! without --work from a session: refused with the rule
+! --here on your own working folder: refused; only in an existing free copy
+! name taken: pick another name (or hub session wake <name> for follow-up work)
+! a copy from main — --from-main; an existing branch — --branch B; there is no --branch-from
+
+hub task queue
+: executor queue: who waits and why
+@ anyone
+
+hub task go <name> [--for mN|qN]
+hub task go --queue [normal] --for qN
+: (hub) raise from the queue now
+--for mN|qN  the owner's word (above the budget threshold)
+--queue  the whole queue (normal: only normal, on the cheap pair)
+@ hub, owner
+! from a working session: refused "only the hub or the owner raises out of queue order"
+
+hub task pause ["<why>"]
+: pause the queue: it raises nobody by itself, new ones wait
+@ hub, owner
+
+hub task resume
+: lift the queue pause
+@ hub, owner
+
+hub task cancel <name> [--for mN|qN]
+: remove a request from the queue
+--for mN|qN  the owner's word
+@ session, hub, owner — session: its own request
+! already working: hub session stop <name>
+
+hub task done <dN>
+: the task is closed
+@ session, hub, owner — whoever set it
+! an open spec is not closed so: hub task spec accept|drop
+
+hub task spec accept|drop <dN> [--for mN|qN]
+: accept or drop a spec
+  Accept — it does the work by the file as it is on disk now (copy spec.accepted.md); drop — the task is closed.
+--for mN|qN  the owner's word to you (his message or card answer): without it a raiser is refused
+@ owner, raiser — only with --for
+$ hub task spec accept d12 --for m340
+
+hub task show [dN|session] [--full]
+: the task's entry: what, who, progress; at the bottom a fingerprint for hub task head
+  Without a number: your own. To the one doing it, an untouched task text is one line (it is its brief).
+--full  the whole text, also to the one doing it
+@ anyone
+$ hub task show d12
+
+hub task note [dN|session] "<what>"
+: add to the task's progress (context, decision, what is done); seen by all
+  Without a number: your only task in work; if none, your latest; several in work — refused, with the list of dN.
+--file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
+@ session, hub, owner — session: its own tasks
+$ hub task note "tests green, branch task/tiles-dark"
+! the task is a word, not a flag: hub task note d12 "…" (there is no --task)
+
+hub task head <dN> --sha <fingerprint> "<task>"
+: fix the task statement if the entry has not changed since show
+--sha S  fingerprint from hub task show
+@ session, hub, owner
+$ hub task head d12 --sha 1a2b3c4d5e6f "dark theme and contrast ≥ 4.5"
+
+hub task list [--all]
+: tasks: in work, waiting for owner, broken off, answered
+--all  closed ones too
+@ anyone
+
+hub route <mN|dN> queue | executor --name <gist> [--work normal|risky] | drop "<why>" | now
+: (hub) where to put a message for a busy agent
+  executor: only a task dN; the name says what the task is about, in Latin letters. drop: the reason goes to the sender.
+--name N  executor name
+--work normal|risky  executor's kind of work (not for a task with a set model)
+--model M  explicit model (owner from the terminal)
+--effort E  explicit effort (owner from the terminal)
+@ hub, owner
+$ hub route d12 executor --name tiles-dark --work normal
+
+hub migrate [--dry|--auto]
+hub migrate --rollback [<copy>]
+: (owner) switch to executors / roll back the journal from a copy
+--dry  only show
+--auto  after a hub update: once
+--rollback  restore the journal from a copy (default: the latest)
+@ terminal
+
+= State
+hub status [--json] [--all]
+: sessions, their questions and latest messages, from the journal
+--json  machine-readable (open cards)
+--all  executors that handed in too
+@ anyone
+! there is no hub list or hub whoami: the fleet — hub status; your own name — echo $HUB_SESSION
+
+hub show <session> [-n N] [--full]
+hub show --grep <text> [-n N] [--full]
+hub show mN | qN | dN
+: what a session did and wrote; who wrote on a topic; one journal entry
+-n N  how many lines (20; with --grep, 30)
+--full  matches in full
+--grep T  who wrote about this and when (all sessions, the journal archives too; after a session name — in it)
+@ anyone
+$ hub show maps -n 40
+$ hub show --grep "tiles"
+$ hub show maps --grep "tiles"
+$ hub show m90
+! there is no hub inbox: what came to you — hub show <your name>; there is no --messages or --all: -n N, --full
+
+hub profile evicted [<agent>] [--grep T] [-n N]
+hub profile restore <id> [<agent>]
+hub profile pin <agent> --from FILE [--evicted FILE] [--check]
+: items the core moved out of an agent's CLAUDE.md over its size cap
+  Over the cap (Settings: agents.profile_max_kb) the core moves an agent's oldest unpinned items, whole, out of its
+  CLAUDE.md into CLAUDE.evicted.md next to it; a 📌 at the start of an item's first line, or in a section heading,
+  keeps it. Nothing is moved before the agent's pinning is confirmed with pin. Without <agent> — your own (an executor:
+  its raiser's). The file wins where it and an evicted item differ.
+  pin: a list in Markdown — a section heading as it stands in the file, under it the start of each item's first line
+  to pin; a line "*" pins the whole section (a code block is pinned only so). Any line that matches no item or two —
+  nothing is pinned. Both files are Markdown (.md).
+-n N  how many of the latest to show (20)
+--grep T  every evicted item that mentions it
+--from FILE  pin: the list of items to pin
+--evicted FILE  pin: items cut out of the file by hand, under their headings — they go to the evicted ones
+--check  pin: only show where the pins go
+@ anyone — restore: self, hub, owner; pin: owner, hub, agent-dev
+$ hub profile evicted --grep "tiles"
+$ hub profile restore e1a2b3c4d5e6f
+! an evicted item is changed by restore and an edit of the file, not in the evicted file
+
+hub projects
+: this machine's projects from settings: name, folder, about
+@ anyone
+
+hub coach
+: observer: which executors get returned to, where an agent is needed
+@ anyone
+
+hub layout
+hub layout move <session> <group>
+hub layout ungroup <group>
+hub layout reset
+: groups of the session list on the page and who is in them
+@ anyone — move, ungroup, reset: owner, hub
+$ hub layout move maps "Maps"
+
+hub version
+: hub version; for a package install, the issues address too
+@ anyone
+
+hub doctor
+: is the hub ready: settings, claude, core, core modules, their checks
+@ anyone
+
+hub modules [--json]
+hub modules reset <name>
+hub modules forget <name>
+hub modules touched <name> [--days N]
+: core modules: state, where from, why it does not work
+--json  machine-readable
+--days N  over how many days (touched)
+@ anyone — reset, forget: owner, hub
+
+= Schedule
+hub schedule add [--session S] (--at "YYYY-MM-DD HH:MM" | --every 30m|2h|1d | --cron "m h dom mon dow") --prompt "…" [--until YYYY-MM-DD] [--id ID] [--check "<command>"]
+hub schedule add --id ID (--at … | --every … | --cron …) --command "…" [--session S]
+: set a job: a timed session turn or a monitor command
+  Time is in the owner's time zone. A repeating job lasts up to 14 days (max 30); extend it — hub schedule extend.
+  --check: the clock runs the command in the session's folder before the turn (2 min by default, --check-timeout S sets
+  the limit); code 0 — nothing new,
+  don't wake; 3 — wake, its output goes in the text; another code — wake with the check error.
+  A polling job (comments, a deploy, mail) — with --check whenever a command can tell what is new (--every 1m works).
+  --command: a script on a schedule, no end date; writes to the owner itself (hub notify); output: logs/schedule/ID.log.
+  --command and --check run in the OS shell: /bin/sh on Linux and macOS, cmd.exe on Windows (not bash: no sh, grep,
+  dirname, $VAR); complex things go in a script (full path: --command runs from home, --check from the session's folder).
+--session S  whose turn (default: yourself); with --command — whose command
+--at "YYYY-MM-DD HH:MM"  once
+--every 30m|2h|1d  repeat
+--cron "m h dom mon dow"  by cron
+--prompt "…"  the text of the session's turn
+--command "…"  a shell command (monitor)
+--until YYYY-MM-DD  until which day
+--id ID  your own job name (required with --command)
+--check "…"  a pre-check without a turn (only with --prompt)
+--check-timeout S  seconds the check may run: 1–900, default 120 (needs --check)
+@ session, hub, owner — to change: setter, recipient, hub, owner
+$ hub schedule add --at "2026-01-15 09:30" --prompt "check the maps deploy on stage"
+$ hub schedule add --every 10m --prompt "look at the new comments on MR !12" --check "test -s /home/x/maps/new.txt && exit 3" --until 2026-01-20
+! text without --prompt — error "one of the arguments --prompt --command is required": the text goes after --prompt
+! there is no --text: the text of the turn — --prompt "…", a shell command — --command "…"
+! every weekday at 10:30 — --cron "30 10 * * 1-5"; --every and --at together are "not allowed with" each other
+! time — "YYYY-MM-DD HH:MM" in quotes; a past time — refused
+! someone else's job — refused: only the setter, the recipient, the hub or the owner may change it
+
+hub schedule list [--session S] [--all] [--full]
+: jobs: when, for whom, next run
+--session S  only this session's (and the commands it set)
+--all  also removed and ended ones
+--full  full texts (default: 200 characters)
+@ anyone
+
+hub schedule extend <id> [--until YYYY-MM-DD]
+: extend a repeating job (also one ended within a week) — 14 more days or up to a date
+--until YYYY-MM-DD  until which day (max 30)
+@ session, hub, owner — setter, recipient, hub, owner
+
+hub schedule rm <id>
+: remove a job (an ended one too)
+@ session, hub, owner — setter, recipient, hub, owner
+! a one-time job has already fired — nothing to remove
+
+hub schedule retarget <id> <session>
+: give a job to another session
+@ session, hub, owner — setter, recipient, hub, owner
+
+hub schedule apply [--session S] [file.json | -]
+: (hub) the whole desired set of jobs (JSON)
+  Missing ones are removed, identical ones stay untouched.
+--session S  this session's set
+@ hub, owner
+
+= Tools
+hub tools list [<session>]
+: what can be connected (id, description, risk); a name — what that session has
+@ anyone
+
+hub tools request <id> <why…>
+: (from a session) request a tool for yourself
+@ self
+$ hub tools request browser:mac "check the layout on stage"
+! a missing skill, MCP or access — request it this way, do not work around it
+
+hub tools grant <session> <id> [--for mN|qN]
+: connect to a session; risky (runs code) — on the owner's word
+  Risky: the catalog's risk or a hook, MCP, LSP, bin/, a script in a skill. <entry>@<catalog> of a connected catalog not installed yet — installs it first (hub marketplace search).
+--for mN|qN  the owner's words that name it: their "yes" to you in the chat (label [hub:mN from user]) or an answer to a card whose question names it
+@ anyone — risky: hub, agent-dev with --for; anyone else — the owner gets a card
+$ hub tools grant maps browser:mac --for m90
+
+hub tools deny <session> <id> [reason]
+: refuse a request
+@ hub, owner
+
+hub tools approve <session> <id>
+: (owner) "yes" to a risky tool
+@ owner
+
+hub tools revoke <session> <id>
+: disconnect a tool
+@ hub, owner
+
+hub tools discover
+: the owner's own plugins, skills and MCP from Claude Code — already in the catalog
+@ anyone
+
+hub tools import set|skill <name> [--risk r1,r2]
+hub tools import mcp <name> --about "…" [--risk r1,r2]
+: add to the hub's catalog
+--about "…"  what it can do (MCP)
+--risk r1,r2  risks; from the hub a risk already set stays, and an MCP without one gets owner-data
+@ hub, owner
+
+hub mcp login <session> <server> [--no-browser] [--redirect '<address>'] [--confirm]
+: an MCP waits for sign-in (OAuth): sign in through a live session with this server
+  No browser — send the person a link; pass their return address (http://localhost:…/callback?code=…) with --redirect.
+--no-browser  a link for the person instead of this computer's browser
+--redirect '<address>'  the address from the person's browser bar (within ~5 min)
+--confirm  a server from mcp_login_confirm (money, prod) — only the owner from a terminal
+@ session, hub, owner — a server from mcp_login_confirm: owner only
+
+hub mcp reconnect <server> [--session <name>]
+: reconnect an MCP now, without waiting for the auto-retry
+--session S  only for this session
+@ anyone
+
+hub shot <url|file> [--widths 390,1440] [--box "<selector>=label"] [--redact "<selector>"] [--full] [--wait MS] [--eval "<js>"] [--out x.png]
+hub shot --compare before.png after.png [--stack] [--out x.png]
+hub shot --steps scenario.json [--out x.png]
+: a screenshot with markup; before/after; shots after click steps
+--widths 390,1440  widths, comma-separated (200–4000)
+--box "<selector>=label"  a frame with a label (can repeat)
+--redact "<selector>"  paint over (can repeat)
+--full  the whole page
+--wait MS  pause before the shot (400)
+--eval "<js>"  run before the shot
+--out x.png  where to save (default: the hub's folder)
+--compare A B  before/after
+--stack  one under the other
+--steps scenario.json  hub video's steps and {"shot": "name", "width": 390, "height": 800} (size optional) → x-name.png
+@ anyone
+$ hub shot http://127.0.0.1:8080/maps --widths 390,1440 --box "#legend=legend"
+$ hub shot --compare before.png after.png --out cmp.png
+$ hub shot --steps /home/x/maps/pay.json --out /home/x/maps/pay.png
+! there is no -o — only --out
+
+hub video <scenario.json> [--out x.mp4]
+: a video of browser steps, up to 60 s (module: "video": {"enabled": true})
+  Steps: goto click hover type press scroll wait wait_for caption
+--out x.mp4  where to save
+@ anyone
+
+hub critic <draft> [--task "<the task in one line>"] [--evidence path,path]
+: another model tries to refute a draft decision (10–15 min)
+  Option: "critic": {"enabled": true} in hub.json. It takes long — run it in the background, output to a file.
+--task "…"  the task in one line
+--evidence a,b  evidence files: commas or spaces up to the next flag, the flag can repeat; ~ is the home folder
+@ anyone
+$ hub critic /home/x/maps/spec.md --task "tile cache on a CDN" --evidence /home/x/maps/load.txt,/home/x/maps/plan.md
+! the draft goes first: the words after --evidence are evidence files
+! there is no --engine or --model: the model is the hub's setting ("critic" in hub.json)
+
+hub secret list
+hub secret add <name> --from-file <file|-> [--key KEY] [--login-key KEY | --login TEXT] [--site S]… [--commands] [--note "…"]
+hub secret fill <name> [password|username]
+hub secret exec --env VAR=<name>[:login] … -- <command> [args]
+: add a secret from a file, put one into a form field or a command
+  The owner keeps passwords and API keys in Settings → Secrets; you never see a value. `add` takes one from a file
+  the owner pointed you to or a command gave you in this task (.env, an export; `-` — stdin) straight into the vault:
+  never open, cat or grep that file. Without --key, a file of several keys answers with their names only. An existing
+  name gets the new value; the owner sees who changed it and can return the old one. --site and --commands only for a
+  new secret; removing — only the owner. `fill` puts one into the form field where your cursor is, on one of its
+  sites; `exec` runs the command with it in VAR (only secrets allowed into commands) and masks it in the output.
+  Never ask the owner for a value and never print it. From a command's output: `gh auth token | hub secret add
+  gh-token --from-file - --commands`.
+--from-file F  the value: without --key — the file's one line as it is; with --key — a .env line or a top-level JSON field; `-` — stdin
+--key KEY  which .env line or JSON field
+--login-key KEY  the login from the same file
+--login TEXT  the login as text (it stays in your conversation; a login to hide — --login-key)
+--site S  a site it may be filled into (a new secret; repeat for more)
+--commands  `hub secret exec` may give it to commands (a new secret)
+--note "…"  what it is for
+--env VAR=<name>  the variable and the secret; `:login` gives its login instead of the password
+@ session, hub, terminal
+$ hub secret add gitlab-token --from-file /home/x/maps/.env --key GITLAB_TOKEN --commands
+$ hub secret exec --env GITLAB_TOKEN=gitlab-token -- glab api user
+! do not open the file to find the key: `add` without --key names the keys, not the values
+! do not search the disk for tokens: add only what the owner pointed you to or a command gave you in this task
+! `add` and `fill` need the hub's page over the network: a Codex sandbox without network answers "the page does not answer"
+! the mask catches printing by accident, not on purpose (base64, a file)
+! a value in a command's arguments (`curl -H "…$T"`) is seen by every user of a Linux machine: prefer programs that read the variable, or `curl -H @-`
+
+hub send-file <path>… ["caption"]
+: files to the owner — to Telegram and to your feed on the page
+  Several files — each as a separate message, the caption on the last. A mini-hub's executor — to the mini-hub's feed.
+--screenshot  a screen capture from another tool (browser, simulator): sorted with screenshots, not generated pictures; `hub shot` frames are marked by themselves
+@ session, hub, owner
+$ hub send-file /home/x/maps/after-390.png /home/x/maps/after-1440.png "dark theme: 390 and 1440"
+! the caption goes as the last word; there is no --caption flag
+
+hub send-rich <report.md|.html>
+: a report with pictures as one Telegram message (telegram.rich)
+--title T  the report's title
+@ session, hub, owner
+
+= Directions
+hub direction new <slug> [--repo <path>] [--adopt] [--session <name>]
+: create a direction: a long session's backlog
+  No --repo — the lead's git folder or its own.
+--repo PATH  the project repo, committed; `hub task run <slug>` raises the direction in its working copy as a mini-hub
+--adopt  take an existing backlog in the repo
+--session S  which session leads it (the hub — for another one); a session that leads a direction cannot start a second
+@ session, hub, owner
+
+hub direction list
+: directions
+@ anyone
+
+hub direction where <slug>
+: where the direction's backlog is
+@ anyone
+
+hub direction repo <slug> <path>
+: change the direction's repo
+@ anyone
+
+hub direction resume <slug>
+: return to the direction
+@ anyone
+
+hub direction archive <slug>
+: close the direction (the backlog — to the archive)
+@ anyone
+
+hub direction lead <slug> [<session>]
+hub direction lead <slug> --drop <session>
+: hand the direction to a session (the hub, the owner); no name — who leads; --drop — take off
+  A bare `lead <slug>` only says who leads and records nothing; --drop takes a session off leading.
+  The removed session loses the backlog and, after compaction, the direction summary; session and direction stay.
+--drop <session>  take it off leading (owner or hub only)
+@ anyone
+$ hub direction lead payments --drop fixer
+
+hub direction rename <slug> <new>
+: rename a direction (backlog, board); a session — hub session rename
+@ anyone
+
+hub direction decide <slug> "<heading>" --decision "…" [--context "…"] [--consequences "…"]
+: record a decision in the direction's backlog
+--decision "…"  the decision
+--context "…"  context
+--consequences "…"  consequences
+@ anyone
+
+hub direction board <slug> [--stop]
+: the backlog board in a browser (and from a phone via tailnet)
+--stop  shut the board down
+@ anyone
+
+hub direction boards
+: open direction boards
+@ anyone
+
+hub direction <slug> <backlog command…>
+: tasks, notes, AC, backlog documents; help — hub direction <slug> --help
+@ anyone
+$ hub direction maps task list
+
+= Hub
+hub restart [--now] [why…]
+hub restart <part…> [--now]
+hub restart --cancel
+: restart the whole hub on new code, or only parts of it
+  The whole hub waits until sessions are free (no longer than restart_wait_minutes); conversations are kept.
+  A recording on the page (voice, plugin) holds it while it runs — up to 2 h from the request.
+  Parts: web scheduler browser telegram files tailnet watch update conduit stats gateway bus-relay cloudflare,
+  ext:<plugin>, mod:<module> — they do not touch sessions.
+--now  do not wait
+--cancel  cancel a pending restart
+@ owner, hub — parts: a session too
+$ hub restart web
+! the whole hub from a working session — refused: ask the hub
+
+hub stop
+: (owner) stop a hub started by hub-up; under an OS service — hub off
+@ terminal
+
+hub on
+: (owner) turn the hub on under an OS service
+@ terminal
+
+hub off
+: (owner) turn the hub off under an OS service
+  Without a service — like hub stop.
+@ terminal
+
+hub ui [--print]
+: open the hub page in a browser
+  With a password (hub password) the page asks for it.
+--print  print the link instead of opening it (a server without a browser)
+@ terminal
+
+hub open [--print]
+: the page of this hub in a browser, the hub turned on first when it is off
+  As hub ui, after `hub on` when the page does not answer (up to a minute for it). Where no browser can come up (Linux
+  without a display) — the link only.
+--print  print the link instead of opening it (a server without a browser)
+@ terminal
+
+hub password [set|off]
+: (owner) the page's password of this hub
+  With it the page and "Files" open only after the password, from anywhere: this computer, the tailnet, Cloudflare.
+  Off by default. Set or change it on the page too (Settings → General → Hubs on this computer, the hub's row).
+  Without a word — whether it is set. set — asks for it twice (never an argument). off — the way back when forgotten.
+@ terminal
+
+hub update
+hub update rollback [vX.Y.Z]
+hub update forget-follower <key> [--for mN|qN]
+hub update local-edits off|on [--for mN|qN]
+hub update lost [ok|restored <id>]
+: install the update and restart now (by itself — hourly; a code layer — every 6 h)
+  Not a check: the check runs by itself. The command installs what it finds (a git hub merges and tests it first) and restarts the hub at once.
+  rollback: the app back to the previous version (vX.Y.Z; a code layer's is 1.9.3, 1.9.3-nightly.…)
+  local-edits off: the hub's own edits of the core back to the release (all kept in backup/local-edits-<date>); on: back
+  lost: the release's changes a merge may have lost (to Hub Developer, the band shows them); ok <id> — rewritten, restored <id> — put back
+--for mN|qN  the owner's word (forget-follower, local-edits from a hub session)
+@ anyone — forget-follower, local-edits: owner, hub on the owner's word; lost: owner, hub, hub-dev and those it raised
+
+hub setup
+hub setup claude [--force]
+hub setup codex [--force]
+hub setup voice [on [<model>]|off]
+: what is left before the hub works; claude, codex, voice — install
+  claude, codex, voice — install Claude Code, Codex, a speech model.
+--force  install again even if the version is already there (claude: this release's, into the hub's folder)
+@ anyone — setup claude, setup codex: terminal; setup voice: owner, hub
+
+hub support-bundle [--out <file>]
+: (owner) a zip for support, without keys; sends nothing
+--out F  where to write it
+@ terminal
+
+hub uninstall [--purge] [--keep-copies] [--yes] [--dry-run]
+: (owner) remove the hub: stop it, remove the service and the commands
+--purge  the data too (with confirmation)
+--keep-copies  an instance: leave its executors' working copies in the repos (they are removed by default)
+--yes  without asking
+--dry-run  only show
+@ terminal
+
+hub instance new <name> [--title T] [--engine claude|codex] [--claude shared|own] [--origin URL] [--dry-run] [--yes]
+hub instance list [--json]
+hub instance uninstall <name> [--purge] [--keep-copies] [--yes] [--dry-run]
+: another hub on this computer: own folders, service, command hub-<name>, ports
+  new — a clone of this hub's code in ~/.hub-<name>/code (a hub of the one-line install: a copy of its release and the
+  same environment), its settings ~/.config/hub-<name>, its ports past every hub's, its service and the command
+  hub-<name>, put by this OS's installer; an empty hub, not a copy. The page did not
+  answer in a minute — the service and commands go, the folders stay (the reason: the last lines of its log). list —
+  the hubs of this computer: command, page, running, engine; uninstall — that hub's own uninstall (the main hub:
+  hub uninstall); it also removes that hub's executors' working copies in the repos (a copy with unfinished work and
+  an unmerged branch stay, named). A session of one hub does not drive another (hub-<name> refuses it): hubs talk through the bus.
+--title T  its caption on its page (default the name)
+--engine E  claude (default) or codex: its sessions on Codex (the Codex CLI of this computer; none — its own copy in ~/.hub-<name>/bin, not in PATH); its sign-in — on its page
+--claude C  shared (default: the Claude Code sign-in of this computer) or own (~/.hub-<name>/claude, sign in again)
+--origin URL  where its clone updates from (default: this hub's origin; none — no update)
+--dry-run  only show
+--yes  without asking (an installer runs it)
+--json  for a program: the hubs as JSON
+--purge  its data too (with confirmation), signed out of Codex first
+--keep-copies  uninstall: leave that hub's executors' working copies in the repos (removed by default)
+@ anyone — new, uninstall: terminal
+$ hub instance new maps --title "Maps"
+$ hub instance uninstall maps --purge
+
+hub app find [--json]
+hub app move <clone> --app <folder>
+hub app move --done
+hub app stay
+hub app undo [--failed]
+hub app src [--repo URL] [--json]
+hub app apply
+: (owner) clone into the app and back; src, apply: own core
+  The app's installer runs these: find — the clone this state folder's hub runs from (code 3 — none); move — waits
+  for busy sessions, stops it, saves the service files and hub.json, a backup branch of the own edits of the core in
+  the clone, the app's programs in hub.json; --done — the app's hub came up. stay — "Stay on the clone". undo — the
+  service back on the clone, hub.json from the copy (within 14 days of the move; --failed — the installer's own).
+--json  for the installer: the clone and the dialog's words
+--app <folder>  the app's folder (its programs)
+--done  the app's hub came up: the move is done
+--failed  the installer's undo of a move that did not come up
+  src — the core's working copy of a hub from the one-line install, <state>/own/core: git, the branch local (own
+  edits) over release (the commit of the release the hub runs); a clone of the release's source repository when this
+  machine has access (its tests, origin for a PR), else the release's own files without tests. Again after an update:
+  release moves to the new one, local is never touched (merge on request: git merge release). The hub keeps running
+  its built release. apply — builds the hub's code of local (committed, over release) by the release's own factory:
+  <release>+local.<sha>, left for the person's restart ("Restart" on the page and in Telegram) under the update's
+  watchdog; a build that does not come up goes back to the clean release. "Return the released" takes it off; a new
+  release installs clean, the edits stay on local.
+--repo URL  src: clone this repository instead of the release's source
+--json  src: the copy as JSON
+@ terminal — src, apply: owner, session (the Hub Developer)
+$ hub app undo
+$ hub app src
+$ hub app apply
+
+hub perms restore
+: restore the hub folders' permissions as the previous hub left them
+@ owner, hub
+
+hub journal scrub [--apply] [--backup]
+hub journal compact [--apply] [--backup]
+: clean old journals (keys, repeats); without --apply — only a count
+--apply  do it
+--backup  the old files — to backup/
+@ owner, hub
+
+hub market <review|verdict|install|update|remove|search|list> …
+: a plugin by link — through a code review; the rest — synonyms of hub marketplace
+--for mN|qN  the owner's word; install — one that names its owner/repo
+--accept  an update with new permissions
+--reviewed  exactly the reviewed copy
+@ owner, hub — on the owner's word; verdict: the session the review went to
+
+hub marketplace add <owner/repo | git URL | folder> [--ref R] [--for mN|qN]
+hub marketplace list [<catalog>]
+hub marketplace search [words]
+hub marketplace update [<catalog>] [--auto] [--for mN|qN]
+hub marketplace remove <catalog> [--uninstall] [--for mN|qN]
+hub marketplace install <entry>[@<catalog>] [--accept] [--despite-revoked] [--for mN|qN]
+hub marketplace uninstall <plugin> [--for mN|qN]
+hub marketplace validate <folder> [--strict]
+: plugin and module catalogs: add, find, install, update
+--ref R  the catalog's branch or commit
+--for mN|qN  the owner's word (from a hub session); install — one that names the entry (<entry>@<catalog> outside official catalogs)
+--accept  with new permissions (the hub — --for qN of the card)
+--despite-revoked  install a revoked one
+--uninstall  also remove what was installed from the catalog
+--auto  update daily (by itself)
+--strict  strict check of your own catalog
+@ anyone — add, update, remove, install, uninstall: owner, hub, agent-dev for catalogs and skill sets; hub plugins and modules — hub on the owner's word; remove, uninstall — his message to any session
+
+hub module add <git-url> [--ref R] [--subdir D] [--for mN|qN]
+hub module add <folder> [--dev] [--for mN|qN]
+hub module update [<name>|<url>] [--accept] [--for mN|qN]
+hub module dev <name> [--off] [--for mN|qN]
+hub module trust <name>|<url> [--off] [--for mN|qN]
+hub module model <name> [--off] [--for mN|qN]
+hub module remove <name>|<url> [--for mN|qN]
+: core modules: install from git or from disk, update, trust, remove
+--ref R  branch or commit
+--subdir D  the module's folder in the repo
+--dev  developer mode (from a folder only)
+--accept  an update that asks for more than was approved
+--off  turn off (dev, trust, model)
+--for mN|qN  the owner's word (from a hub session); add — one that names its address (owner/repo); dev, trust, model, update --accept — its name
+@ owner, hub — on the owner's word; remove — his message to any session
+
+hub remote cloudflare [status]
+hub remote cloudflare set [--team T] [--aud A] [--url https://…] [--email E] [--token-id ID] [--no-token-ids] [--metrics 127.0.0.1:N]
+hub remote cloudflare on|off
+hub remote cloudflare setup [--domain D] [--email E] [--service-token]
+hub remote cloudflare remove | rotate
+: sign-in to the page from outside through your own Cloudflare tunnel
+  setup, remove, rotate — the owner in their own terminal (the API token is not stored).
+--team T  the Access team
+--aud A  the application's AUD (may repeat)
+--url https://…  the page address
+--email E  who may sign in (may repeat)
+--token-id ID  service token (may repeat)
+--no-token-ids  remove the service tokens
+--metrics 127.0.0.1:N  the cloudflared metrics address
+--domain D  your domain (setup)
+--service-token  create a service token (setup)
+@ anyone — set, on, off: owner, hub; setup, remove, rotate: terminal
+
+hub accounts [add|remove|move|use|probe|on|off|token …]
+: Claude accounts for the hub — a pool of long-lived tokens
+> modules.accounts.accounts:USAGE
+
+hub conduit [on|off]
+: a spare Claude account from conduit
+> modules.conduit.conduit:USAGE
+
+hub codex [status|login|logout]
+: the hub on Codex (hub.json "host": "codex"): sign-in
+  Without "host": "codex" in hub.json nothing changes. Sign-in: the hub's folder (codex-home), not personal ~/.codex;
+  the code comes to the phone.
+@ anyone — status; login, logout: terminal
+> core.codexcli:USAGE
+
+hub codex add | use <account> [--force] | remove <account> | login|logout <account>
+: the Codex account pool
+  More Codex accounts, a switch at a limit. add — new account and sign-in by code, use — switch to it manually,
+  remove — take it out of the pool (the folder stays), login/logout <account> — sign in again, sign out.
+--force  use: switch even to a busy account
+@ owner, hub — use; login, logout, add, remove: terminal
+> modules.accounts.codexpool:USAGE
+
+hub stats [log [N] | on | off]
+: hub statistics (off by default)
+> modules.stats.stats:USAGE
+
+hub bus …
+: the hub bus: links to other hubs, contacts, liaison
+> i18n:cli.bus.usage
+
+hub chats
+hub chats pass <cN> <session> [--note "…"]
+hub chats done <cN> [--why "…"]
+hub chats send <cN> "<text>" | -
+: people writing to the owner: pass on, answer, close
+  A person's message to the owner arrives as cN in the core's frame — their words, not the owner's. pass hands it to
+  the session of that work; send answers the person in the owner's name at once, one answer to one message — by the
+  owner's rules, as in his other messengers: a work answer yourself; money, promises and deadlines, a new person,
+  access — first ask the owner by a form. done — nothing to do. Without arguments — the connections and the open
+  messages.
+--note "…"  what the session should know (pass)
+--why "…"  why nothing is needed (done)
+@ anyone — list; pass, done: liaison; send: liaison, hub, session
+$ hub chats send c4512 "Tomorrow at 10 works, see you then."

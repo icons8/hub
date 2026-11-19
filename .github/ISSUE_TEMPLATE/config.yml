@@ -1,0 +1,13 @@
+# Pull requests from outside the maintainers' group are not accepted for now (CONTRIBUTING.md): an issue is the way
+# to contribute. The forms are a choice, not a requirement: a blank issue stays possible for the people who work in
+# this repository every day.
+# GitHub accepts only absolute addresses in contact_links: they name the public repository, as README, CONTRIBUTING
+# and SECURITY do.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/icons8/hub/security/advisories/new
+    about: Privately, never in a public issue (SECURITY.md).
+  - name: Ask a question or share an idea
+    url: https://github.com/icons8/hub/discussions
+    about: Open-ended ideas and questions go to GitHub Discussions.

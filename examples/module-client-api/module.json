@@ -1,0 +1,10 @@
+{
+ "name": "client-api",
+ "version": "1.0.0",
+ "api": "^2.4",
+ "description": "A module example for a client with another API: its own path /api/notes and view /api/notes-view on the page port, the notes key and the notes feature in the snapshot",
+ "run": ["python3", "main.py"],
+ "capabilities": ["http"],
+ "http": {"paths": ["/api/notes"], "views": ["/api/notes-view"]},
+ "snapshot": {"keys": ["notes"], "features": ["notes"]}
+}

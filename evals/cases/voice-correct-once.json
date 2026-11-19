@@ -1,0 +1,126 @@
+{
+ "id": "voice-correct-once",
+ "title": "A correction for one message (\"shorter here\") — the style file is not touched",
+ "note": "Spec owner-rules, slice A (the voice skill). A fake Teams MCP: the history of one chat with a greeting today, a call log; a real claude, only the skill's description line in the prompt.",
+ "real": [
+  "reports"
+ ],
+ "timeout": 600,
+ "settle": 8,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000011",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "reports",
+   "data": {
+    "cwd": "$work/reports",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000012",
+    "channel": "web",
+    "owner": true,
+    "tools": [
+     "ms365"
+    ]
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "sonnet",
+  "effort": "medium",
+  "mcp": {
+   "ms365": {
+    "description": "Teams chats of the owner: list-chat-messages, send-chat-message",
+    "risk": [],
+    "server": {
+     "command": "python3",
+     "args": [
+      "$evals/fakes/chat_mcp.py"
+     ],
+     "env": {
+      "CHAT_HISTORY": "$work/history.json",
+      "CHAT_LOG": "$work/chat.log"
+     }
+    }
+   }
+  }
+ },
+ "files": {
+  "$work/history.json": "[{\"from\": \"Mira\", \"text\": \"Hi! Is this about the report?\", \"at\": \"today 09:12\"}, {\"from\": \"Oleg (owner)\", \"text\": \"Hi, yes. When will the draft be ready?\", \"at\": \"today 09:20\"}, {\"from\": \"Mira\", \"text\": \"I'll send it by tonight.\", \"at\": \"today 09:31\"}]"
+ },
+ "config_files": {
+  "contacts.json": [
+   {
+    "name": "Mira",
+    "aliases": [
+     "Mira"
+    ],
+    "teams_chat": "19:mira-chat@thread.v2",
+    "source": "owner, m1",
+    "confirmed": "2026-11-01"
+   }
+  ]
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "reports",
+    "text": "Write to Mira in Teams that the report is needed today by 18:00. Keep this one short, no explanations.",
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "skill_opened",
+   "type": "event",
+   "text": "opened the voice skill",
+   "match": {
+    "type": "turn.tool",
+    "entity": "reports",
+    "data.name": "Skill",
+    "data.input": {
+     "re": "voice"
+    }
+   }
+  },
+  {
+   "id": "no_style_line",
+   "type": "no_file",
+   "path": "owner-voice.md",
+   "text": "the style file is not created"
+  },
+  {
+   "id": "sent_without_showing",
+   "type": "mcp_calls",
+   "tool": "send-chat-message",
+   "max": 0,
+   "observe": true,
+   "text": "observation: how many times it sent without showing the text (the core does not require a \"yes\" for every message)"
+  }
+ ]
+}

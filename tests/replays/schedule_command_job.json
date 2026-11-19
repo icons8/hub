@@ -1,0 +1,21 @@
+{
+  "about": "Monitors (gate-watch, tracker) go into the schedule. A command job: no session and no deadline (a repeating one lives until removed); when the slot comes the core marks the run (run_slot), no messages go to sessions, \"no session\" never happens; the clock runs it and reports schedule.ran — the exit code goes into the job. A job with both a command and a prompt is refused.",
+  "events": [
+    {"t": 1790668800.0, "type": "owner.settings", "data": {"timezone": "Europe/Berlin"}},
+    {"t": 1790668800.0, "type": "schedule.set", "entity": "gate", "data": {"every": "5m", "command": "python3 /x/gate.py", "channel": "cli", "owner": true}},
+    {"t": 1790669100.0, "type": "schedule.due", "entity": "gate", "data": {"slot": 1790669100.0}},
+    {"t": 1790669103.0, "type": "schedule.ran", "entity": "gate", "data": {"slot": 1790669100.0, "exit": 0, "took": 2.5}},
+    {"t": 1790669104.0, "type": "schedule.ran", "entity": "gate", "data": {"slot": 1790669100.0, "exit": 1, "took": 1}},
+    {"t": 1790669200.0, "type": "schedule.set", "entity": "both", "data": {"every": "5m", "command": "x", "session": "a", "prompt": "p", "channel": "cli", "owner": true}},
+    {"t": 1790669200.0, "type": "schedule.set", "entity": "late", "data": {"every": "1d", "command": "x", "until": "2027-06-01", "channel": "cli", "owner": true}}
+  ],
+  "expect": {
+    "schedule": {
+      "gate": {"state": "active", "command": "python3 /x/gate.py", "session": "", "until": null, "runs": 1,
+               "run_slot": 1790669100.0, "ran_slot": 1790669100.0, "last_exit": 0, "last_took": 2.5}
+    },
+    "schedule_absent": ["both", "late"],
+    "messages_absent": ["m3"],
+    "rejected": 3
+  }
+}

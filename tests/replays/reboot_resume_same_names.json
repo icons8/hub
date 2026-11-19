@@ -1,0 +1,163 @@
+{
+ "about": "Failures 1 and 8, reboot: the processes are gone, the sessions are brought up through --resume under the same names, and the undelivered message is delivered after the start. A session without a single turn is brought up with the same --session-id, not --resume.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "b",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-b"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "b",
+   "data": {
+    "session_id": "sid-b",
+    "pid": 102,
+    "pane": "%102"
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "b",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "x"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "a",
+   "data": {
+    "why": "reconcile"
+   }
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "b",
+   "data": {
+    "why": "reconcile"
+   }
+  },
+  {
+   "t": 9,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 201,
+    "pane": "%201"
+   }
+  },
+  {
+   "t": 9,
+   "type": "session.started",
+   "entity": "b",
+   "data": {
+    "session_id": "sid-b",
+    "pid": 202,
+    "pane": "%202"
+   }
+  },
+  {
+   "t": 10,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m6"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "busy",
+    "pid": 201,
+    "session_id": "sid-a",
+    "restarts": 0
+   },
+   "b": {
+    "state": "idle",
+    "pid": 202
+   }
+  },
+  "messages": {
+   "m6": {
+    "state": "delivered",
+    "attempt": 2
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "a",
+    "resume": false
+   },
+   {
+    "do": "spawn",
+    "session": "b",
+    "resume": false
+   },
+   {
+    "do": "type",
+    "session": "a",
+    "message": "m6"
+   },
+   {
+    "do": "spawn",
+    "session": "a",
+    "resume": false,
+    "session_id": "sid-a"
+   },
+   {
+    "do": "spawn",
+    "session": "b",
+    "resume": true,
+    "session_id": "sid-b"
+   },
+   {
+    "do": "type",
+    "session": "a",
+    "message": "m6"
+   },
+   {
+    "do": "type",
+    "session": "b",
+    "message": "m10x3"
+   }
+  ],
+  "rejected": 0
+ }
+}

@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css">
+<style>
+* { box-sizing: border-box; }
+html, body { background: #0e1621; }
+body { font: 18px/1.36 "Liberation Sans", Arial, sans-serif; color: #fff; width: 760px; height: 760px; overflow: hidden; display: flex; flex-direction: column; }
+.top { display: flex; align-items: center; gap: 14px; padding: 14px 24px; background: #17212b; border-bottom: 1px solid #0b121a; }
+.av { width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-weight: 700; }
+.nm { font-weight: 700; } .st { font-size: 15px; color: #6c7f90; }
+.chat { flex: 1; padding: 16px 26px 12px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-end; }
+.m { max-width: 80%; padding: 10px 15px 8px; border-radius: 14px; white-space: pre-wrap; }
+.me { align-self: flex-end; background: #2b5278; border-bottom-right-radius: 4px; }
+.bot { align-self: flex-start; background: #182533; border-bottom-left-radius: 4px; }
+.t { font-size: 13px; color: #7d92a6; text-align: right; margin-top: 3px; }
+.btns { align-self: flex-start; width: 80%; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: -2px; }
+.btns div { background: #1f3042; color: #5eb5f7; text-align: center; padding: 10px 6px; border-radius: 10px; font-size: 17px; }
+.btns .wide { grid-column: 1 / -1; }
+.in { display: flex; gap: 12px; padding: 12px 24px; background: #17212b; }
+.in div { flex: 1; background: #0e1621; border-radius: 20px; padding: 10px 16px; color: #6c7f90; }
+.note { position: absolute; right: 18px; top: 22px; font-size: 13px; color: #6c7f90; }
+b { font-weight: 700; } .dim { color: #9fb6cc; }
+</style></head><body>
+<div class="top"><div class="av">H8</div><div><div class="nm">Hub by Icons8</div><div class="st">bot</div></div><div class="note">illustration</div></div>
+<div class="chat">
+<div class="m bot"><b>api</b> asks:
+Run the index migration on production now?
+<div class="t">10:41</div></div>
+<div class="btns"><div>Yes, now</div><div>Tonight at 03:00</div><div>No, staging first</div><div>Need more context</div></div>
+<div class="m me">Yes, now<div class="t">10:41</div></div>
+<div class="m bot"><b>api</b>: the migration ran in 1.8 s. <span class="dim">GET /cart/shipping</span> went from 640 ms to 41 ms.
+<div class="t">10:42</div></div>
+<div class="m me">/status<div class="t">10:43</div></div>
+<div class="m bot"><b>Working:</b> 2
+• web — fixing re-renders on the checkout page
+• infra — rotating staging certificates
+<b>Waiting for you:</b> 0
+<b>In the message queue:</b> 0<div class="t">10:43</div></div>
+</div>
+<div class="in"><div>Message</div></div>
+</body></html>

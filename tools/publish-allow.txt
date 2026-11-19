@@ -1,0 +1,8 @@
+# Allowed strings for the publish check (tools/publish.sh): exact substrings, one per line. A deny match inside such a
+# string does not count — for example, the author's login in a public project address.
+# Owner decision 2026-10-03: allow the handy-codex link (the "Voice" help for those who have no hub voice set up).
+github.com/danyiimp/handy-codex
+# Owner decision 2026-10-08: allow the hub statistics service address (the stats module sends reports there when enabled).
+# Owner decision 2026-10-26: allow the address of the repo of private core modules and of the official marketplace catalog.
+# 2026-11-12: the team build profile names its issues repository (embed/icons8/profile.json; hub version shows it, the
+# open build cuts embed/).

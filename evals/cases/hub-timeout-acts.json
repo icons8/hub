@@ -1,0 +1,176 @@
+{
+ "id": "hub-timeout-acts",
+ "title": "Hub acts on TIMEOUT after an executor's interim reply",
+ "note": "The executor answered with an interim reply (a pilot started), was nudged by the core and stayed silent; the core sends the hub TIMEOUT. The hub must act itself: close the task or nudge the executor, not pass silently and not ask the owner. The eval driver parks the executor at hub start, so TIMEOUT is fed as the core's ready message to the hub.",
+ "real": [
+  "hub"
+ ],
+ "timeout": 300,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "ago": 18000,
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "3b7e2f40-0000-4000-8000-000000000001",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "ago": 17990,
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "session.requested",
+   "entity": "pilot-runner",
+   "ago": 17980,
+   "data": {
+    "cwd": "$work/pilot",
+    "session_id": "3b7e2f40-0000-4000-8000-000000000002",
+    "executor": true,
+    "raised_by": "hub",
+    "about": "Run the catalog import pilot",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "delegation.created",
+   "entity": null,
+   "ago": 14380,
+   "data": {
+    "session": "pilot-runner",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub",
+    "context": "The catalog import pilot on the test database: run it and say how many records went through."
+   }
+  },
+  {
+   "type": "turn.started",
+   "entity": "pilot-runner",
+   "ago": 14350,
+   "data": {
+    "marker": "m4"
+   }
+  },
+  {
+   "type": "turn.result",
+   "entity": "pilot-runner",
+   "ago": 10800,
+   "data": {
+    "text": "Started the import pilot, waiting for it to finish — 5–15 minutes."
+   }
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "pilot-runner",
+   "ago": 10790,
+   "data": {}
+  },
+  {
+   "type": "timer.fired",
+   "entity": "d4",
+   "ago": 9000,
+   "data": {
+    "attempt": null,
+    "n": null
+   }
+  },
+  {
+   "type": "turn.started",
+   "entity": "pilot-runner",
+   "ago": 8990,
+   "data": {
+    "marker": "m8"
+   }
+  },
+  {
+   "type": "turn.result",
+   "entity": "pilot-runner",
+   "ago": 8980,
+   "data": {
+    "text": "—"
+   }
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "pilot-runner",
+   "ago": 8970,
+   "data": {}
+  },
+  {
+   "type": "message.cancel",
+   "entity": "m6",
+   "ago": 8940,
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "message.cancel",
+   "entity": "m10",
+   "ago": 8940,
+   "data": {
+    "channel": "web",
+    "owner": true
+   }
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "entity": null,
+   "data": {
+    "to": "hub",
+    "text": "TIMEOUT d4: task d4 has been silent for 180 min after an interim reply (pilot-runner, the core nudged it): check — done → close it (hub task done d4), still relevant → nudge the executor (hub send pilot-runner --about d4 '<what is needed>'; asleep — hub session wake pilot-runner --about d4 '<what is needed>'), not needed → close it; do not write to the owner, the executor will report",
+    "channel": "session",
+    "owner": false,
+    "sender": "core"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "acts",
+   "type": "event",
+   "text": "the hub closes d4 or nudges the executor about d4",
+   "match": {
+    "type": "turn.tool",
+    "entity": "hub",
+    "data.name": "Bash",
+    "data.input.command": {
+     "re": "hub task (done|cancel) d4|hub (send|session wake) pilot-runner\\b.*--about d4"
+    }
+   }
+  },
+  {
+   "id": "no-owner-card",
+   "type": "no_event",
+   "text": "the hub does not ask the owner with a card",
+   "match": {
+    "type": "permission.requested",
+    "entity": "hub"
+   }
+  }
+ ]
+}

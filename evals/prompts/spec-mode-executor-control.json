@@ -1,0 +1,83 @@
+{
+ "id": "spec-mode-executor-control",
+ "title": "An executor outside spec mode works as before: the same brief, no spec line — it changes the code and writes no spec",
+ "note": "The system prompt is what the version's core gives an executor of the agent `maps` raised by its mini-hub (hosts/streamjson.command: the real addendum, the agent's profile cut to a stub); the working folder is a small made-up repo. Writing is judged by the folder after the run (every changed or new file against the seed) and by the model's own tool calls (stream-json), not by its words. Names and paths are made up. Control for spec-mode-executor: the executor's command has no `spec` and the brief has no spec line, so `before` and `after` build the same prompt and the pass rates must match within the noise — the model is not nudged to write specs where there is no mode.",
+ "model": "opus",
+ "effort": "medium",
+ "tools": "Bash,Read,Edit,Write",
+ "trace": true,
+ "before": "0c0ce6368",
+ "hub_cli": {
+  "session": "maps-1"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "Bench: you are an executor of the hub's agent `maps`, working in a copy of its repo (your working folder). Tools: the shell (Bash), Read, Edit, Write. The hub's commands are `hub` in the shell. Today is 2026-11-08.",
+ "env": {
+  "HUB_STATE_DIR": "."
+ },
+ "executor": {
+  "agent": "maps",
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- Run the tests: `python3 -m unittest discover tests`.\n"
+  },
+  "command": {
+   "bus": "maps"
+  }
+ },
+ "files": {
+  "tiles/__init__.py": "",
+  "tiles/fetch.py": "\"\"\"Download one map tile from its source.\"\"\"\nimport urllib.request\n\n\ndef fetch_tile(source, z, x, y, timeout=5.0):\n    url = source[\"url\"].format(z=z, x=x, y=y)\n    with urllib.request.urlopen(url, timeout=timeout) as r:\n        return r.read()\n",
+  "tiles/config.py": "\"\"\"Settings of the tile downloader.\"\"\"\nSETTINGS = {\n    \"timeout\": 5.0,\n    \"sources\": {\n        \"base\": {\"url\": \"https://tiles.example.test/{z}/{x}/{y}.png\"},\n        \"relief\": {\"url\": \"https://relief.example.test/{z}/{x}/{y}.png\"},\n    },\n}\n",
+  "tiles/cachekey.py": "\"\"\"The name of a tile in the disk cache.\"\"\"\nimport zlib\n\n\ndef key(z, x, y):\n    return \"%03x\" % (zlib.crc32(f\"{z}/{x}/{y}\".encode()) & 0xFFF)\n",
+  "tests/test_fetch.py": "import unittest\nfrom unittest import mock\n\nfrom tiles.fetch import fetch_tile\n\n\nclass Fetch(unittest.TestCase):\n    def test_fills_the_url_template(self):\n        with mock.patch(\"urllib.request.urlopen\") as op:\n            op.return_value.__enter__.return_value.read.return_value = b\"png\"\n            self.assertEqual(fetch_tile({\"url\": \"https://t.example.test/{z}/{x}/{y}\"}, 3, 1, 2), b\"png\")\n            self.assertEqual(op.call_args[0][0], \"https://t.example.test/3/1/2\")\n",
+  "README.md": "# tiles\n\nThe tile downloader and its disk cache. Run the tests: `python3 -m unittest discover tests`.\n"
+ },
+ "turns": [
+  {
+   "id": "same-brief-without-the-mode",
+   "input": "Task from session maps.\nAdd retries with exponential backoff to `fetch_tile` (tiles/fetch.py): N attempts and the base delay in tiles/config.py SETTINGS; retry timeouts and HTTP 5xx, never a 404; cover it with tests in tests/test_fetch.py.\nTask d12: its record is `hub task show` (the owner, the hub and whoever set it read it); context, decisions and what you did along the way — append there with `hub task note \"<what>\"`.\nThe result of this turn goes to maps. ⟦CONTRACT⟧",
+   "consts": {
+    "CONTRACT": {
+     "file": "core/delegations.py",
+     "name": "CONTRACT"
+    }
+   },
+   "checks": [
+    {
+     "id": "does_the_work",
+     "type": "changed",
+     "has_re": "^tiles/fetch\\.py$"
+    },
+    {
+     "id": "no_spec_file",
+     "type": "changed",
+     "only_re": "^(?!specs/)"
+    }
+   ]
+  },
+  {
+   "id": "small-fix-without-the-mode",
+   "input": "Task from session maps.\nThe default timeout in tiles/config.py is 5 seconds and it is too short for the relief source: make the default 10 seconds.\nTask d12: its record is `hub task show` (the owner, the hub and whoever set it read it); context, decisions and what you did along the way — append there with `hub task note \"<what>\"`.\nThe result of this turn goes to maps. ⟦CONTRACT⟧",
+   "consts": {
+    "CONTRACT": {
+     "file": "core/delegations.py",
+     "name": "CONTRACT"
+    }
+   },
+   "checks": [
+    {
+     "id": "does_the_work",
+     "type": "changed",
+     "has_re": "^tiles/config\\.py$"
+    },
+    {
+     "id": "no_spec_file",
+     "type": "changed",
+     "only_re": "^(?!specs/)"
+    }
+   ]
+  }
+ ]
+}

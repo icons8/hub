@@ -1,0 +1,182 @@
+{
+ "about": "A real case: the hub closed the delegation, the executor was idle between turns, but agents were working in its background (e2e in its own copy of the repo); the core put it to sleep and killed them, and the agent step was left spinning. A background command or agent keeps the session from being put to sleep; with no background, as before. (The second setup has no link to an owner message: one message, one task.)",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "mail",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-mail"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "mail",
+   "data": {
+    "session_id": "sid-mail",
+    "pid": 102
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "free",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-free"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "free",
+   "data": {
+    "session_id": "sid-free",
+    "pid": 103
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "text": "Do a review",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 3,
+   "type": "delegation.created",
+   "data": {
+    "session": "mail",
+    "for": "m7",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 3,
+   "type": "delegation.created",
+   "data": {
+    "session": "free",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub",
+    "context": "a review is a second pair of eyes"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.started",
+   "entity": "mail",
+   "data": {
+    "marker": "m8"
+   }
+  },
+  {
+   "t": 5,
+   "type": "session.background",
+   "entity": "mail",
+   "data": {
+    "id": "ag1",
+    "kind": "agent",
+    "title": "e2e in a worktree"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "mail",
+   "data": {
+    "text": "review done, running e2e in the background"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.stopped",
+   "entity": "mail"
+  },
+  {
+   "t": 4,
+   "type": "turn.started",
+   "entity": "free",
+   "data": {
+    "marker": "m9"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "free",
+   "data": {
+    "text": "done"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.stopped",
+   "entity": "free"
+  },
+  {
+   "t": 7,
+   "type": "delegation.done",
+   "entity": "d8",
+   "data": {
+    "channel": "session",
+    "sender": "hub",
+    "owner": false
+   }
+  },
+  {
+   "t": 7,
+   "type": "delegation.done",
+   "entity": "d9",
+   "data": {
+    "channel": "session",
+    "sender": "hub",
+    "owner": false
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "mail": {
+    "state": "idle",
+    "closing": "none"
+   },
+   "free": {
+    "closing": "handoff"
+   }
+  },
+  "delegations": {
+   "d8": {
+    "state": "done"
+   },
+   "d9": {
+    "state": "done"
+   }
+  }
+ }
+}

@@ -1,0 +1,665 @@
+#!/usr/bin/env python3
+"""The whole hub as one process: the core and the modules as children, a crashed one is started again.
+
+  hub-up            core (hubd), page, scheduler clock, browsers, Telegram, files, tailnet, journal watchdog,
+                    update from the shared repository, accounts gateway, extensions from settings and core modules (EXTENDING.md)
+  hub-up --only hubd,web          a trimmed list of parts (a stand): the core modules do not start
+  hub-up --only hubd,web,modules  the same, with the core modules (`modules` is a name, not a process)
+  hub-up --log <file>   output goes to the end of the file (the Windows scheduler launcher)
+  hub-up --scheduled    started by the scheduler: a hub stopped by `hub stop` / `hub off` is not brought up
+
+Core modules (core/modrun.py): hubd decides which to keep, through files `<state>/modrun/<name>.want.json`; hub-up
+starts the part `mod:<name>` from such a file, stops it when the file is gone, and restarts it when the file changed.
+
+The installers keep it as an OS service: a launchd agent on Mac (deploy/mac/install.sh), a systemd --user service on
+Linux (deploy/install.sh), a scheduler task on Windows (deploy/windows/install.ps1). SIGTERM goes to all children (hubd
+writes a state snapshot), then it exits.
+
+Restart is `hub restart` (core/restart.py): hubd puts a file `restart` {"parts": [...]} into the state folder. Only
+the listed parts start again; if empty, all children are stopped and hub-up starts itself again (exec: the same process
+for launchd, new code for hub-up too). Stop is `hub stop` (file `stop`) or SIGTERM/Ctrl+C; `hub stop` does not stop a
+hub running under an OS service, because the service would bring it up again.
+
+How parts are started and stopped and how hub-up restarts is up to the OS (platforms/): on POSIX SIGTERM and exec, on
+Windows a stop pipe at the core and a supervisor with a job (Job Object) above hub-up.
+"""
+import io
+import json
+import os
+import subprocess
+import sys
+import time
+import uuid
+
+REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+PARTS = {
+    "hubd": [os.path.join(REPO, "bin", "hubd")],
+    "web": [os.path.join(REPO, "modules", "web", "server.py")],
+    "scheduler": [os.path.join(REPO, "bin", "hubsched")],
+    "browser": [os.path.join(REPO, "bin", "hub-browser"), "serve"],
+    "telegram": [os.path.join(REPO, "bin", "hub-telegram"), "serve"],
+    "files": [os.path.join(REPO, "bin", "hub-files")],
+    "tailnet": [os.path.join(REPO, "bin", "hub-tailnet")],
+    "watch": [os.path.join(REPO, "bin", "hub-watch")],
+    "update": [os.path.join(REPO, "bin", "hub-update")],
+    # the parts a slot's code runs (core/embed.PARTS), wherever that code lies — the core's folders or an embed
+    "conduit": [os.path.join(REPO, "bin", "hub-part"), "conduit"],   # does nothing without a conduit sign-in
+    "stats": [os.path.join(REPO, "bin", "hub-part"), "stats"],       # hub statistics; does nothing when disabled
+    "gateway": [os.path.join(REPO, "bin", "hub-part"), "gateway"],   # Claude accounts gateway; does nothing when disabled
+    "bus-relay": [os.path.join(REPO, "bin", "hub-bus-relay")],   # the hub bus's relay transport; sleeps with the bus off
+    "cloudflare": [os.path.join(REPO, "bin", "hub-cloudflare")],   # Cloudflare Access keys; off the network while off
+}
+# the parts that answer the owner and the sessions at once keep the service's level; every other part, module and plugin
+# starts below them with all it launches — scheduled commands, the agents' Chrome, the self-check's tests (platforms
+# below_hub: macOS under the Interactive service; elsewhere unchanged)
+ABOVE_HUB = ("hubd", "web", "telegram", "files", "gateway")
+def _package_format():
+    """format of the PACKAGED next to the code (core/packaged.py), "" for an unreadable one, None for a hub from git."""
+    mark = os.environ.get("HUB_PACKAGED_MARK") or os.path.join(REPO, "PACKAGED")
+    try:
+        with open(mark) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("format") or "") if isinstance(data, dict) else ""
+
+
+# hub from a package (core/packaged.py): updated by the package, not from git; the app updates through modules/update
+if _package_format() not in (None, "app"):
+    del PARTS["update"]
+sys.path.insert(0, REPO)
+from core import cutout  # noqa: E402
+# the open flavor of the app is cut without the built-in gateway, conduit and stats report (core/cutout.py): no such parts
+PARTS = {name: cmd for name, cmd in PARTS.items() if name in cutout.parts([name], REPO)}
+if os.environ.get("HUB_UP_PARTS"):  # tests: own children instead of the real ones
+    PARTS = json.loads(os.environ["HUB_UP_PARTS"])
+from core import catalog as _catalog, perms  # noqa: E402
+from core.daemon import default_state_dir  # noqa: E402
+if perms.kept(_catalog.config_path(default_state_dir())):   # hub perms restore: parts get the user's umask
+    os.environ[perms.KEEP_ENV] = "1"
+else:
+    os.environ.pop(perms.KEEP_ENV, None)
+perms.private()   # hub files are for its user only; hubd, the page and modules inherit it (core/perms.py)
+from platforms import TREE_ENV, current as plat  # noqa: E402
+UTF8 = ["-X", "utf8"] if sys.flags.utf8_mode else []   # parts start in UTF-8 at once, without a second launch (utf8_mode)
+from core import appcode, marketplaces, migrate, modlaunch, modrun, shellnext  # noqa: E402
+from core import lock  # noqa: E402
+from core.restart import CHILD, FLAG, HELD, RESTARTED, STOP, UP  # noqa: E402
+
+
+def extensions():
+    """Extensions from settings (EXTENDING.md): the part "ext:<name>" is its own command in its own folder, next to the
+    core. A broken entry is skipped with a log line; if hub.json cannot be read, None (not "no extensions": a restart
+    would stop the running ones as if they were disabled)."""
+    from core import catalog
+    from core.version import compat
+    try:
+        cfg = catalog.load_config(default_state_dir())
+    except ValueError as e:
+        say(f"settings are unreadable — extensions as they were: {e}")
+        return None
+    out = {}
+    for name, ext in (cfg.get("extensions") or {}).items():
+        if not isinstance(ext, dict):
+            say(f"ext:{name}: settings are not an object — skipping")
+            continue
+        path = os.path.expanduser(str(ext.get("path") or ""))
+        if ext.get("disabled") or (ext.get("source") and compat(ext.get("hub"))[0] == "incompatible"):
+            continue  # disabled in Settings or built for another major version of the plugin API
+        run = ext.get("run")
+        if run and not (isinstance(run, list) and all(isinstance(w, str) for w in run)):
+            say(f'ext:{name}: "run" is not a list of strings — skipping')   # a string would be started letter by letter
+            continue
+        if run and os.path.isdir(path):
+            out[f"ext:{name}"] = {"cmd": plat.ext_command(list(run)), "cwd": path}
+    return out
+
+
+ALL = object()   # "restart everything" in the restart_asked answer
+
+
+NET_ENV = ("NO_PROXY", "no_proxy")   # never a proxy itself: that could only add hosts to a proxy
+
+
+def net_env():
+    """NO_PROXY/no_proxy from the env of the owner's Claude Code settings, read on every start of a part: hub-up lives
+    for days with the environment it was started with, and a host added to NO_PROXY reached sessions (catalog.user_env)
+    but not the parts — a module's urllib kept going through the https proxy (2026-10-29). A proxy itself (HTTPS_PROXY,
+    HTTP_PROXY) is never taken from settings: it may be set for Claude only, and copying it would move Telegram, updates
+    and stats behind it; NO_PROXY can only route fewer hosts through a proxy. NODE_EXTRA_CA_CERTS stays out too: only
+    node processes of plugins read it, and sessions already have it. Login names stay out of the parts; a name missing
+    in settings, or settings that cannot be read, leave the process environment as it is."""
+    try:
+        env = _catalog.user_env()
+    except Exception as e:
+        say(f"Claude Code network settings not read, parts keep the previous environment: {e}")
+        return {}
+    out = {k: v for k, v in env.items() if k in NET_ENV}
+    for k in ("no_proxy", "NO_PROXY"):   # one value under both spellings: urllib lets the lowercase one win, whichever the process had
+        if k in out:
+            out["NO_PROXY"] = out["no_proxy"] = out[k]
+            break
+    return out
+
+
+LOCK_WAIT = 10   # s: how long to wait for the hub-up.lock lock while the previous image releases it (restart)
+
+
+def lock_wait(env):
+    """HUB_UP_LOCK_WAIT — tests: a second hub-up over a live one sees the held lock sooner (each such test waited the
+    whole 10 s). Only shorter; anything else is LOCK_WAIT. Taken out of env: not passed on to the children and the
+    restart image, and a restart keeps the whole wait (on Windows the supervisor starts the new image with its own copy
+    of the environment)."""
+    asked = env.pop("HUB_UP_LOCK_WAIT", None)
+    if env.get(RESTARTED):
+        return LOCK_WAIT
+    try:
+        s = float(asked or "nan")
+    except ValueError:
+        return LOCK_WAIT
+    return s if 0 <= s < LOCK_WAIT else LOCK_WAIT
+
+
+def say(text):
+    """A line in the shared log with date and time: otherwise the log cannot tell when something happened (review 04.10)."""
+    print(f"{time.strftime('%d.%m %H:%M:%S')} hub-up: {text}", flush=True)
+
+
+def anchor_instance(svc):
+    """Several hubs on one machine (core/instance.py). A second hub that stands from before the anchor (a Mac
+    HUB_INSTANCE, a stand run by systemd-run) gets its instance.json and registry entry once, from the facts, nothing
+    moving; then every child gets HUB_STATE_DIR of this hub (the same value for the main hub) and an instance's
+    HUB_CONFIG_DIR and ports from its anchor, so a part that would lose them does not drift to the main hub."""
+    from core import instance, statemark
+    state = default_state_dir()
+    try:
+        main_state = statemark.default_state() or plat.state_dir()
+        got = None
+        # the service files are read only when there is something to adopt: not at every start of every hub
+        if instance.adoptable(state, os.environ, main_state, plat.config_dir(), plat.state_dir()):
+            main_unit = plat.service_unit(main_state) or {}
+            got = instance.adopt(state, os.environ, main_state, plat.config_dir(), default_state=plat.state_dir(),
+                                 service=plat.service_unit(state) or instance.service_of(svc), repo=REPO,
+                                 main_repo=instance.code_of(main_unit["path"]) if main_unit.get("path") else None)
+        if got:
+            say(f"this hub is the instance {got['name']} of this machine: {instance.FILE} and its registry entry "
+                f"are written (code: {got['code']['kind']}, service: {got['service']['kind']})")
+    except Exception as e:  # noqa: BLE001 — the list of hubs is a convenience: the hub comes up without it
+        say(f"instance: not adopted: {e}")
+    instance.anchor(os.environ, state)
+
+
+def load_exts():
+    """{part: command} or None when settings cannot be read."""
+    if "HUB_UP_EXT_FILE" in os.environ:  # tests: own extensions, re-read on the fly
+        try:
+            with open(os.environ["HUB_UP_EXT_FILE"]) as f:
+                return json.load(f)
+        except ValueError as e:
+            say(f"settings are unreadable — extensions as they were: {e}")
+            return None
+    if "HUB_UP_EXT" in os.environ:  # tests: own extensions
+        return json.loads(os.environ["HUB_UP_EXT"])
+    return {} if "HUB_UP_PARTS" in os.environ else extensions()
+
+
+def main(argv):
+    # a hub-up started from a session is not that session: its parts speak to the owner in his language (a session's
+    # process reads English, core/i18n), and a plugin process does not write in the session's name
+    os.environ.pop("HUB_SESSION", None)
+    from core import catalog
+    catalog.pin_claude_dir(default_state_dir())   # claude_config_dir: the hub folder for the core, modules and sessions
+    from core import ownclaude
+    if ownclaude.mine():   # the release's own copy is there: its updates off in every process of the hub (d2263524)
+        ownclaude.switches()
+    exts = load_exts() or {}
+    only = argv[argv.index("--only") + 1].split(",") if "--only" in argv else list(PARTS) + list(exts)
+    # `modules` is not a process: it asks to keep the core's modules in a trimmed list (a stand runs without them)
+    supervise_mods = "--only" not in argv or "modules" in only
+    only = [n for n in only if n != "modules"]
+    if not only:   # `--only modules`: there is no part to start, and modules do not run without one
+        sys.exit("hub-up --only: no part to start (`modules` is a name to add to parts, e.g. --only hubd,web,modules)")
+    procs, backoff, since, due, stopping = {}, {}, {}, {}, False
+    handles = {}  # part -> its stop handle (platforms: spawn_part / stop_part)
+    mods = {}     # part mod:<name> -> its want (core/modrun.py) while hubd says to keep it
+    core_life = {}  # marker of this core life (modrun.CORE_ENV): the want files must come from it, not from a previous run
+    setup = {}      # "run": the app's steps (modules/setup/auto.py) while they go on — they stop with this hub-up
+
+    def start(name, asked=False):
+        if name in handles:  # the part's previous life crashed on its own: its handle is no longer needed
+            plat.stop_part(procs[name], handles.pop(name))
+        # asked: a restart by `hub restart <part>`, not a hub start or a crash: the browser then stops its own Chrome too
+        env = {**os.environ, **net_env(), **({"HUB_RESTART_ASKED": "1"} if asked else {})}
+        if name == "hubd":
+            core_life["id"] = env[modrun.CORE_ENV] = uuid.uuid4().hex
+        if name in mods:  # core module: port, secret and launch file are in core/modrun.launch
+            env.update({"HUB_REPO": REPO, "PYTHONPATH": REPO})
+            try:
+                def spawn(cmd, cwd, e, **out):   # out: the dev module's log (stdout, stderr)
+                    return remember(name, plat.spawn_part(plat.below_hub(cmd, cwd=cwd), False, cwd=cwd, env=e, **out))
+                procs[name] = modrun.launch(default_state_dir(), name[4:], mods[name], spawn, env=env)
+            except OSError as e:   # no program, no rights, no folder: a module failure, not a hub one
+                procs.pop(name, None)
+                modrun.exited(default_state_dir(), name[4:], None, 0, error=f"did not start: {e}")
+                say(f"{name} did not start: {e}")
+                return
+        elif name in exts:  # extension: its command, its folder; the core and spool come through HUB_STATE_DIR and PYTHONPATH
+            env.update({"HUB_REPO": REPO, "PYTHONPATH": REPO, "HUB_EXTENSION": name[4:]})
+            env = {k: v for k, v in env.items() if not modlaunch.login_name(k)}   # sign-in keys: as with modules
+            try:
+                # tree: the plugin and all it starts stop together (on Windows `sh run.sh` does not exec into python)
+                cmd = plat.below_hub(exts[name]["cmd"], cwd=exts[name]["cwd"])
+                procs[name], handles[name] = plat.spawn_part(cmd, False, tree=True, cwd=exts[name]["cwd"], env=env,
+                                                             **plat.background())
+            except (OSError, ValueError) as e:
+                # no program, or the folder was removed: this extension waits for a fix and `hub restart <name>`,
+                # the rest of the hub keeps working
+                procs.pop(name, None)
+                say(f"{name} did not start: {e}")
+                return
+        else:
+            cmd = [sys.executable, *UTF8] + PARTS[name]
+            procs[name], handles[name] = plat.spawn_part(cmd if name in ABOVE_HUB else plat.below_hub(cmd),
+                                                         name == "hubd", cwd=REPO, env=env)
+        since[name] = time.time()
+        if name == "hubd" or name in exts:
+            write_up()
+        say(f"{name} started (pid {procs[name].pid})")
+
+    def remember(name, spawned):
+        handles[name] = spawned[1]
+        return spawned[0]
+
+    def mods_planned():
+        """The want files were checked by the current core (before that they are from the previous run: the module may
+        have been turned off, the core may fail to start). Without a core among the parts (tests, --only) they are taken as is."""
+        core = procs.get("hubd")
+        return core is None or (core.poll() is None and modrun.planned_by(default_state_dir()) == core_life.get("id"))
+
+    def sync_mods():
+        """Modules by the want files from hubd: a new one is started, a vanished one stopped, a changed one restarted."""
+        if not supervise_mods or not mods_planned():
+            return
+        now_want = {f"mod:{n}": w for n, w in modrun.wants(default_state_dir()).items()}
+        gone = [n for n in mods if n not in now_want or now_want[n].get("key") != mods[n].get("key")]
+        if gone:
+            say(f"modules: stopping {', '.join(gone)}")
+            halt([n for n in gone if n in procs])
+            for n in gone:
+                procs.pop(n, None)
+                due.pop(n, None)
+                del mods[n]
+                modrun.halted(default_state_dir(), n[4:])
+        for n, w in now_want.items():
+            if n not in mods:
+                mods[n] = w
+                start(n)
+
+    def halt(names):
+        for n in names:
+            plat.stop_part(procs[n], handles.pop(n, None))
+            if n in mods:   # stopped by hub-up itself: its launch is gone — the core stops calling it, and its next life
+                modrun.halted(default_state_dir(), n[4:])   # does not take the dead process for a ready one (07.11)
+        began = time.time()
+        for n in names:
+            grace = plat.stop_grace(n == "hubd")
+            try:
+                procs[n].wait(max(0.1, began + grace - time.time()))
+            except subprocess.TimeoutExpired:
+                say(f"{n} did not stop within {grace} s — killing")
+                procs[n].kill()
+
+    def drop(path):
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    def stop(*_):
+        nonlocal stopping
+        if stopping:
+            return   # a second Ctrl+C in the middle of stopping: the stop is already under way
+        stopping = True
+        try:
+            stop_setup(setup)
+            halt(list(procs))
+        finally:
+            drop(stop_flag)
+        if core_of(os.getpid(), any_core=True):  # the file is ours: a new hub-up could have come up while we waited for the children
+            os.unlink(up_file)
+        sys.exit(0)
+
+    def stop_asked():
+        """The `hub stop` file. Under a service we do not stop: it would bring the hub up again, and `hub stop` refuses there itself."""
+        if not os.path.exists(stop_flag):
+            return False
+        if svc:
+            drop(stop_flag)
+            say(f"hub stop: the hub is held by a service that would bring it up again — not stopping; stop the service: {svc}")
+            return False
+        return True   # the file is removed by stop() after the children: the core uses it to know the hub is leaving for good (daemon.stop_sessions)
+
+    def restart_asked():
+        """The file from hubd (`hub restart`): a list of parts, empty means all. The file is removed before acting, so it does not fire twice."""
+        try:
+            with open(flag) as f:
+                parts = json.load(f).get("parts") or []
+            os.unlink(flag)
+        except (OSError, ValueError):
+            return None
+        if not parts:
+            return ALL
+        # a plugin was installed or updated while the hub was running: its process is started here, with the command from settings
+        now_exts = load_exts()
+        if now_exts is None:   # settings cannot be read: known ones keep their previous command, nothing is stopped
+            now_exts = {n: x for n, x in exts.items() if n in procs}
+        # the part name is case-insensitive (`hub restart ext:Alice:x`; the plugin key is the account in lower case)
+        names = {n.lower(): n for n in [*procs, *exts, *now_exts]}
+        parts = [n if n in names.values() else names.get(str(n).lower(), n) for n in parts]
+        fresh = {n: x for n, x in now_exts.items() if n in parts}
+        exts.update(fresh)
+        # the plugin was disabled in Settings (or removed): its part is in the restart request but no longer in the
+        # fresh settings: stop it completely and forget it, otherwise the general "crashed, start again" check (below)
+        # would start the disabled plugin as a crashed one
+        gone = [n for n in parts if n.startswith("ext:") and n not in fresh and n in procs]
+        halt(gone)
+        for n in gone:
+            procs.pop(n)
+            since.pop(n, None); backoff.pop(n, None); due.pop(n, None)
+            exts.pop(n, None)
+            say(f"{n} is off — not starting it")
+        if gone:
+            write_up()   # the record of live plugins (hub-up.json exts) no longer names them
+        for n in parts:
+            # a module without a process comes from want
+            if n not in procs and n not in fresh and n not in gone and not n.startswith("mod:"):
+                say(f"restart: no such part {n} — skipping")
+        return [n for n in parts if n in procs or n in fresh]
+
+    # the owner stopped the hub (`hub stop`, `hub off`): the scheduler must not bring it up (it repeats every 5 min on
+    # Windows): exit quietly, do not clutter the log with repeats
+    if "--scheduled" in argv and os.path.exists(os.path.join(default_state_dir(), HELD)):
+        return 0
+    os.makedirs(default_state_dir(), exist_ok=True)  # first run: only hubd used to create the directory
+    # one hub-up per state directory: the Windows scheduler starts it again every 5 min (the whole hub was killed, 20.10:
+    # `taskkill /IM python.exe` from a session); a live hub leaves the second one alone. Wait up to LOCK_WAIT s: on
+    # restart the previous image still releases the lock (Windows does not release it right after exit)
+    deadline = time.time() + lock_wait(os.environ)
+    while not lock.hold(os.path.join(default_state_dir(), "hub-up.lock")):
+        if time.time() >= deadline:
+            if "--scheduled" not in argv:   # a scheduler repeat with a hub started by hand: stay quiet, do not write to the log every 5 min
+                say(f"the hub is already running ({default_state_dir()}) — leaving")
+            return 0
+        time.sleep(0.5)
+    flag, stop_flag = os.path.join(default_state_dir(), FLAG), os.path.join(default_state_dir(), STOP)
+    # left over from the previous life: we have just started anyway; `stop` after a full restart is fresh: `hub stop`
+    # arrived while restarting (otherwise the new image erased it and the hub came back up)
+    # the stop marker is removed by a manual start; a full restart does not touch it (`hub stop` during it stays in
+    # force), and neither does the scheduler: it would not bring the hub up with the marker present
+    restarted = os.environ.pop(RESTARTED, None)
+    held = () if restarted or "--scheduled" in argv else (os.path.join(default_state_dir(), HELD),)
+    for old in (*((flag,) if restarted else (flag, stop_flag)), *held):
+        if os.path.exists(old):
+            os.unlink(old)
+    # who we are for `hub stop`: pid (is hub-up alive) and the OS service, if it holds us. HUB_SERVICE is set by the
+    # launchd agent; children must not inherit it: a hub-up started from a hub session is not a service (restore it before exec)
+    svc_env = os.environ.pop("HUB_SERVICE", None)
+    # a hub-up started from a session is not that session's background command: the core and parts run without its tree
+    # marker, otherwise cleanup after the departed session (hosts/common.Trees) would stop the hub
+    os.environ.pop(TREE_ENV, None)
+    svc, up_file = svc_env or plat.service(), os.path.join(default_state_dir(), UP)
+    anchor_instance(svc)
+    if plat.keep_on_oom():   # unit of an earlier install: out-of-memory kills one victim, not the whole hub
+        say("service: OOMPolicy=continue — on a memory shortage the OS kills one process, the hub lives")
+
+    def write_up():
+        """hub-up.json: pid (is hub-up alive, for `hub stop`) and its start time (the update watchdog stops only the
+        process with that pid and time: after a crash the number may be another program's), the supervisor (Windows),
+        the OS service and the core pid (awaited by the supervisor on Windows), the working folders of plugin processes
+        (code store cleanup does not delete them, core/codestore.references). Sessions must not kill the hub pid:
+        hooks/deny_hint.py."""
+        core = procs.get("hubd")
+        with open(up_file + ".tmp", "w") as f:
+            json.dump({"pid": os.getpid(), "started": born, "parent": plat.supervisor(), "service": svc,
+                       "core": core.pid if core else None,
+                       "exts": {n: exts[n]["cwd"] for n in procs if n in exts}}, f)
+        plat.replace(up_file + ".tmp", up_file)
+    born = plat.process_start(os.getpid())   # exec on new code keeps the process: the same pid and start time
+    write_up()
+    # marker for children: a hub-up started from a session of this hub is not a service, even orphaned under launchd (before exec, as it was)
+    child_env = os.environ.get(CHILD)
+    os.environ[CHILD] = "1"
+    if migrate.apply_rollback(default_state_dir()):  # hub migrate --rollback: the core is not running yet, so the journal comes from the backup
+        say("migration rollback: the journal and state are restored from the backup")
+
+    plat.on_hub_up_stop(stop)
+    if "update" in only:
+        boot_private()
+    start(only[0])  # core first: the neighbors wait for its heartbeat
+    time.sleep(1)
+    for name in only[1:]:
+        start(name)
+    sync_mods()
+    setup["run"] = start_setup()   # the app: Claude Code, its sign-in, Chrome, doctor by themselves (modules/setup/auto.py)
+    catalogs, catalogs_at = None, 0   # marketplace catalog refresh (core/marketplaces.kick): the process and when to look
+    while not stopping:
+        time.sleep(1)
+        now = time.time()
+        if setup.get("run") is not None and setup["run"].poll() is not None:
+            setup["run"] = None   # done: no zombie
+        if catalogs is not None and catalogs.poll() is not None:
+            catalogs = None   # finished: collect the exit code, do not keep a zombie until the next check
+        if now >= catalogs_at and "HUB_UP_PARTS" not in os.environ:
+            catalogs_at = now + marketplaces.CHECK
+            try:
+                catalogs = marketplaces.kick(default_state_dir(), catalogs, now)
+            except Exception as e:  # noqa: BLE001 — catalogs are optional: the hub supervisor does not crash because of them
+                say(f"marketplace catalogs: did not start the update — {e}")
+        if stop_asked():
+            say("stopping (hub stop)")
+            stop()
+        names = restart_asked()
+        if names is ALL:   # the whole hub only by an empty list, not by the part count (a new part would make them equal)
+            say("restarting the whole hub (hub restart)")
+            stop_setup(setup)   # the new image starts its own, from the code it comes up on
+            halt(list(procs))
+            if stop_asked():  # `hub stop` arrived while waiting for the children: the new hub-up would take it for an old one
+                say("stopping (hub stop) instead of restarting")
+                stop()
+            if svc_env:
+                os.environ["HUB_SERVICE"] = svc_env
+            if child_env is None:
+                os.environ.pop(CHILD)
+            os.environ[RESTARTED] = "1"
+            # the app: a new app left for this restart (its watchdog swaps it), or one installed under the running hub —
+            # hub-up exits and the service starts the hub by the app's path (core/shellnext.py)
+            gone = shellnext.at_restart(default_state_dir(), REPO, say)
+            if gone is not None:
+                sys.exit(gone)
+            next_layer()   # the app: a pressed "Update" moves the code's pointer now, while no part runs
+            plat.restart_hub_up(self_script(), argv)
+        sync_mods()
+        modrun.trim_logs()   # the dev module's log is over the limit: trim it, the process keeps writing
+        if names and names is not ALL:
+            say(f"restarting parts (hub restart): {', '.join(names)}")
+            names = [n for n in names if not n.startswith("mod:") or n in mods]   # a module hubd no longer keeps
+            halt([n for n in names if n in procs])
+            for name in names:
+                due.pop(name, None)
+                start(name, asked=True)
+        for name, p in list(procs.items()):
+            if name in due:
+                if now >= due[name] and (name not in mods or mods_planned()):
+                    del due[name]
+                    start(name)
+                continue
+            if p.poll() is not None:
+                if name in mods:   # the module exited by itself: record the failure, restart with a pause, as with parts
+                    modrun.exited(default_state_dir(), name[4:], p.returncode, now - since[name])
+                # the pause grows 2, 4, 8... up to a minute; after 5 minutes of work it starts again from 2 s
+                pause = 2 if now - since[name] > 300 else min(60, backoff.get(name, 1) * 2)
+                backoff[name] = pause
+                due[name] = now + pause
+                say(f"{name} exited with code {p.returncode}, again in {pause} s")
+
+
+def boot_private():
+    """Private modules (modules/update/private.py, extraction spec §4.5) before the core: a hub that skipped the release
+    with built-in code installs them before the first session starts. Only when there is something to install and the
+    failure is not recent (otherwise go straight on); no longer than BOOT_WAIT; on failure or timeout the hub starts as
+    is and the update process repeats the step."""
+    from modules.update import private
+    began = time.time()
+    try:
+        r = plat.run([sys.executable, *UTF8, os.path.join(REPO, "modules", "update", "private.py"), "boot"],
+                     private.BOOT_WAIT, capture_output=True, text=True, stdin=subprocess.DEVNULL, **plat.apart())
+        out = (r.stdout + r.stderr).strip()
+        if out:
+            say(f"{out[-300:]} ({time.time() - began:.1f} s)")
+    except subprocess.TimeoutExpired:
+        say(f"private modules: the step before the core took longer than {private.BOOT_WAIT} s — going on without it")
+    except Exception as e:  # noqa: BLE001 — the hub matters more
+        say(f"private modules: the step before the core failed — {e}")
+
+
+def start_setup():
+    """The app (app spec §4a): the steps of «Setup» run by themselves at every start, in their own process — it outlives
+    a restart of the page, and a step it starts outlives it (job.py). A hub from git starts nothing: its band has the
+    buttons. Never raises: the hub matters more. -> the process or None."""
+    if _package_format() != "app" or "HUB_UP_PARTS" in os.environ:
+        return None
+    try:
+        return subprocess.Popen([sys.executable, *UTF8, os.path.join(REPO, "modules", "setup", "auto.py"),
+                                 default_state_dir()], stdin=subprocess.DEVNULL, **plat.apart())
+    except OSError as e:
+        say(f"setup: the steps did not start — {e}")
+        return None
+
+
+def stop_setup(setup):
+    """The app's steps end with their hub-up: a stopped hub starts no downloads, and a restart on a new code layer runs
+    the steps of that code (the lock would leave the old one in charge). A step it started (job.py) goes on by itself, as
+    one the page started: the next run sees it running."""
+    p = setup.pop("run", None)
+    if p is None or p.poll() is not None:
+        return
+    p.terminate()
+    try:
+        p.wait(5)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait(5)
+
+
+def core_of(pid, any_core=False):
+    """pid of the core started by the hub-up with this pid (from its hub-up.json), or None; any_core: True if the file
+    is its own, even without a core."""
+    try:
+        with open(os.path.join(default_state_dir(), UP)) as f:
+            up = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if up.get("pid") != pid:
+        return None
+    return True if any_core else up.get("core")
+
+
+def log_to(argv):
+    """--log <file>: the output of hub-up and the parts goes to the end of the file; argv without this key. hub-up opens
+    the file itself, with shared access: the cmd redirection `>>` does not open the log while someone else is writing
+    to it, and the Windows scheduler launcher did not bring the hub up (20.10). If someone else holds the log without
+    shared access (a leftover of a killed hub), a fallback file next to it is used (<name>.2.log); if that fails too,
+    no log: the hub matters more."""
+    if "--log" not in argv:
+        return argv
+    i = argv.index("--log")
+    path, argv = argv[i + 1], argv[:i] + argv[i + 2:]
+    root, ext = os.path.splitext(path)
+    busy = None
+    for p in (path, f"{root}.2{ext}"):
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
+            fd = plat.open_log(p)
+            break
+        except OSError as e:
+            busy = busy or f"log {path} does not open ({e})"
+    else:
+        return argv
+    for std in (1, 2):   # stdout and stderr are this file, for the parts too (they inherit the standard streams)
+        os.dup2(fd, std)
+    os.close(fd)
+    sys.stdout, sys.stderr = (io.TextIOWrapper(io.FileIO(std, "w", closefd=False), encoding="utf-8",
+                                               line_buffering=True) for std in (1, 2))
+    if busy:
+        say(f"{busy} — writing here")
+    return argv
+
+
+def self_script():
+    """What hub-up starts itself again by: the app's code layer through its pointer <state>/code (a full restart after
+    "Update" comes up on the new layer, not on this one's own folder), else this file."""
+    try:
+        return appcode.restart_script(default_state_dir(), REPO, os.path.realpath(__file__))
+    except OSError:
+        return os.path.realpath(__file__)
+
+
+def next_layer():
+    """The app (modules/update/layer.py): the layer left for this restart becomes the code (core/appcode.take_next) and
+    the migration of the new code runs at its start, as after an update from git. Never raises: the hub comes up again
+    either way, the update's watchdog sees on which code."""
+    try:
+        why = (appcode.pending(default_state_dir()) or {}).get("why")
+        name = appcode.take_next(default_state_dir())
+    except (OSError, appcode.Bad) as e:
+        say(f"the code layer is not switched: {e}")
+        return
+    if name:
+        say(f"the code layer is now {name}")
+    # a newer release, a build of the person's edits (a migration of theirs); a return to the previous one runs no older
+    # migration
+    if name and why in ("update", "own"):
+        try:
+            open(os.path.join(default_state_dir(), "migrate.pending"), "w").close()   # modules/update MIGRATE_FLAG
+        except OSError:
+            pass
+    if name:
+        watch_switch(default_state_dir(), name)
+
+
+def spawn_watchdog(cmd):
+    """As modules/update spawn_watchdog: apart from hub-up, outliving its restart, with the watchdog's own log."""
+    logs = os.path.join(default_state_dir(), "logs")
+    log = open(os.path.join(logs, "update-trial.log"), "a") if os.path.isdir(logs) else subprocess.DEVNULL
+    try:
+        plat.popen_detached(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+    finally:
+        if log is not subprocess.DEVNULL:
+            log.close()
+
+
+def watch_switch(state, name):
+    """The update's trial of the layer just taken with no watchdog alive (it left a switch untaken for a month): one
+    starts now, before any code of the new release runs — a new hub-up that crashes never gets to the update process,
+    which resumes it too (release audit: the switch came with no trial). Never raises."""
+    try:
+        with open(os.path.join(state, "update", "trial.json"), encoding="utf-8") as f:
+            trial = json.load(f)
+        trial = trial if isinstance(trial, dict) else {}
+        layer, pid = trial.get("layer"), trial.get("pid")
+        script = os.path.join(state, "update", "trial-run.py")
+        if not isinstance(layer, dict) or trial.get("status") != "waiting" or layer.get("to") != name \
+                or not os.path.isfile(script) or (isinstance(pid, int) and not isinstance(pid, bool) and plat.alive(pid)):
+            return
+        spawn_watchdog([sys.executable, script, state, "--resume"])
+        say("the update watchdog started again for the new code layer")
+    except FileNotFoundError:
+        pass   # no trial: a return, a hub that never updated
+    except (OSError, ValueError, AttributeError) as e:
+        say(f"the update watchdog is not started: {e!r}")
+
+
+if __name__ == "__main__":
+    sys.exit(plat.run_hub_up(main, self_script(), log_to(sys.argv[1:]), say, core_of))

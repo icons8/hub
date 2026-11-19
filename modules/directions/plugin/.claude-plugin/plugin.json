@@ -1,0 +1,5 @@
+{
+  "name": "directions",
+  "version": "0.3.2",
+  "description": "A direction is a big task of one long session: the backlog (slices with AC, decisions, goal and invariants) as working memory, resume after context compaction."
+}

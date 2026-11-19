@@ -1,0 +1,207 @@
+{
+ "id": "compact-language-en-portable",
+ "title": "After a real /compact the session answers an English message from the hub in the owner's language (en)",
+ "note": "Translation pilot C2 (oss TASK-36), the owner's condition 06.11: sessions must not fall into English after compaction. The owner (English) talked to maps (a synthetic transcript); fed: the owner's /compact (a built-in command — a real compaction by claude), then a message from the hub in English. The checks are over the session's replies after the feed; `compacted` only records that Claude Code compacted the conversation.",
+ "real": [
+  "maps"
+ ],
+ "timeout": 900,
+ "keep_compact_summary": true,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "7c3d0a10-0000-4000-8000-000000000002",
+    "kind": "hub",
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 7200
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 7140
+  },
+  {
+   "type": "session.requested",
+   "entity": "maps",
+   "data": {
+    "cwd": "$work/maps",
+    "session_id": "7c3d0a10-0000-4000-8000-000000000102",
+    "about": "Maps: tiles and the geocoder",
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 7080
+  },
+  {
+   "type": "session.started",
+   "entity": "maps",
+   "data": {},
+   "ago": 7020
+  },
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "Why does the tile cache miss after a deploy? Find the cause and fix it.",
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 6000
+  },
+  {
+   "type": "turn.started",
+   "entity": "maps",
+   "data": {
+    "marker": "m5"
+   },
+   "ago": 5990
+  },
+  {
+   "type": "turn.result",
+   "entity": "maps",
+   "data": {
+    "text": "Found the cause: `cache_key()` in tiles/cache.py builds the key from (z, x, y) only, and a deploy changes `STYLE_VERSION`, so after a deploy the cache serves old-style tiles until it is purged whole. The fix: the key `f\"{STYLE_VERSION}/{z}/{x}/{y}\"`. The edit is in, I have not run the cache tests yet."
+   },
+   "ago": 5960
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "maps",
+   "data": {},
+   "ago": 5950
+  },
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "Good. Will the old keys go away by themselves after the fix?",
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 5400
+  },
+  {
+   "type": "turn.started",
+   "entity": "maps",
+   "data": {
+    "marker": "m9"
+   },
+   "ago": 5390
+  },
+  {
+   "type": "turn.result",
+   "entity": "maps",
+   "data": {
+    "text": "Yes: cache entries have a 24-hour TTL, keys without the style version simply stop being read and expire within a day. No manual purge needed; if you want it at once — `redis-cli --scan --pattern 'tile:*'` and a delete, but that is extra load."
+   },
+   "ago": 5360
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "maps",
+   "data": {},
+   "ago": 5350
+  },
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "No purge. Run the cache tests and tell me what came out.",
+    "channel": "web",
+    "owner": true
+   },
+   "ago": 4800
+  },
+  {
+   "type": "turn.started",
+   "entity": "maps",
+   "data": {
+    "marker": "m13"
+   },
+   "ago": 4790
+  },
+  {
+   "type": "turn.result",
+   "entity": "maps",
+   "data": {
+    "text": "I'll run the cache tests next: `python3 -m pytest tests/test_cache.py`; I'll write the result here."
+   },
+   "ago": 4760
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "maps",
+   "data": {},
+   "ago": 4750
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "/compact",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "type": "message.received",
+   "data": {
+    "to": "maps",
+    "text": "CI of maps finished: 2 tests red in tests/test_cache.py — test_key_includes_style (AssertionError: '3/4/5' != 'v7/3/4/5') and test_purge (KeyError: 'tile:3/4/5'). Log: /home/x/ci/812.log. What do you do next?",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "compacted",
+   "type": "event",
+   "observe": true,
+   "match": {
+    "type": "session.compacted",
+    "entity": "$target"
+   }
+  },
+  {
+   "id": "owner_language_en",
+   "type": "not_said",
+   "re": "[\u0430-\u0451]{2,}[^\u0430-\u0451a-z]{1,3}[\u0430-\u0451]{2,}[^\u0430-\u0451a-z]{1,3}[\u0430-\u0451]{2,}",
+   "text": "no Russian phrase"
+  },
+  {
+   "id": "says_something",
+   "type": "said",
+   "re": "[a-z]{3,}"
+  }
+ ],
+ "transcripts": {
+  "maps": {
+   "path": "$evals/cases/7c3d0a10-0000-4000-8000-000000000102.jsonl",
+   "cwd": "$work/maps",
+   "marker": "NO-CUT-MARKER"
+  }
+ }
+}

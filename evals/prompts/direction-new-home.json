@@ -1,0 +1,69 @@
+{
+ "id": "direction-new-home",
+ "title": "The hub starts a direction with no project repo — without --repo (the core makes its git folder), not in its own folder and not with a hand-made git init; with a project repo — --repo to it",
+ "note": "The system prompt is hub-home/CLAUDE.md of the version. Case: the hub created a direction for a topic with no project (a data product from a chat): mkdir + git init without a commit, `hub direction new <slug> --repo <that folder>`, then `hub task run <slug>` without --repo — the direction came up in the hub's own folder (not git), worked by itself and could not become a mini-hub. Since the fix the core gives a direction without --repo its own git folder with a commit, and `hub task run <slug>` takes the direction's repo. Control — a project with its own repo: --repo to it stays.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "hub-home/CLAUDE.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run now, in order, each as you would type it"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "no-project-repo",
+   "input": "[hub:m120 from the owner] Read my chat with a colleague about a data product and start a direction for it, call it datashop. (The secretary's brief is in /home/x/briefs/datashop.md: a product on open data about local businesses, research and options first, no code; there is no project repo for it yet. Your own folder is /home/x/hub-home, it is not git.) Start it now: the exact commands.",
+   "checks": [
+    {
+     "id": "creates",
+     "type": "field",
+     "name": "commands",
+     "item_re": "hub direction new\\s+['\"]?datashop\\b"
+    },
+    {
+     "id": "no_repo_flag",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "hub direction new\\s+['\"]?datashop\\b[^&|;\\n]*--repo"
+    },
+    {
+     "id": "no_hand_git_init",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "\\bgit\\s+(-C\\s+\\S+\\s+)?init\\b"
+    }
+   ]
+  },
+  {
+   "id": "project-repo-control",
+   "input": "[hub:m121 from the owner] Start a direction sso for the account-merge epic. (The project repo is /home/x/backend — git, with history; nothing runs on it yet.) Start it now: the exact commands.",
+   "checks": [
+    {
+     "id": "repo_flag",
+     "type": "field",
+     "name": "commands",
+     "item_re": "hub direction new\\s+['\"]?sso\\b[^&|;\\n]*--repo\\s+['\"]?/home/x/backend"
+    },
+    {
+     "id": "no_hand_git_init",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "\\bgit\\s+(-C\\s+\\S+\\s+)?init\\b"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "_about": "Language data of French (core/langdata.py): what the core recognises in French text.",
+ "secrets": {
+  "labels": [
+   "mot de passe",
+   "mdp",
+   "clé api",
+   "clé d'api",
+   "clé d’api",
+   "clé secrète",
+   "clé privée",
+   "clé d'accès",
+   "clé d’accès",
+   "jeton",
+   "jeton d'accès",
+   "jeton d’accès"
+  ]
+ }
+}

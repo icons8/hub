@@ -1,0 +1,69 @@
+{
+ "id": "direction-new-fleet",
+ "title": "The same direction start under the fleet skill (the hub opens it for directions)",
+ "note": "Inputs and checks — as in direction-new-home.json; the system prompt is plugins/hub-coordinator/skills/fleet/SKILL.md of the version.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-coordinator/skills/fleet/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands you run now, in order, each as you would type it"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "no-project-repo",
+   "input": "[hub:m120 from the owner] Read my chat with a colleague about a data product and start a direction for it, call it datashop. (The secretary's brief is in /home/x/briefs/datashop.md: a product on open data about local businesses, research and options first, no code; there is no project repo for it yet. Your own folder is /home/x/hub-home, it is not git.) Start it now: the exact commands.",
+   "checks": [
+    {
+     "id": "creates",
+     "type": "field",
+     "name": "commands",
+     "item_re": "hub direction new\\s+['\"]?datashop\\b"
+    },
+    {
+     "id": "no_repo_flag",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "hub direction new\\s+['\"]?datashop\\b[^&|;\\n]*--repo"
+    },
+    {
+     "id": "no_hand_git_init",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "\\bgit\\s+(-C\\s+\\S+\\s+)?init\\b"
+    }
+   ]
+  },
+  {
+   "id": "project-repo-control",
+   "input": "[hub:m121 from the owner] Start a direction sso for the account-merge epic. (The project repo is /home/x/backend — git, with history; nothing runs on it yet.) Start it now: the exact commands.",
+   "checks": [
+    {
+     "id": "repo_flag",
+     "type": "field",
+     "name": "commands",
+     "item_re": "hub direction new\\s+['\"]?sso\\b[^&|;\\n]*--repo\\s+['\"]?/home/x/backend"
+    },
+    {
+     "id": "no_hand_git_init",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "\\bgit\\s+(-C\\s+\\S+\\s+)?init\\b"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,126 @@
+{
+ "about": "The hub session cannot be closed; when it falls, it is always brought up again, the pause grows 2, 4, 8…; a message without an address goes to the hub; with no hub, it is not delivered.",
+ "events": [
+  {
+   "t": 0,
+   "type": "message.received",
+   "data": {
+    "text": "before the hub"
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "session.close_requested",
+   "entity": "hub"
+  },
+  {
+   "t": 3,
+   "type": "session.exited",
+   "entity": "hub"
+  },
+  {
+   "t": 4,
+   "type": "session.exited",
+   "entity": "hub"
+  },
+  {
+   "t": 5,
+   "type": "session.exited",
+   "entity": "hub"
+  },
+  {
+   "t": 6,
+   "type": "session.exited",
+   "entity": "hub"
+  },
+  {
+   "t": 7,
+   "type": "session.exited",
+   "entity": "hub"
+  },
+  {
+   "t": 8,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 300
+   }
+  },
+  {
+   "t": 9,
+   "type": "message.received",
+   "data": {
+    "text": "hello, hub"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "hub": {
+    "state": "idle",
+    "restarts": 0,
+    "kind": "hub"
+   }
+  },
+  "messages": {
+   "m1": {
+    "state": "failed",
+    "reason": "no hub session"
+   },
+   "m11": {
+    "session": "hub",
+    "state": "typing"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "kind": "hub"
+   },
+   {
+    "do": "spawn"
+   },
+   {
+    "do": "spawn",
+    "delay": 2
+   },
+   {
+    "do": "spawn",
+    "delay": 4
+   },
+   {
+    "do": "spawn",
+    "delay": 8
+   },
+   {
+    "do": "spawn",
+    "delay": 16
+   },
+   {
+    "do": "type",
+    "message": "m11"
+   }
+  ],
+  "rejected": 1
+ }
+}

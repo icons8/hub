@@ -1,0 +1,92 @@
+{
+  "version": 2,
+  "icons": {
+    "pack": "m_outlined",
+    "sizes": [
+      16,
+      20
+    ],
+    "color": "currentColor",
+    "items": {
+      "send": {
+        "id": "85940",
+        "commonName": "sent"
+      },
+      "allow": {
+        "id": "82769",
+        "commonName": "checkmark"
+      },
+      "deny": {
+        "id": "82771",
+        "commonName": "delete-sign"
+      },
+      "close-session": {
+        "id": "82764",
+        "commonName": "cancel"
+      },
+      "attach": {
+        "id": "86460",
+        "commonName": "attach"
+      },
+      "board": {
+        "id": null,
+        "commonName": "dashboard",
+        "source": "Material Icons dashboard outlined (Apache-2.0) — the Icons8 m_outlined style; the Icons8 MCP required a sign-in (30.09)"
+      },
+      "mic": {
+        "id": null,
+        "commonName": "microphone",
+        "source": "Material Icons mic_none (Apache-2.0) — the same glyph as Icons8 m_outlined “microphone”; the Icons8 MCP required a sign-in (30.09), replace it with its SVG on the next visit"
+      },
+      "stop": {
+        "id": "4m2hGJn4Y4c5",
+        "commonName": "stop-squared"
+      },
+      "search": {
+        "id": "82712",
+        "commonName": "search"
+      },
+      "schedule": {
+        "id": "82767",
+        "commonName": "clock"
+      },
+      "browser": {
+        "id": "89777",
+        "commonName": "globe"
+      },
+      "settings": {
+        "id": "82535",
+        "commonName": "settings"
+      },
+      "copy": {
+        "id": "86206",
+        "commonName": "copy"
+      },
+      "reply": {
+        "id": "99470",
+        "commonName": "reply-arrow"
+      },
+      "file": {
+        "id": "82775",
+        "commonName": "document"
+      },
+      "dir": {
+        "id": "82790",
+        "commonName": "folder"
+      },
+      "usage": {
+        "id": "86286",
+        "commonName": "bar-chart"
+      },
+      "chevron": {
+        "id": "85018",
+        "commonName": "expand-arrow"
+      }
+    }
+  },
+  "tokens": {
+    "iconColor": "--foreground",
+    "accent": "--primary",
+    "radius": "--radius"
+  }
+}

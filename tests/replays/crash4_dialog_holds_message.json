@@ -1,0 +1,96 @@
+{
+ "about": "Failure 4: the AskUserQuestion window swallows what is typed. The message waits while the window is open and while a turn runs; it is typed when the session is free; delivered by the marker.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101,
+    "pane": "%101"
+   }
+  },
+  {
+   "t": 2,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": null
+   }
+  },
+  {
+   "t": 3,
+   "type": "dialog.opened",
+   "entity": "a"
+  },
+  {
+   "t": 4,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "hello"
+   }
+  },
+  {
+   "t": 10,
+   "type": "dialog.closed",
+   "entity": "a"
+  },
+  {
+   "t": 20,
+   "type": "turn.stopped",
+   "entity": "a"
+  },
+  {
+   "t": 21,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 25,
+   "type": "turn.stopped",
+   "entity": "a"
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle"
+   }
+  },
+  "messages": {
+   "m5": {
+    "state": "delivered",
+    "attempt": 1,
+    "session": "a"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "session": "a",
+    "resume": false
+   },
+   {
+    "do": "type",
+    "session": "a",
+    "message": "m5",
+    "text": "[hub:m5] hello"
+   }
+  ],
+  "rejected": 0
+ }
+}

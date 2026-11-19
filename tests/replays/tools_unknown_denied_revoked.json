@@ -1,0 +1,112 @@
+{
+ "about": "A request for a tool outside the catalog is recorded, but the tool cannot be granted; the hub's refusal closes the request and reaches the session as a message with the reason; a revoke removes the tool on the next start.",
+ "events": [
+  {
+   "t": 0,
+   "type": "catalog.loaded",
+   "data": {
+    "tools": {
+     "jira@hub-skills": {
+      "kind": "plugin",
+      "risk": []
+     },
+     "stripe-live": {
+      "kind": "mcp",
+      "risk": [
+       "money"
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a",
+    "tools": [
+     "jira@hub-skills"
+    ]
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "tools.requested",
+   "entity": "a",
+   "data": {
+    "tool": "figma",
+    "why": "mockup"
+   }
+  },
+  {
+   "t": 3,
+   "type": "tools.granted",
+   "entity": "a",
+   "data": {
+    "tool": "figma"
+   }
+  },
+  {
+   "t": 4,
+   "type": "tools.denied",
+   "entity": "a",
+   "data": {
+    "tool": "figma",
+    "reason": "not in the catalog"
+   }
+  },
+  {
+   "t": 5,
+   "type": "tools.revoked",
+   "entity": "a",
+   "data": {
+    "tool": "jira@hub-skills"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "starting",
+    "tools": []
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "tools": [
+     "jira@hub-skills"
+    ]
+   },
+   {
+    "do": "type",
+    "message": "m6"
+   },
+   {
+    "do": "release"
+   },
+   {
+    "do": "spawn",
+    "tools": []
+   }
+  ],
+  "rejected": 1,
+  "messages": {
+   "m6": {
+    "session": "a",
+    "text": "The hub refused figma: not in the catalog. Do not wait for it: go on without it or as the reason says."
+   }
+  }
+ }
+}

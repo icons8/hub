@@ -1,0 +1,106 @@
+{
+ "about": "A session writes CLOSE-READY itself (done / open: none / handed over); the same procedure; an open delegation of the executor is a refusal.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-hub",
+    "kind": "hub"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "hub",
+   "data": {
+    "session_id": "sid-hub",
+    "pid": 101
+   }
+  },
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "w",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-w"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "w",
+   "data": {
+    "session_id": "sid-w",
+    "pid": 102
+   }
+  },
+  {
+   "t": 2,
+   "type": "delegation.created",
+   "data": {
+    "session": "w",
+    "context": "task",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "w",
+   "data": {
+    "marker": "m5"
+   }
+  },
+  {
+   "t": 4,
+   "type": "turn.stopped",
+   "entity": "w"
+  },
+  {
+   "t": 5,
+   "type": "session.close_ready",
+   "entity": "w",
+   "data": {
+    "summary": "done: all / open: none / handed over: nobody",
+    "channel": "session",
+    "owner": false,
+    "sender": "w"
+   }
+  },
+  {
+   "t": 6,
+   "type": "turn.result",
+   "entity": "w",
+   "data": {
+    "text": "done"
+   }
+  },
+  {
+   "t": 7,
+   "type": "session.close_ready",
+   "entity": "w",
+   "data": {
+    "summary": "done: all / open: none / handed over: nobody",
+    "channel": "session",
+    "owner": false,
+    "sender": "w"
+   }
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "w": {
+    "state": "idle",
+    "closing": "handoff",
+    "close_note": "done: all / open: none / handed over: nobody"
+   }
+  },
+  "rejected": 1
+ }
+}

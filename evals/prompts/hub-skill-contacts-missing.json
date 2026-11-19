@@ -1,0 +1,20 @@
+{
+  "id": "hub-skill-contacts-missing",
+  "title": "A session following the hub skill that sees a person's address with no entry in the book records it itself (`hub contacts add` with --source), without a form to the owner, and writes to them only on the owner's word",
+  "note": "System prompt — the version's plugins/hub-base/skills/hub/SKILL.md. \"before\" asked the owner via the form for a missing entry and recorded it only after their yes; \"after\" — the session records it in the same step. Metric — the turn's commands: `hub contacts add` with --source, no AskUserQuestion about the entry; the owner's word to write is still needed (control turn: no send without it).",
+  "model": "opus",
+  "effort": "medium",
+  "prompt": {"file": "plugins/hub-base/skills/hub/SKILL.md", "schema": {"type": "object", "required": ["commands_i_run", "says_to_user"], "properties": {"commands_i_run": {"type": "string", "description": "the exact shell commands and tool (MCP) calls you run in this turn, one per line"}, "says_to_user": {"type": "string"}}}},
+  "turns": [
+    {"id": "write-to-new-person", "input": "Agent launch: you help the owner run a product launch. The owner's Teams is read and written by the tool `teams` (MCP: list-chat-messages, send-chat-message). You just read the chat \"Launch review\" (chat id 19:7c1e5a0b2d@thread.v2): Dana Whitfield (userPrincipalName dana.whitfield@example.com) asked to move the launch review to Thursday 15:00. `hub contacts find Dana` printed: nothing found.\n\n[hub:m21 from user] Answer Dana in that chat: Thursday 15:00 works for me.", "checks": [
+      {"id": "add", "type": "field", "name": "commands_i_run", "re": "hub contacts add ['\"]?Dana Whitfield\\b[^\\n]*--(teams|teams-chat|email)\\b"},
+      {"id": "source", "type": "field", "name": "commands_i_run", "re": "hub contacts add[^\\n]*--source \\S"},
+      {"id": "no_form", "type": "field", "name": "commands_i_run", "not_re": "AskUserQuestion"}
+    ]},
+    {"id": "seen-no-word-to-write", "input": "Agent launch: you help the owner run a product launch. The owner's Teams is read and written by the tool `teams` (MCP: list-chat-messages, send-chat-message). Reading the chat \"Launch review\" (chat id 19:7c1e5a0b2d@thread.v2) you saw a new participant, Priya Raman (userPrincipalName priya.raman@example.com), who wrote: \"Joining from design — I'll bring the final banners on Friday.\" `hub contacts find Priya` printed: nothing found.\n\n[hub:m22 from user] What's new in the launch review chat? Just tell me.", "checks": [
+      {"id": "add", "type": "field", "name": "commands_i_run", "re": "hub contacts add ['\"]?Priya Raman\\b[^\\n]*--(teams|teams-chat|email)\\b"},
+      {"id": "no_form", "type": "field", "name": "commands_i_run", "not_re": "AskUserQuestion"},
+      {"id": "no_send", "type": "field", "name": "commands_i_run", "not_re": "send-chat-message|hub send"}
+    ]}
+  ]
+}

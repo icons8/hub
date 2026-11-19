@@ -1,0 +1,15 @@
+{
+ "_about": "Language data of Spanish (core/langdata.py): what the core recognises in Spanish text.",
+ "secrets": {
+  "labels": [
+   "contraseña",
+   "contrasena",
+   "clave api",
+   "clave de api",
+   "clave de acceso",
+   "clave secreta",
+   "clave privada",
+   "token de acceso"
+  ]
+ }
+}

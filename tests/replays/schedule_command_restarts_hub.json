@@ -1,0 +1,26 @@
+{
+  "about": "A daily command job `hub restart` restarts the hub together with the schedule clock. The restart began within seconds (sessions were free), the clock died before schedule.ran, the new one, by started_slot and without a run of its own, sent ran with exit=unknown, and the hub got a false \"outcome unknown\" every day (the day before, the restart waited for a busy session, the clock managed to record exit code 0). A restart started by the command of the same job (hub.restart_requested with schedule_job) counts as the command's success: ran unknown for that slot = exit code 0, no message. Another job cut off by the same restart does get the message: its outcome really is unknown. An excerpt of real journal events, names made anonymous.",
+  "events": [
+    {"t": 1793228400.0, "type": "owner.settings", "data": {"timezone": "UTC"}},
+    {"t": 1793228400.0, "type": "session.requested", "entity": "hub", "data": {"cwd": "/h", "session_id": "sid-h", "kind": "hub"}},
+    {"t": 1793228500.0, "type": "schedule.set", "entity": "daily-restart", "data": {"cron": "0 0 * * *", "command": "hub restart \"daily restart\"", "channel": "cli", "owner": true}},
+    {"t": 1793228500.0, "type": "schedule.set", "entity": "backup", "data": {"cron": "0 0 * * *", "command": "backup.sh", "channel": "cli", "owner": true}},
+    {"t": 1793232001.0, "type": "schedule.due", "entity": "daily-restart", "data": {"slot": 1793232000.0}},
+    {"t": 1793232001.0, "type": "schedule.due", "entity": "backup", "data": {"slot": 1793232000.0}},
+    {"t": 1793232004.0, "type": "schedule.started", "entity": "daily-restart", "data": {"slot": 1793232000.0}},
+    {"t": 1793232004.0, "type": "schedule.started", "entity": "backup", "data": {"slot": 1793232000.0}},
+    {"t": 1793232006.0, "type": "hub.restart_requested", "data": {"parts": [], "now": false, "why": "daily restart", "channel": "cli", "owner": true, "schedule_job": "daily-restart"}},
+    {"t": 1793232006.0, "type": "hub.restart_started", "data": {"parts": []}},
+    {"t": 1793232011.0, "type": "schedule.ran", "entity": "daily-restart", "data": {"slot": 1793232000.0, "exit": "unknown"}},
+    {"t": 1793232011.0, "type": "schedule.ran", "entity": "backup", "data": {"slot": 1793232000.0, "exit": "unknown"}}
+  ],
+  "expect": {
+    "schedule": {
+      "daily-restart": {"state": "active", "run_slot": 1793232000.0, "ran_slot": 1793232000.0, "last_exit": 0, "last_took": null},
+      "backup": {"state": "active", "run_slot": 1793232000.0, "ran_slot": 1793232000.0, "last_exit": null}
+    },
+    "messages": {"m12": {"session": "hub"}},
+    "messages_absent": ["m11"],
+    "rejected": 0
+  }
+}

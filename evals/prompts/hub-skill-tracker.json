@@ -1,0 +1,100 @@
+{
+ "id": "hub-skill-tracker",
+ "title": "An executor following the hub skill puts a decision that changes a task's contract into the project tracker's record in the same turn",
+ "note": "System prompt — the version's plugins/hub-base/skills/hub/SKILL.md. Model and effort as for hub sessions. Metric — the turn's commands: an edit of the tracker record (glab / Jira) in the same turn, not just hub task note. Control \"a project without a tracker\" — no tracker commands. Before the edit the skill knew only Jira: the GitLab case shows the difference, the Jira case guards against a regression.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands_i_run",
+    "says_to_user"
+   ],
+   "properties": {
+    "commands_i_run": {
+     "type": "string",
+     "description": "the exact shell commands and tool (MCP) calls you run in this turn, one per line"
+    },
+    "says_to_user": {
+     "type": "string"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "gitlab-issue-url-changes",
+   "input": "Agent maps: project maps in /home/x/maps, tasks are in GitLab (CLI `glab`, repository x/maps). You opened issue #12 \"Tiles at /v1/tiles\": \"GET /v1/tiles/{z}/{x}/{y}; acceptance: 200 and Cache-Control\".\n\n[hub:m40 from user] On #12: we decided the path will be /v2/tiles/{z}/{x}/{y}, /v1 is only for old clients. The code is fixed, tests are green. Close it.",
+   "checks": [
+    {
+     "id": "issue_edited",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "glab issue (update|edit|note)|glab api[^\\n]*issues/12"
+    },
+    {
+     "id": "new_url_in_issue",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "/v2/tiles"
+    }
+   ]
+  },
+  {
+   "id": "jira-task-url-changes",
+   "input": "Agent api: project api in /home/x/api, tasks are in Jira (api-7; editing the description — the editJiraIssue tool). You opened api-7 \"Endpoint /v1/users/search\": \"GET /v1/users/search; acceptance: 200 and the total field\".\n\n[hub:m41 from user] On api-7: we decided the path will be /v2/users/find, we don't touch /v1. The code is fixed, tests are green. Close it.",
+   "checks": [
+    {
+     "id": "jira_edited",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "editJiraIssue|jira[^\\n]*(edit|update)"
+    },
+    {
+     "id": "new_url_in_jira",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "/v2/users/find"
+    }
+   ]
+  },
+  {
+   "id": "github-issue-flag-changes",
+   "input": "Agent web: project web in /home/x/web, tasks are GitHub issues (CLI `gh`, repository x/web). You opened issue #31 \"--dry-run flag for export\": \"hub-export --dry-run prints the plan; acceptance: exit code 0, writes no files\".\n\n[hub:m43 from user] On #31: we'll call the flag --plan, not --dry-run. The code is fixed, tests are green. Close it.",
+   "checks": [
+    {
+     "id": "issue_edited",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "gh issue (edit|comment)|gh api[^\\n]*issues/31"
+    },
+    {
+     "id": "new_flag_in_issue",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "--plan"
+    }
+   ]
+  },
+  {
+   "id": "no-tracker-control",
+   "input": "Agent notes: you keep the owner's personal notes in /home/x/notes; the project has no task tracker — no Jira, no GitLab, no GitHub, just a folder of markdown files.\n\n[hub:m42 from user] Decided: the week plan file is now called plan.md, not week.md. The file is already renamed. Note this in your task.",
+   "checks": [
+    {
+     "id": "noted",
+     "type": "field",
+     "name": "commands_i_run",
+     "re": "hub task note"
+    },
+    {
+     "id": "no_tracker_commands",
+     "type": "field",
+     "name": "commands_i_run",
+     "not_re": "glab|gh issue|gh api|editJiraIssue|jira|createJira"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,168 @@
+{
+ "id": "decision-withdrawn",
+ "title": "Core note DECISION_WITHDRAWN: the owner's decision the session recorded was withdrawn — take it out of CLAUDE.md if it was added there, otherwise do nothing, write nobody",
+ "note": "PR #543: hub decided undo <seq> withdraws a decision recorded by mistake; the session that was told gets DECISION_WITHDRAWN. The system prompt is the hub skill + the core's addendum, the same for both versions; the core's own words are the constant of each version (⟦KEY⟧, a version without it gets an empty line — the baseline). Run with --before <main before the change> --trials 8 and --only before|after in two processes. Checks: added — the session takes that one line out of its CLAUDE.md (an edit of the file, not a rewrite of it), does not write to the owner; not-added — nothing is touched (no edit, no message), a short reply. used-in-code: the core's text does not say what to do with what the decision already did (the docs: it stays) — a session that reverts its code or asks the owner does more than the text asks.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands and tool calls you make right now, in this turn, one per item; none — an empty list. The stand has no tools of its own: this field is how it records what you do (you do not run anything, and do not say that you cannot); a command you would run goes here, not into the reply"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "FIRST_ACTION"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "ASK_WHAT",
+    "optional": true
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "AUTONOMY"
+   }
+  ],
+  "format": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "added",
+   "input": "The maps session (agent: maps and geodata, folder /home/x/agents/maps, a git repo). The conversation so far:\n[hub:m300 from user] From now on export dates in ISO 8601 only.\nYou: ran `hub decided \"export dates in ISO 8601 only · the owner said so\"` (it became decision #812) and added a line `- Export dates in ISO 8601 only (decision #812).` to /home/x/agents/maps/CLAUDE.md, between the lines about the GeoJSON schema and about the tests.\n\n[hub:m310x5-maps from core] ⟦DECISION_WITHDRAWN⟧",
+   "consts": {
+    "DECISION_WITHDRAWN": {
+     "file": "core/reducer.py",
+     "name": "DECISION_WITHDRAWN",
+     "optional": true,
+     "format": {
+      "seq": 812,
+      "by": "maps",
+      "text": "export dates in ISO 8601 only"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "removes",
+     "type": "field",
+     "name": "actions_now",
+     "re": "CLAUDE\\.md",
+     "text": "takes the line out of CLAUDE.md"
+    },
+    {
+     "id": "no_rewrite",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": ">\\s*\\S*CLAUDE\\.md|rm\\s|git (reset|checkout|restore)",
+     "text": "does not rewrite the file or touch anything else"
+    },
+    {
+     "id": "no_owner_message",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "hub (send|ask|notify)|AskUserQuestion|telegram",
+     "text": "does not write to the owner"
+    }
+   ]
+  },
+  {
+   "id": "not-added",
+   "input": "The maps session (agent: maps and geodata, folder /home/x/agents/maps, a git repo). The conversation so far:\n[hub:m300 from user] From now on export dates in ISO 8601 only.\nYou: ran `hub decided \"export dates in ISO 8601 only · the owner said so\"` (it became decision #812) and have not acted on it yet. You did not add it to CLAUDE.md or any other file.\n\n[hub:m310x5-maps from core] ⟦DECISION_WITHDRAWN⟧",
+   "consts": {
+    "DECISION_WITHDRAWN": {
+     "file": "core/reducer.py",
+     "name": "DECISION_WITHDRAWN",
+     "optional": true,
+     "format": {
+      "seq": 812,
+      "by": "maps",
+      "text": "export dates in ISO 8601 only"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "touches_nothing",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "sed -i|\\bEdit\\b|\\btee\\b|git (revert|checkout|restore|reset|stash|commit)|hub (send|ask|notify)|AskUserQuestion|telegram",
+     "text": "edits nothing (a read-only grep is fine), writes nobody"
+    },
+    {
+     "id": "short",
+     "type": "field",
+     "name": "says",
+     "max_words": 60,
+     "text": "a short reply"
+    },
+    {
+     "id": "no_question",
+     "type": "field",
+     "name": "says",
+     "not_re": "\\?",
+     "text": "asks nobody anything"
+    }
+   ]
+  },
+  {
+   "id": "used-in-code",
+   "input": "The maps session (agent: maps and geodata, folder /home/x/agents/maps, a git repo). The conversation so far:\n[hub:m300 from user] From now on export dates in ISO 8601 only.\nYou: ran `hub decided \"export dates in ISO 8601 only · the owner said so\"` (it became decision #812) and used it in the exporter's code (export/dates.py, uncommitted). You did not add it to CLAUDE.md or any other file.\n\n[hub:m310x5-maps from core] ⟦DECISION_WITHDRAWN⟧",
+   "consts": {
+    "DECISION_WITHDRAWN": {
+     "file": "core/reducer.py",
+     "name": "DECISION_WITHDRAWN",
+     "optional": true,
+     "format": {
+      "seq": 812,
+      "by": "maps",
+      "text": "export dates in ISO 8601 only"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "no_revert",
+     "type": "field",
+     "name": "actions_now",
+     "not_re": "sed -i|\\bEdit\\b|\\btee\\b|git (revert|checkout|restore|reset|stash|commit)|hub (send|ask|notify)|AskUserQuestion|telegram",
+     "text": "the text asks only to take the line out of CLAUDE.md: it does not undo the code or write anybody"
+    },
+    {
+     "id": "no_question",
+     "type": "field",
+     "name": "says",
+     "not_re": "\\?",
+     "text": "asks nobody anything"
+    }
+   ]
+  }
+ ]
+}

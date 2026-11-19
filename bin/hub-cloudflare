@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""cloudflare: keeps the Cloudflare Access keys of the owner's team for the page and Files (modules/cloudflare); quiet
+and off the network while the provider is off. Runs under hub-up."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+import platforms  # noqa: E402
+platforms.current.utf8_mode([os.path.realpath(__file__)] + sys.argv[1:])   # output and files are UTF-8 under any locale
+from modules.cloudflare.run import main  # noqa: E402
+
+main()

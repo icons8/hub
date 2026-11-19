@@ -1,0 +1,25 @@
+{"seq":1,"ts":1000.25,"src":"core","type":"session.requested","entity":"a","data":{"cwd":"/w","session_id":"s-a","channel":"cli","owner":true}}
+{"seq":2,"ts":1000.5,"src":"core","type":"host.done","entity":"a","data":{"do":"spawn","message":null,"attempt":null,"result":"sent"}}
+{"seq":3,"ts":1000.75,"src":"core","type":"session.started","entity":"a","data":{}}
+{"seq":4,"ts":1001.0,"src":"core","type":"message.received","entity":null,"data":{"to":"a","text":"hello","req":"r1","channel":"cli","owner":true}}
+{"seq":5,"ts":1001.25,"src":"core","type":"host.done","entity":"a","data":{"do":"type","message":"m4","attempt":1,"result":"sent"}}
+{"seq":6,"ts":1001.5,"src":"core","type":"turn.started","entity":"a","data":{"marker":"m3"}}
+{"seq":7,"ts":1001.75,"src":"core","type":"session.said","entity":"a","data":{"text":"looking"}}
+{"seq":8,"ts":1002.0,"src":"core","type":"turn.tool","entity":"a","data":{"id":"t1","name":"Bash","input":{"command":"ls"}}}
+{"seq":9,"ts":1002.25,"src":"core","type":"turn.tool_result","entity":"a","data":{"id":"t1","text":"ok"}}
+{"seq":10,"ts":1002.5,"src":"core","type":"turn.result","entity":"a","data":{"result":"done","num_turns":2,"cost_usd":0.1}}
+{"seq":11,"ts":1002.75,"src":"core","type":"message.received","entity":null,"data":{"to":"ghost","text":"x","channel":"session","sender":"a","req":"r2"}}
+{"seq":12,"ts":1003.0,"src":"core","type":"core.rejected","entity":null,"data":{"of":11,"type":"message.received","reason":"no session ghost: who is there — hub status; to the hub — hub send hub","l10n":[[0,70,"core.reducer.send_no_session",{"name":"ghost"}]],"req":"r2","sender":"a"}}
+{"seq":13,"ts":1003.25,"src":"core","type":"session.requested","entity":"b","data":{"cwd":"/w","session_id":"s-b","channel":"cli","owner":true}}
+{"seq":14,"ts":1003.5,"src":"core","type":"host.done","entity":"b","data":{"do":"spawn","message":null,"attempt":null,"result":"sent"}}
+{"seq":15,"ts":1003.75,"src":"core","type":"message.received","entity":null,"data":{"to":"b","text":"wake up","channel":"cli","owner":true}}
+{"seq":16,"ts":1004.0,"src":"core","type":"session.started","entity":"b","data":{}}
+{"seq":17,"ts":1004.25,"src":"core","type":"host.done","entity":"b","data":{"do":"type","message":"m15","attempt":1,"result":"sent"}}
+{"seq":18,"ts":1004.5,"src":"core","type":"timer.fired","entity":"m11","data":{"attempt":1,"n":1}}
+{"seq":19,"ts":1004.75,"src":"hook","type":"session.compacted","entity":"b","data":{"trigger":"auto"}}
+{"seq":20,"ts":1005.0,"src":"core","type":"owner.away","entity":null,"data":{"until":null,"channel":"cli","owner":true}}
+{"seq":21,"ts":1005.25,"src":"core","type":"session.renamed","entity":"b","data":{"to":"c","channel":"cli","owner":true}}
+{"seq":22,"ts":1005.5,"src":"core","type":"core.rejected","entity":"b","data":{"of":21,"type":"session.renamed","reason":"the session has a question, background or a queue — it is renamed once it is free","l10n":[[0,81,"core.reducer.rename_busy",{}]]}}
+{"seq":23,"ts":1005.75,"src":"core","type":"unknown.kind","entity":null,"data":{}}
+{"seq":24,"ts":1006.0,"src":"core","type":"core.rejected","entity":null,"data":{"of":23,"type":"unknown.kind","reason":"unknown event type"}}
+{"seq":25,"ts":1006.25,"src":"core","type":"core.snapshot","entity":null,"data":{"why":"stop","state":{"seq":24,"sessions":{"a":{"name":"a","state":"idle","cwd":"/w","session_id":"s-a","mode":null,"ever_started":true,"restarts":0,"pid":null,"pane":null,"pending":[],"since":1002.5,"kind":"work","project":"all","tools":[],"requests":[],"dirty":false,"closing":"none","role":"worker","about":null,"icon":null,"news_seen":0,"turn_marker":"m3","turn_head":"m3","turn_owner":false,"turn_his":false,"owner_chain":false,"turn_seq":6,"turn_root":null,"has_history":true,"sent_in_turn":[],"monitor_turn":false,"last_task":null},"b":{"name":"b","state":"idle","cwd":"/w","session_id":"s-b","mode":null,"ever_started":true,"restarts":0,"pid":null,"pane":null,"pending":[],"since":1004.0,"kind":"work","project":"all","tools":[],"requests":[],"dirty":false,"closing":"none","role":"worker","about":null,"icon":null,"news_seen":0}},"messages":{"m4":{"id":"m4","to":"a","session":"a","text":"hello","origin":" from user","from":{"kind":"owner"},"state":"typing","attempt":1,"deadline":1031.0,"created":1001.0,"since":1001.0,"attachments":[],"from_owner":true,"channel":"cli"},"m15":{"id":"m15","to":"b","session":"b","text":"wake up","origin":" from user","from":{"kind":"owner"},"state":"typing","attempt":1,"deadline":1034.0,"created":1003.75,"since":1004.0,"attachments":[],"from_owner":true,"channel":"cli"}},"aliases":{"sid:s-a":"a","sid:s-b":"b"},"catalog":{},"delegations":{},"owner":{"state":"away","tz":"UTC","away_since":1005.0,"until":null,"back_at":null,"reminders":{},"decided":[],"deferred":[],"done":[],"greeted":true,"seen":{"a":4,"b":15},"away_seq":20},"schedule":{},"browsers":{},"limits":{},"late":{"r2":{"ts":1003.0,"reason":"no session ghost: who is there — hub status; to the hub — hub send hub","type":"message.received","entity":null,"sender":"a","l10n":[[0,70,"core.reducer.send_no_session",{"name":"ghost"}]]}}}}}

@@ -1,0 +1,231 @@
+{
+ "id": "lessons-late-fyi-portable",
+ "title": "A late note about lessons (the executor was removed while asleep) rides in the \"FYI\" block — the agent still writes the lessons into its CLAUDE.md in this same turn",
+ "note": "Guards the text of the core/reducer._lessons_note note with late=True. The history: the agent frontend set an executor, which handed in a result with a \"Lessons\" block, fell asleep and was removed; the next message to the agent is a short question from another session. The check is a tool call by the agent with CLAUDE.md and the words of the lessons.",
+ "real": [
+  "frontend"
+ ],
+ "timeout": 600,
+ "events": [
+  {
+   "type": "session.requested",
+   "entity": "hub",
+   "data": {
+    "cwd": "$work/hub",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000101",
+    "kind": "hub",
+    "channel": "cli",
+    "owner": true
+   },
+   "ago": 7200
+  },
+  {
+   "type": "owner.seen",
+   "entity": "hub",
+   "data": {
+    "seq": 1,
+    "channel": "cli",
+    "owner": true
+   },
+   "ago": 7140
+  },
+  {
+   "type": "session.requested",
+   "entity": "frontend",
+   "data": {
+    "cwd": "$work/frontend",
+    "session_id": "6f1c2a10-0000-4000-8000-000000000102",
+    "role": "agent",
+    "about": "Frontend: the product's front end (@acme/ui, landing pages); code goes through executors",
+    "icon": "🎨",
+    "channel": "cli",
+    "owner": true
+   },
+   "ago": 7080
+  },
+  {
+   "type": "session.started",
+   "entity": "frontend",
+   "data": {},
+   "ago": 7020
+  },
+  {
+   "type": "task.run_requested",
+   "entity": "ui-ci-build",
+   "data": {
+    "task": "Fix the @acme/ui build in CI: it fails at the build step",
+    "channel": "session",
+    "owner": false,
+    "sender": "frontend"
+   },
+   "ago": 6960
+  },
+  {
+   "type": "session.requested",
+   "entity": "ui-ci-build",
+   "data": {
+    "session_id": "8256430e-6275-45eb-947c-0a2d20aec18c",
+    "executor": true,
+    "raised_by": "frontend",
+    "cwd": "$work/ui-ci-build",
+    "about": "Fix the @acme/ui build in CI: it fails at the build step"
+   },
+   "ago": 6900
+  },
+  {
+   "type": "delegation.created",
+   "entity": null,
+   "data": {
+    "session": "ui-ci-build",
+    "for_session": "frontend",
+    "context": "Fix the @acme/ui build in CI: it fails at the build step\n\nYou are the executor of this task, frontend brought you up: the result of this turn will go to it by itself. The task record is `hub task show` (everyone reads and writes it: frontend, the owner, the hub): read it first; context, decisions and progress go to `hub task note \"<what>\"`. In the result, as a separate \"Lessons\" block — what is worth writing into the profession's CLAUDE.md, if anything (an owner's correction as \"do it like this\", not \"ask him before X\"). The owner's decisions that were voiced go to `hub decided \"<what> · why\"`. Code goes in your own working copy; hand-in: rebase on a fresh main, tests, `git merge --ff-only` into main (in a project with MRs, an MR). Missing information — ask frontend (`hub send frontend \"…\"`). Once handed in, you will fall asleep (the conversation and the copy are kept, you will be woken if needed); new work outside the task — tell frontend, do not take it yourself.",
+    "channel": "session",
+    "owner": false,
+    "sender": "frontend"
+   },
+   "ago": 6840
+  },
+  {
+   "type": "session.started",
+   "entity": "ui-ci-build",
+   "data": {},
+   "ago": 6780
+  },
+  {
+   "type": "turn.started",
+   "entity": "ui-ci-build",
+   "data": {
+    "marker": "m7",
+    "prompt_head": "task"
+   },
+   "ago": 6720
+  },
+  {
+   "type": "turn.result",
+   "entity": "ui-ci-build",
+   "data": {
+    "text": "Done: the @acme/ui build in CI is green, MR !41.\n\n**Lessons**\n- The @acme/ui build in CI fails without `pnpm build:tokens` before `pnpm build`: the tokens are built in a separate step, and they go first.\n- After a restart, Storybook keeps port 6006 held by the old process: `lsof -i :6006` and kill your own pid, rather than changing the port."
+   },
+   "ago": 6660
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "ui-ci-build",
+   "data": {},
+   "ago": 6600
+  },
+  {
+   "type": "session.close_requested",
+   "entity": "ui-ci-build",
+   "data": {
+    "channel": "session",
+    "owner": false,
+    "sender": "frontend"
+   },
+   "ago": 6540
+  },
+  {
+   "type": "turn.started",
+   "entity": "ui-ci-build",
+   "data": {
+    "marker": "m12",
+    "prompt_head": "handoff"
+   },
+   "ago": 6480
+  },
+  {
+   "type": "turn.result",
+   "entity": "ui-ci-build",
+   "data": {
+    "text": "HANDOFF-DONE\nDone: MR !41\nOpen: nothing\nHanded over: nobody\nBackground: none"
+   },
+   "ago": 6420
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "ui-ci-build",
+   "data": {},
+   "ago": 6360
+  },
+  {
+   "type": "session.exited",
+   "entity": "ui-ci-build",
+   "data": {
+    "why": "sleep"
+   },
+   "ago": 6300
+  },
+  {
+   "type": "turn.started",
+   "entity": "frontend",
+   "data": {
+    "marker": "m10x1"
+   },
+   "ago": 6240
+  },
+  {
+   "type": "turn.result",
+   "entity": "frontend",
+   "data": {
+    "text": "Got the ui-ci-build result: I'll check MR !41 later."
+   },
+   "ago": 6180
+  },
+  {
+   "type": "turn.stopped",
+   "entity": "frontend",
+   "data": {},
+   "ago": 6120
+  },
+  {
+   "type": "session.remove_requested",
+   "entity": "ui-ci-build",
+   "data": {
+    "channel": "cli",
+    "owner": true
+   },
+   "ago": 600
+  }
+ ],
+ "config": {
+  "hub": {
+   "enabled": true,
+   "name": "hub"
+  },
+  "timezone": "Europe/Paris",
+  "model": "opus",
+  "effort": "medium"
+ },
+ "inject": [
+  {
+   "type": "message.received",
+   "data": {
+    "to": "frontend",
+    "text": "Quick one: is MR !41 for the @acme/ui build merged already or still open? One line.",
+    "channel": "session",
+    "owner": false,
+    "sender": "hub"
+   }
+  }
+ ],
+ "checks": [
+  {
+   "id": "lessons_written",
+   "type": "event",
+   "match": {
+    "type": "turn.tool",
+    "entity": "$target",
+    "data.input": {
+     "re": "CLAUDE\\.md.*(build:tokens|6006)"
+    }
+   }
+  }
+ ],
+ "transcripts": {
+  "frontend": {
+   "path": "$evals/cases/6f1c2a10-0000-4000-8000-000000000102.jsonl",
+   "cwd": "$work/frontend",
+   "marker": "NO-CUT-MARKER"
+  }
+ }
+}

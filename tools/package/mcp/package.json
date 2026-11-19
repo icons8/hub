@@ -1,0 +1,8 @@
+{
+  "name": "agents-hub-browser-mcp",
+  "private": true,
+  "description": "chrome-devtools-mcp for the hub's package: the version and the dependencies are pinned (package-lock.json), installed with npm ci",
+  "dependencies": {
+    "chrome-devtools-mcp": "1.10.1"
+  }
+}

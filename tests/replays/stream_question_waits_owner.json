@@ -1,0 +1,131 @@
+{
+ "about": "stream-json: the model asked AskUserQuestion — the question goes out as a card, the turn is not held: the core answers at once 'question qN is shown as a card', the 'more' message waits only for the end of the turn; the owner's answer reaches the session as a message marked with the question.",
+ "events": [
+  {
+   "t": 0,
+   "type": "session.requested",
+   "entity": "a",
+   "data": {
+    "cwd": "/w",
+    "session_id": "sid-a",
+    "mode": "bypassPermissions"
+   }
+  },
+  {
+   "t": 1,
+   "type": "session.started",
+   "entity": "a",
+   "data": {
+    "session_id": "sid-a",
+    "pid": 101
+   }
+  },
+  {
+   "t": 2,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "task"
+   }
+  },
+  {
+   "t": 3,
+   "type": "turn.started",
+   "entity": "a",
+   "data": {
+    "marker": "m3"
+   }
+  },
+  {
+   "t": 5,
+   "type": "permission.requested",
+   "entity": "a",
+   "data": {
+    "request_id": "r1",
+    "tool": "AskUserQuestion",
+    "input": {
+     "questions": [
+      {
+       "question": "Which option?",
+       "options": [
+        {
+         "label": "A"
+        },
+        {
+         "label": "B"
+        }
+       ]
+      }
+     ]
+    },
+    "interactive": true
+   }
+  },
+  {
+   "t": 6,
+   "type": "message.received",
+   "data": {
+    "to": "a",
+    "text": "more"
+   }
+  },
+  {
+   "t": 9,
+   "type": "permission.answered",
+   "entity": "a",
+   "data": {
+    "behavior": "allow",
+    "answers": {
+     "Which option?": "B"
+    },
+    "request_id": "r1",
+    "channel": "web",
+    "owner": true
+   }
+  },
+  {
+   "t": 12,
+   "type": "turn.stopped",
+   "entity": "a"
+  }
+ ],
+ "expect": {
+  "sessions": {
+   "a": {
+    "state": "idle",
+    "pending": []
+   }
+  },
+  "messages": {
+   "m3": {
+    "state": "delivered"
+   },
+   "m6": {
+    "state": "typing"
+   },
+   "m7": {
+    "state": "queued",
+    "answers_question": "q5"
+   }
+  },
+  "actions": [
+   {
+    "do": "spawn",
+    "mode": "bypassPermissions"
+   },
+   {
+    "do": "type",
+    "message": "m3"
+   },
+   {
+    "do": "respond",
+    "request_id": "r1"
+   },
+   {
+    "do": "type",
+    "message": "m6"
+   }
+  ],
+  "rejected": 0
+ }
+}

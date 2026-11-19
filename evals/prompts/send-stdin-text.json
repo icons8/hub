@@ -1,0 +1,64 @@
+{
+ "id": "send-stdin-text",
+ "title": "A session sending a text with backticks and $ passes it by stdin (`hub send <to> - <<'EOF'`) or `--file`, not as an argument; a short plain message stays an ordinary argument",
+ "note": "Compares bin/hub versions (hub_cli): \"before\" has no `-`/`--file` for hub send and hub task run, \"after\" has them, plus the \"### For sessions\" item in the core's note on the incoming message (only in \"after\"). The first hub call counts. The plain message is the control: no stdin form without need.",
+ "model": "sonnet",
+ "effort": "medium",
+ "tools": "Bash",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "You are the maps session of the agents-hub hub: you run the maps (tiles, geocoder). The hub's commands are `hub` in the shell (Bash). You don't remember their syntax: before typing a hub command, look at the help (`hub --help`, `hub <command> --help`). Carry out the request with the one hub command needed and end your turn with one line: what you did. Today is 2026-11-06, owner's time.",
+ "turns": [
+  {
+   "id": "send-backticks",
+   "input": {
+    "before": "[hub:m200 from user] Tell the geo session exactly this: the tiles build failed at `make tiles`, the run cost $0,17 and the log's last line is `rm -rf $TMP/cache`.",
+    "after": "[hub:m200 from user] Tell the geo session exactly this: the tiles build failed at `make tiles`, the run cost $0,17 and the log's last line is `rm -rf $TMP/cache`.\n\n(Hub updated — what changed for sessions:\n• A text for `hub send`, `hub task run` or `hub task note` with backticks or `$` in it (code, prices, shell commands) goes through stdin or a file, not as an argument: `hub send <to> - <<'EOF'` … `EOF` (a quoted `'EOF'`), or `--file <path>`. As an argument the shell runs the backticks and eats the `$…`.\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "stdin_or_file",
+     "type": "call",
+     "re": "^send geo\\b(?=.*( -( |$)|--file ))"
+    }
+   ]
+  },
+  {
+   "id": "task-run-dollar",
+   "input": {
+    "before": "[hub:m201 from user] Raise an executor named tiles-fix for this task: run `make tiles` in the repo, find why it fails and keep the cost of the run under $0,50.",
+    "after": "[hub:m201 from user] Raise an executor named tiles-fix for this task: run `make tiles` in the repo, find why it fails and keep the cost of the run under $0,50.\n\n(Hub updated — what changed for sessions:\n• A text for `hub send`, `hub task run` or `hub task note` with backticks or `$` in it (code, prices, shell commands) goes through stdin or a file, not as an argument: `hub send <to> - <<'EOF'` … `EOF` (a quoted `'EOF'`), or `--file <path>`. As an argument the shell runs the backticks and eats the `$…`.\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "task_run_stdin_or_file",
+     "type": "call",
+     "re": "^task run tiles-fix\\b(?=.*( -( |\\s|$)|--file ))"
+    }
+   ]
+  },
+  {
+   "id": "plain-control",
+   "input": {
+    "before": "[hub:m202 from user] Tell the geo session that the tiles are ready.",
+    "after": "[hub:m202 from user] Tell the geo session that the tiles are ready.\n\n(Hub updated — what changed for sessions:\n• A text for `hub send`, `hub task run` or `hub task note` with backticks or `$` in it (code, prices, shell commands) goes through stdin or a file, not as an argument: `hub send <to> - <<'EOF'` … `EOF` (a quoted `'EOF'`), or `--file <path>`. As an argument the shell runs the backticks and eats the `$…`.\nDo it this way, even if it was different earlier in the conversation.)"
+   },
+   "checks": [
+    {
+     "id": "plain_send",
+     "type": "call",
+     "re": "^send geo\\b"
+    },
+    {
+     "id": "no_stdin_for_plain",
+     "type": "call",
+     "not_re": "( -( |$)|--file )"
+    }
+   ]
+  }
+ ]
+}

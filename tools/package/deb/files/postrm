@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+  # Chrome that agents-hub put under /opt (not a file of the package) goes with the package, and its profile
+  if [ -e /etc/apparmor.d/agents-hub-chrome ]; then
+    if command -v apparmor_parser >/dev/null 2>&1 && [ -d /sys/kernel/security/apparmor ]; then
+      apparmor_parser -R /etc/apparmor.d/agents-hub-chrome 2>/dev/null || true
+    fi
+    rm -f /etc/apparmor.d/agents-hub-chrome
+  fi
+  rm -rf /opt/agents-hub/chrome
+  rmdir /opt/agents-hub 2>/dev/null || true
+fi
+exit 0

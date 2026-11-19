@@ -1,0 +1,76 @@
+{
+ "id": "waiting-relay",
+ "title": "A session that wrote to another one with a plain `hub send` and waits for its answer says `hub waiting` — then the core forwards it the turn result of the one that answered; on a plain report or an FYI — it does not say it",
+ "note": "System prompt — plugins/hub-base/skills/hub/SKILL.md (the same in both versions). The difference is in the core's note \"The hub was updated — what changed for sessions\" on the incoming message (core/news.unseen): \"before\" — only the earlier item under the same date, \"after\" — it plus the new \"### For sessions\" item from PR #321. No tools: we judge by the turn's listed commands. ask-* — the answer is needed for the next step (it waits), report-* — a message after which there is nothing to wait for.",
+ "model": "opus",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands",
+    "says"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "all the shell commands you run in this turn, in order, exactly as you would type them, until the end of the turn"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your result for this turn"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "ask-decide",
+   "input": {
+    "before": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m501 from user] Find out from the tiles session how many region 3 tiles are still not re-rendered after the style change, and based on its number decide whether to roll out the style today.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m501 from user] Find out from the tiles session how many region 3 tiles are still not re-rendered after the style change, and based on its number decide whether to roll out the style today.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\n• Waiting for an answer to a plain `hub send` to another session — say `hub waiting \"<what you are waiting for>\"`: then the core forwards you the text of its turn's result. Without `hub waiting` the result comes only if it answers with `hub send`.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {"id": "asks", "type": "field", "name": "commands", "re": "hub send\\s+['\\\"]?tiles\\b"},
+    {"id": "waits", "type": "field", "name": "commands", "re": "hub waiting\\s+['\\\"]"}
+   ]
+  },
+  {
+   "id": "ask-pass-on",
+   "input": {
+    "before": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m502 from user] Ask tiles when it will have a free window to re-render region 5, and tell me.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m502 from user] Ask tiles when it will have a free window to re-render region 5, and tell me.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\n• Waiting for an answer to a plain `hub send` to another session — say `hub waiting \"<what you are waiting for>\"`: then the core forwards you the text of its turn's result. Without `hub waiting` the result comes only if it answers with `hub send`.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {"id": "asks", "type": "field", "name": "commands", "re": "hub send\\s+['\\\"]?tiles\\b"},
+    {"id": "waits", "type": "field", "name": "commands", "re": "hub waiting\\s+['\\\"]"}
+   ]
+  },
+  {
+   "id": "report-news",
+   "input": {
+    "before": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m503 from user] Tell the tiles session that the new map style is rolled out — they don't need to do anything, just so they know.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m503 from user] Tell the tiles session that the new map style is rolled out — they don't need to do anything, just so they know.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\n• Waiting for an answer to a plain `hub send` to another session — say `hub waiting \"<what you are waiting for>\"`: then the core forwards you the text of its turn's result. Without `hub waiting` the result comes only if it answers with `hub send`.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {"id": "sends", "type": "field", "name": "commands", "re": "hub send\\s+(--fyi\\s+)?['\\\"]?tiles\\b"},
+    {"id": "no_wait", "type": "field", "name": "commands", "not_re": "hub waiting\\s+['\\\"]"}
+   ]
+  },
+  {
+   "id": "report-handover",
+   "input": {
+    "before": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m504 from user] Send the tiles session the list of tiles where I fixed the labels: 12, 40, 77 — it asked for it yesterday for its re-rendering, it takes it from there.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\nDo it this way, even if earlier in the conversation it was different.)",
+    "after": "You are the hub's maps agent: you run the map style. The hub's tiles session runs tile re-rendering.\n\n[hub:m504 from user] Send the tiles session the list of tiles where I fixed the labels: 12, 40, 77 — it asked for it yesterday for its re-rendering, it takes it from there.\n\n(The hub was updated — what changed for sessions:\n• Another hub's answer to a request you sent through the liaison (`hub send liaison --to <contact> \"…\"`) comes to you by itself; there is no need to ask the liaison to pass it on.\n• Waiting for an answer to a plain `hub send` to another session — say `hub waiting \"<what you are waiting for>\"`: then the core forwards you the text of its turn's result. Without `hub waiting` the result comes only if it answers with `hub send`.\nDo it this way, even if earlier in the conversation it was different.)"
+   },
+   "checks": [
+    {"id": "sends", "type": "field", "name": "commands", "re": "hub send\\s+(--fyi\\s+)?['\\\"]?tiles\\b"},
+    {"id": "no_wait", "type": "field", "name": "commands", "not_re": "hub waiting\\s+['\\\"]"}
+   ]
+  }
+ ]
+}
