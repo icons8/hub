@@ -513,7 +513,7 @@ class WholeHubOnCodexTest(CodexHostTest):
         with mock.patch.object(daemon.catalog, "load_config", return_value={"host": "codex", "codex": {"model": "m1"}}), \
                 mock.patch.dict(os.environ, {"HUB_HOST": "tmux", "HUB_CODEX_BIN": missing}):
             host = daemon.make_host(self.state)
-        self.assertEqual(host.codex, [missing])
+            self.assertEqual(host.codex, [missing])   # looked for at every use: under the same setting
         self.assertIsInstance(host, CodexHost)
         self.assertEqual((host.all_sessions, host.default_model), (True, "m1"))
 
@@ -744,6 +744,50 @@ class ReviewFixes(unittest.TestCase):
         self.assertFalse(catalog.known_model(MODEL))
         self.assertFalse(catalog.codex_host({}))
         self.assertTrue(catalog.codex_host({"host": "codex"}))
+
+
+class CodexInstalledAfterTheStart(unittest.TestCase):
+    """2026-11-19, a fresh hub: «Codex» on the band restarted the hub before Codex CLI was in place — the host took the
+    bare name "codex" (no ~/.local/bin in hubd's PATH), the hook's trust was never written and every spawn was refused
+    («the bans do not hold»), its retries with the same name for ever. The host now looks for codex at every use."""
+
+    def setUp(self):
+        from unittest import mock
+        self.state = tempfile.mkdtemp(prefix="hubcx-late-")
+        self.addCleanup(platforms.current.rmtree, self.state)
+        self.bin = os.path.join(self.state, "bin")
+        os.makedirs(self.bin)
+        self.exe = os.path.join(self.bin, "codex") + (".cmd" if os.name == "nt" else "")   # as exe.script names it
+        env = mock.patch.dict(os.environ, {"HUB_CODEX_BIN": self.exe})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def install(self):
+        from tests.fakes import exe
+        got = exe.script(os.path.join(self.bin, "codex"),
+                         f"import runpy, sys\nsys.argv[0] = {FAKE_CODEX!r}\nrunpy.run_path({FAKE_CODEX!r}, run_name='__main__')\n")
+        self.assertEqual(got, self.exe)
+
+    def test_codex_put_in_place_after_the_host_came_up_starts_sessions(self):
+        from unittest import mock
+        from core import daemon
+        from hosts import codex_rules
+        with mock.patch.object(daemon.catalog, "load_config", return_value={"host": "codex", "codex": {"model": "gpt-def"}}):
+            host = daemon.make_host(self.state)   # as hubd's start: Codex CLI is not there yet
+        self.assertFalse(codex_rules.trusted(self.state))
+        hub = Hub(self.state, host, registry_dir=os.path.join(self.state, "registry"))
+        self.addCleanup(host.kill_server)
+        hub.start()
+        self.install()   # the band's step codex is done a few seconds later
+        self.assertEqual(host.codex, [self.exe])
+        spool.put(os.path.join(self.state, "spool"), "session.requested", "maps", {"cwd": self.state, "session_id": "sid-maps"})
+        end = time.time() + 15
+        while time.time() < end and hub.state["sessions"].get("maps", {}).get("state") != "idle":
+            hub.tick()
+            time.sleep(0.03)
+        errors = [e["data"].get("error") for e in journal.read(hub.journal.path) if e["type"] == "host.error"]
+        self.assertEqual((hub.state["sessions"].get("maps", {}).get("state"), errors), ("idle", []))
+        self.assertTrue(codex_rules.trusted(self.state))   # found at once, not after RETRY
 
 
 if __name__ == "__main__":

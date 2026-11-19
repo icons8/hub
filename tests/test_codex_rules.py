@@ -163,6 +163,30 @@ class HomeTest(unittest.TestCase):
         self.assertFalse(codex_rules.trusted(self.state, now=t["at"] + 1))   # before RETRY — no new attempt
         self.assertTrue(codex_rules.trusted(self.state, now=t["at"] + codex_rules.RETRY))
 
+    def test_codex_found_after_the_start_is_trusted_at_once(self):
+        # a hubd that came up before Codex CLI was installed: the bare name, then the installer's path (2026-11-19)
+        now = [["codex-not-installed-here"]]
+        env = {**os.environ, "CODEX_HOME": self.home}
+        codex_rules.prepare_home(self.home, codex=now[0], env=env, find=lambda: now[0])
+        t = codex_rules._TRUSTED[os.path.abspath(self.home)]
+        with mock.patch.object(codex_rules, "_trust", wraps=codex_rules._trust) as tried:
+            self.assertFalse(codex_rules.trusted(self.state, now=t["at"] + 1))
+            self.assertEqual(tried.call_count, 0)   # still not there: no app-server at every spawn, RETRY holds
+            now[0] = [sys.executable, FAKE_CODEX]
+            self.assertTrue(codex_rules.trusted(self.state, now=t["at"] + 1))   # not after RETRY
+        self.assertEqual(codex_rules._TRUSTED[os.path.abspath(self.home)]["codex"], [sys.executable, FAKE_CODEX])
+
+    def test_another_codex_after_the_trust_is_checked_again_before_a_session_runs_it(self):
+        # the trust is that Codex's (its hash of the hook): a codex found anew later (the hub's own copy put in place)
+        # does not inherit it — a session would run with no bans while the core thinks they hold
+        now = [[sys.executable, FAKE_CODEX]]
+        codex_rules.prepare_home(self.home, codex=now[0], env={**os.environ, "CODEX_HOME": self.home}, find=lambda: now[0])
+        self.assertTrue(codex_rules.trusted(self.state))
+        now[0] = [os.path.join(self.state, "no-such-codex")]   # one that does not answer: not trusted
+        self.assertFalse(codex_rules.trusted(self.state))
+        now[0] = [sys.executable, FAKE_CODEX]
+        self.assertTrue(codex_rules.trusted(self.state))
+
     def test_retry_does_not_duplicate_the_trust_table(self):
         key = os.path.join(self.home, "hooks.json") + ":pre_tool_use:0:0"
         stale = {"data": [{"cwd": self.home, "warnings": [], "errors": [], "hooks": [{

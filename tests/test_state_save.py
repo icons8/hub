@@ -72,6 +72,45 @@ class StateSave(unittest.TestCase):
         self.assertEqual(got["seq"], h.state["seq"])
         self.assertEqual(sorted(got["sessions"]), sorted(h.state["sessions"]))
 
+    def test_a_state_file_of_a_journal_started_anew_is_not_taken_for_its_own(self):
+        """11-18: a journal started from number 1 has the same first number as the one the state file was saved over, and
+        with the first line of the same length the saved offset fell on a line boundary: the old state was folded with the
+        new journal's tail. The mark of the journal's start (journal.head_of) tells them apart."""
+        from core import reducer
+        folder = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, folder, True)
+        path = os.path.join(folder, "journal.jsonl")
+        j = journal.Journal(path)
+        j.append("session.requested", "w", {"session_id": "s", "cwd": folder}, ts=1700000000.5)
+        journal.save_state(folder, reducer.replay(journal.read(path)))
+        os.unlink(path)
+        j = journal.Journal(path)
+        j.append("session.requested", "x", {"session_id": "s", "cwd": folder}, ts=1700000001.5)
+        j.append("session.requested", "b", {"session_id": "sb", "cwd": folder})
+        with open(path, "rb") as f:
+            self.assertEqual(journal.read_state_file(folder)["offset"], len(f.readline()))   # the trap is set
+        self.assertEqual(sorted(journal.load_state(folder)["sessions"]), ["b", "x"])
+        self.assertIsNone(journal.state_at(folder, 2))
+        snap = journal.read_state_file(folder)   # a file saved before the mark was kept: the number alone, as before
+        del snap["head"]
+        with open(os.path.join(folder, journal.STATE_FILE), "w", encoding="utf-8") as f:
+            json.dump(snap, f)
+        os.unlink(path)
+        j = journal.Journal(path)
+        j.append("session.requested", "z", {"session_id": "s", "cwd": folder}, ts=1700000002.5)
+        j.append("session.requested", "c", {"session_id": "sc", "cwd": folder})
+        self.assertEqual(sorted(journal.load_state(folder)["sessions"]), ["c", "w"])   # trusted: the old state + the tail
+        # and a state file saved while the journal was a few bytes long still belongs to it once it has grown
+        os.unlink(path)
+        j = journal.Journal(path)
+        j.append("session.requested", "w", {"session_id": "s", "cwd": "/x"})   # a first line shorter than the mark's bytes
+        self.assertLess(os.path.getsize(path), journal.HEAD_BYTES)
+        journal.save_state(folder, reducer.replay(journal.read(path)))
+        j.append("session.requested", "d", {"session_id": "sd", "cwd": "/x"})
+        j.append("session.requested", "e", {"session_id": "se", "cwd": "/x"})
+        self.assertTrue(journal.of_this_journal(journal.read_state_file(folder), path))
+        self.assertEqual(sorted(journal.load_state(folder)["sessions"]), ["d", "e", "w"])
+
     def test_a_failed_write_leaves_no_temporary_file(self):
         """The .tmp holds the whole state (tens of MB, and what `hub journal scrub` has just cleaned) — not left behind."""
         h = hub()

@@ -40,6 +40,48 @@ class HostSeesBackground(unittest.TestCase):
             ("session.background", "a", {"id": "ag77", "kind": "agent", "title": "Map billing"})])
 
 
+class HelpersModel(unittest.TestCase):
+    """18.11: a hub's three helper agents ran for half an hour and the owner took the work for stopped: the session's row
+    says "3 helpers · <model>". The model is what the start of the call named (Claude Code's Agent `model`, a Codex
+    subagent's); Claude Code's whole list of the background does not name it, so the core keeps it."""
+
+    def test_the_agent_call_names_the_model_and_the_core_keeps_it_through_the_list(self):
+        host = StreamHost(tempfile.mkdtemp(prefix="bg-"))
+        host.inbox.put(("a", {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"description": "Review security", "model": "opus",
+                                                                          "run_in_background": True}},
+            {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"description": "Review ops", "run_in_background": True}},
+            {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "sleep 9", "model": "x",
+                                                                         "run_in_background": True}}]}}))
+        host.inbox.put(("a", {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "Async agent launched successfully.\nagentId: ag1"},
+            {"type": "tool_result", "tool_use_id": "t2", "content": "Async agent launched successfully.\nagentId: ag2"},
+            {"type": "tool_result", "tool_use_id": "t3", "content": "Command running in background with ID: b3"}]}}))
+        facts = [f[2] for f in host.poll() if f[0] == "session.background"]
+        self.assertEqual([(f["id"], f.get("model")) for f in facts], [("ag1", "opus"), ("ag2", None), ("b3", None)])
+        base = [ev(1, "session.requested", "a", {"session_id": "s", "cwd": "/w"}),
+                ev(2, "session.started", "a", {"session_id": "s"}),
+                ev(3, "turn.started", "a", {"marker": None, "prompt_head": "x"}),
+                *[ev(4 + i, "session.background", "a", f) for i, f in enumerate(facts)],
+                # Claude Code's whole list names no model; a Codex list names its own; a non-string one is not taken
+                ev(7, "session.background", "a", {"tasks": [
+                    {"id": "ag1", "kind": "agent", "title": "Review security"},
+                    {"id": "ag2", "kind": "agent", "title": "Review ops", "model": {"x": 1}},
+                    {"id": "ag3", "kind": "agent", "title": "Probe", "model": "gpt-x"},
+                    {"id": "b3", "kind": "bash", "title": "sleep 9", "model": "gpt-x"}]})]
+        st = reducer.empty()
+        for e in base:
+            st, _, why = reducer.reduce(st, e)
+            self.assertIsNone(why, e)
+        bg = st["sessions"]["a"]["background"]
+        self.assertEqual({k: v.get("model") for k, v in bg.items()}, {"ag1": "opus", "ag2": None, "ag3": "gpt-x", "b3": None})
+        r = views.Reader()   # `hub show` names it too
+        r.state = st
+        shown = views.show(r, "a")
+        self.assertIn("  in the background, agent on opus: Review security", shown)
+        self.assertIn("  in the background, agent: Review ops", shown)
+
+
 class HostSeesCompletionMidTurn(unittest.TestCase):
     """Live case 30.09 14:48: a background command finished during a turn. Claude Code delivered the
     task-notification within that same turn, there was no new turn, and the task stayed "in background" forever:

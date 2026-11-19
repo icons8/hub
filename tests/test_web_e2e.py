@@ -407,6 +407,67 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual((band["kind"], band["why"], len(band["buttons"])), ("doctor", "no answer", 2), band)
         self.assertIn("the page", band["text"])
 
+    def test_the_app_band_asks_the_check_again_in_its_own_language(self):
+        # a fresh hub checked itself in the machine's language: its rows are another's words — the band does not show
+        # them and the page asks the check again in its own (owner 2026-11-19)
+        rows = [["ok", "hubd", ""], ["fail", "Claude-Anmeldung", "nicht angemeldet"]]
+        other = {"id": "doctor", "state": "fail", "rows": rows, "stale": False, "job": {"state": "done", "lang": "de"}}
+        band = self.app_band(doctor=other)[0]
+        self.assertIsNone(band)
+        self.assertEqual(self.ran, ["doctor"])
+        mine = {**other, "rows": [["ok", "hubd", ""], ["fail", "Claude sign-in", "not signed in"]],
+                "job": {"state": "done", "lang": "en"}}
+        band = self.app_band(doctor=mine)[0]
+        self.assertEqual((band["kind"], band["why"]), ("doctor", "not signed in"), band)
+        self.assertEqual(self.ran, [])
+
+    def test_the_sign_in_by_code_clears_the_red_check_without_a_reload(self):
+        # the first sign-in timed out and the hub check made then said "not signed in"; the person signs in again with
+        # a code: the old red band does not come back once the sign-in is done, with no Retry and no reload (owner
+        # 2026-11-19). The real «Setup», its steps' processes and `hub doctor`; Claude Code is a fake
+        import time as _time
+        from modules.setup import job as setup_job, setup as setup_mod
+        from tests import test_setup
+        from tests.fakes import exe
+        home = os.path.join(self.state, "fake-home")
+        os.makedirs(home)
+        claude = exe.script(os.path.join(self.state, "claude"), test_setup.FAKE_CLAUDE)
+        env = mock.patch.dict(os.environ, {"FAKE_HOME": home, "HUB_CLAUDE": claude})
+        env.start()
+        self.addCleanup(env.stop)
+        now = _time.time()
+        os.makedirs(setup_job.folder(self.state), exist_ok=True)
+        for step, body in (("doctor", {"state": "done", "started": now - 100, "ts": now - 100, "lang": "en",
+                                       "rows": [["ok", "hubd", "running"], ["fail", "Claude sign-in", "not signed in"]]}),
+                           ("login", {"state": "failed", "why": "timeout", "started": now - 700, "ts": now - 90})):
+            with open(setup_job.status_path(self.state, step), "w") as f:
+                json.dump({"step": step, **body}, f)
+        class Remote(setup_mod.Setup):   # a browser on another machine: Anthropic shows a code to paste
+            def status(self, local=False, **kw):
+                return super().status(local=False, **kw)
+        self.web._setup = Remote(self.state, lambda: {}, claude=[claude], app=True)
+        sample = ("window.__seen = []; setInterval(() => { const b = document.querySelector('.setupbar');"
+                  " window.__seen.push(b.hidden ? '' : b.innerText); }, 200); 1")
+        got = self.page({"go": "about:blank"}, {"go": f"http://127.0.0.1:{self.port}/#/"},
+                        {"until": "!!document.querySelector('.setupbar:not([hidden])')", "ms": 10000},
+                        {"eval": "window.__loaded = 1; [...document.querySelectorAll('.setupbar button')]"
+                                 ".find((b) => b.textContent.includes('Claude')).click(), 1"},
+                        {"until": "!!document.querySelector('.setupbar:not([hidden]) input[name=code]')", "ms": 15000},
+                        {"eval": sample},
+                        {"eval": "(() => { const i = document.querySelector('.setupbar input[name=code]');"
+                                 " i.value = 'good-code#s1'; i.dispatchEvent(new Event('input'));"
+                                 " document.querySelector('.setupbar form').requestSubmit(); return 1; })()"},
+                        {"until": "!document.querySelector('.setupbar:not([hidden]) input[name=code]')", "ms": 15000},
+                        {"sleep": 6000},
+                        {"eval": "[window.__loaded === 1, window.__seen.filter((x) => x.includes('not signed in')).length,"
+                                 " window.__seen.length]"})
+        self.assertTrue(got[2]["until"] and got[4]["until"] and got[7]["until"], got)
+        loaded, red, looks = got[9]["eval"]
+        self.assertTrue(loaded and looks > 20, got)   # the same page, looked at all along
+        self.assertEqual(red, 0, got)                 # never the old red after the code went in
+        with open(setup_job.status_path(self.state, "doctor")) as f:
+            self.assertGreater(json.load(f)["started"], now)   # checked again after the sign-in
+
     def test_the_app_band_gives_the_root_command_for_chrome_and_later_puts_it_off(self):
         cmd = "sudo dnf install -y https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
         chrome = {"id": "chrome", "state": "todo", "available": True, "sandbox": "", "system": cmd, "job": None}
@@ -2633,6 +2694,16 @@ class PageInChrome(test_web.WebTest):
 
     def sent(self):
         return [e["data"] for e in self.spooled() if e["type"] == "message.received" and e["data"].get("channel") == "web"]
+
+    def sent_wait(self, count=1, seconds=8):
+        """What the page sent, once `count` messages are in the spool. The page clears the field and the chips at once, the
+        POST is still on its way: a look at the spool right after that sees nothing (red in a run with a TMPDIR other than /tmp)."""
+        out, end = [], time.monotonic() + seconds
+        while True:
+            out += self.sent()
+            if len(out) >= count or time.monotonic() > end:
+                return out
+            time.sleep(0.05)
 
     def test_the_message_box_enter_shift_enter_draft_failure_and_paste(self):
         for n in ("a", "b"):
@@ -8150,6 +8221,41 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual((wide[4], wide[5]), (1, True))      # one line; what did not fit is in the hint
         self.assertLessEqual(phone[3], 420)                  # on a phone — no horizontal scroll
         self.assertLess(phone[2], 800 * 0.4, phone)          # and under 40% of the screen
+
+    def helpers_stand(self):
+        """Sessions whose own helper agents run in the background (18.11: a hub's three ran for half an hour and the owner
+        took the work for stopped): tiles — idle, three helpers on one model; geo — working, a helper with no model named
+        and a command; ops — idle, a helper on opus and a command."""
+        import time as _t
+        for n in ("tiles", "geo", "ops"):
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w", channel="cli", owner=True, tools=[])
+            self.ev("session.started", n, session_id=f"s-{n}")
+            self.ev("turn.started", n, marker=None, prompt_head="go")
+        for i, title in enumerate(("/root/review_security", "/root/review_perf", "/root/review_ops")):
+            self.j.append("session.background", "tiles", {"id": f"ag{i}", "kind": "agent", "title": title,
+                                                         "model": "gpt-6.2-astra"}, ts=_t.time() - 300 + i)
+        self.j.append("session.background", "geo", {"id": "ag9", "kind": "agent", "title": "Map the geocoder"}, ts=_t.time() - 60)
+        self.j.append("session.background", "geo", {"id": "b9", "kind": "bash", "title": "tools/test.py"}, ts=_t.time() - 50)
+        self.j.append("session.background", "ops", {"id": "ag8", "kind": "agent", "title": "Check the logs",
+                                                    "model": "opus"}, ts=_t.time() - 60)
+        self.j.append("session.background", "ops", {"id": "b8", "kind": "bash", "title": "Wait"}, ts=_t.time() - 50)
+        for n in ("tiles", "ops"):
+            self.ev("turn.stopped", n)
+        self.settle()
+
+    ROW_CAPTION = ("((n) => { const r = [...document.querySelectorAll('#list .srow')].find((x) => [...x.querySelector('.nm').childNodes]"
+                   ".filter((c) => c.nodeType === 3).map((c) => c.nodeValue.trim()).filter(Boolean).pop() === n); "
+                   "return r ? [r.querySelector('.lb').textContent, r.title] : 'none'; })")   # the tooltip is the row's
+
+    def test_a_sessions_own_helper_agents_show_in_its_row_with_their_model(self):
+        self.helpers_stand()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/"}, {"until": "document.querySelectorAll('#list .srow').length >= 3"},
+                        {"sleep": 400}, *[{"eval": self.ROW_CAPTION + f"('{n}')"} for n in ("tiles", "geo", "ops")])
+        tiles, geo, ops = (g["eval"] for g in got[-3:])
+        self.assertRegex(tiles[0], r"^3 helpers · gpt-6\.2-astra · \d+ min( \d+ s)?$")   # idle: the count, the model and how long, not a title
+        self.assertIn("/root/review_perf · gpt-6.2-astra · ", tiles[1])         # the tooltip names each with its model
+        self.assertRegex(geo[0], r" · 1 helper · in background 1$")            # working: no model named — the count alone
+        self.assertTrue(ops[0].startswith("1 helper · opus · in background: Wait · "), ops)   # the command keeps its caption
 
     def test_a_file_sent_to_the_owner_is_shown_in_the_feed(self):
         # owner request: check that screenshots can be forwarded to the page: hub send-file went only to Telegram, and the
@@ -13692,7 +13798,7 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual(got[7]["eval"], ["msg", "About tasks:"])
         self.assertEqual((got[8]["eval"]["foot"], got[8]["eval"]["chips"]), (None, ["TASK-2", "TASK-5"]))
         self.assertEqual(got[-1]["eval"]["picked"], [])   # the chips left with the message; the picks are gone from the board too
-        (sent,) = self.sent()
+        (sent,) = self.sent_wait()
         self.assertEqual((sent["to"], sent["text"]), ("maps", "what blocks this?"))
         self.assertEqual(sent["tasks"], [{"id": "TASK-2", "title": "Slice 2: import", "status": "To Do"},
                                          {"id": "TASK-5", "title": "Slice 5: geocoder", "status": "In Progress"}])
@@ -13709,7 +13815,7 @@ class PageInChrome(test_web.WebTest):
                         {"eval": self.fn(self.TYPE, "#msg", "what is blocking?")}, {"eval": self.fn(self.KEY, "#msg", False)},
                         {"until": "document.querySelectorAll('form.composer .mention-bar .mchip').length === 0", "ms": 8000})
         self.assertTrue(got[7]["until"], got)
-        (sent,) = self.sent()
+        (sent,) = self.sent_wait()
         self.assertNotIn("tasks", sent)
         self.assertEqual(sent["text"], "About board tasks: TASK-2 «Slice 2: import» (To Do)\n\nwhat is blocking?")
 
@@ -14445,6 +14551,27 @@ class PageInChrome(test_web.WebTest):
         ext = json.load(open(cfg))["extensions"]["shop:owl"]
         self.assertEqual((ext["market"], ext["entry"]), ("shop", "owl"))
 
+    def test_every_official_catalogs_entries_carry_the_official_chip(self):
+        # a team's build has two official catalogs (Embed API 1.2): an entry's chip follows its catalog's own flag,
+        # not the one name agents-hub
+        from core import marketplaces
+        from modules.market import market
+        with mock.patch.object(marketplaces, "is_official", lambda url: True):
+            self.shop()
+            self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+            row = "[...document.querySelectorAll('.plugin-entry')].find((r) => r.querySelector('h4').textContent === 'owl')"
+            with mock.patch.object(market.Market, "search", return_value=[]), \
+                    mock.patch.object(market.Market, "updates", return_value={}):
+                got = self.page({"local": {"hub.settingsTab": "plugins"}},
+                                {"go": f"http://127.0.0.1:{self.port}/#/settings"},
+                                {"until": f"!!{row}", "ms": 8000},
+                                {"eval": f"{row}.querySelector('.plugin-title .chip').className"},
+                                {"eval": f"!!{row}.querySelector('.plugin-warn')"}, {"errors": 1500})
+        self.assertTrue(got[2]["until"], got[2])
+        self.assertEqual(got[3]["eval"], "chip ok")
+        self.assertFalse(got[4]["eval"])                                  # and no "third party" warning
+        self.assertEqual(got[-1]["errors"], [])
+
     def test_plugin_icons_keep_their_node_when_a_snapshot_redraws_the_plugins_tab(self):
         # the tab is rebuilt on every core snapshot; a new <img> each time made Safari show the icons blank for a frame
         from modules.market import market
@@ -14517,6 +14644,134 @@ class PageInChrome(test_web.WebTest):
         self.assertTrue(got[4]["until"], got[4])
         self.assertTrue(got[6]["eval"], got[6])
         self.assertTrue(got[7]["until"], got[7])
+
+    def engine_plugin(self):
+        """An engine's catalog `zeta` (marked built-in, as claude-plugins-official is) next to the hub's `shop`, and
+        one plugin installed from it (a one-plugin set): two skills, a command, an MCP server whose sign-in data the
+        author left as a placeholder."""
+        from core import marketplaces
+        from tests.test_marketplace import Catalog
+        cfg = self.shop()
+        zeta = Catalog(self, {"name": "zeta", "plugins": [{"name": "fox", "source": "./plugins/fox", "description": "Fox",
+                                                          "rights": {"page": True}, "category": "tools"}]},
+                       {"plugins/fox/main.js": "export default function register() {}\n",
+                        "plugins/fox/hub-plugin.json": {"name": "fox", "web": "main.js", "version": "1.0.0"}})
+        marketplaces.add(self.state, cfg, zeta.bare)
+        maps = os.path.join(self.state, "maps")
+        for rel, body in {".claude-plugin/plugin.json": json.dumps({"name": "maps", "description": "Tiles and routes"}),
+                          "skills/tiles/SKILL.md": "x", "skills/routes/SKILL.md": "x", "commands/plan.md": "x",
+                          ".mcp.json": json.dumps({"mcpServers": {"tiles": {"url": "https://maps.example.test/mcp",
+                                                                            "oauth": {"client_id": "<MAPS_CLIENT_ID>"}}}})}.items():
+            os.makedirs(os.path.dirname(os.path.join(maps, rel)), exist_ok=True)
+            with open(os.path.join(maps, rel), "w") as f:
+                f.write(body)
+        raw = json.load(open(cfg))
+        raw["marketplaces"]["zeta"]["builtin"] = True
+        raw["sets"] = [{"name": "zeta", "entry": "maps", "plugin": True, "market": "zeta", "path": maps,
+                        "source": "acme/plugins", "commit": "d" * 40}]
+        with open(cfg, "w") as f:
+            json.dump(raw, f)
+        for name in ("a", "b"):
+            self.ev("session.requested", name, session_id="s-" + name, cwd="/w")
+        self.j.append("catalog.loaded", None, {"tools": {"maps@zeta": {"kind": "plugin", "path": maps,
+                                                                       "description": "Tiles and routes", "risk": ["code"]}}})
+        self.settle()
+        return cfg
+
+    def test_claude_and_codex_plugins_have_their_own_section_and_leave_the_shared_list(self):
+        # owner 2026-11-19: the engines' catalogs leave the shared list; what the hub installed from them is a section
+        # of its own — the catalog, what is inside, which sessions have it, a placeholder instead of a sign-in, "Give to
+        # a session…" (the owner's grant) and "Remove"; the catalogs stay in the block at the bottom
+        from modules.market import market
+        self.engine_plugin()
+        self.core_decides()
+        row = "document.querySelector('.plugin-engine[data-key=\"maps@zeta\"]')"
+        text = f"(({row} || {{}}).innerText || '')"
+        with mock.patch.object(market.Market, "search", return_value=[]), \
+                mock.patch.object(market.Market, "updates", return_value={}):
+            got = self.page({"local": {"hub.settingsTab": "plugins"}}, {"go": f"http://127.0.0.1:{self.port}/#/settings"},
+                            {"until": f"!!{row} && !!document.querySelector('.plugin-mp')", "ms": 8000},
+                            {"eval": "[...document.querySelectorAll('.plugin-section')].map((h) => h.textContent)"},
+                            {"eval": "[...document.querySelectorAll('.plugin-entry h4')].map((h) => h.textContent).sort().join()"},
+                            {"eval": "!!document.querySelector('.plugin-cat')"},
+                            {"eval": "[...document.querySelectorAll('.plugin-mp h4')].map((h) => h.textContent).join()"},
+                            {"eval": text},
+                            {"eval": f"[...{row}.querySelectorAll('.plugin-actions button')].map((b) => b.textContent)"},
+                            {"eval": f"{row}.querySelector('.plugin-actions button').click() || 1"},
+                            # the button is gone with the click: the focus goes to the session list, not to the page
+                            {"until": "!!document.activeElement?.classList.contains('plugin-give-pick')", "ms": 3000},
+                            # the tab is rebuilt with every snapshot: the picker and the picked session stay
+                            {"eval": "window.__pick = document.querySelector('.plugin-give-pick'); __pick.value = 'b'; "
+                                     "__pick.dispatchEvent(new Event('change')); [...__pick.options].map((o) => o.value).join()"},
+                            {"eval": "window.dispatchEvent(new Event('hub-plugins')); "
+                                     "[window.__pick.isConnected, document.querySelector('.plugin-give-pick').value]"},
+                            {"eval": "document.querySelector('.plugin-give .btn.primary').click() || 1"},
+                            {"until": f"{text}.includes('Given to: b')", "ms": 8000},
+                            {"eval": "!!document.querySelector('.plugin-give')"},
+                            {"eval": "const f = document.querySelector('.plugin-filter'); f.value = 'routes'; "
+                                     "f.dispatchEvent(new Event('input')); "
+                                     f"[{row}.hidden, document.querySelector('.plugin-none').hidden]"},
+                            {"eval": "const g = document.querySelector('.plugin-filter'); g.value = 'nothing-like-it'; "
+                                     "g.dispatchEvent(new Event('input')); "
+                                     f"[{row}.hidden, document.querySelector('.plugin-none').hidden, "
+                                     "document.querySelector('.plugin-engines').hidden]"},
+                            # a phone has no tooltip: a tap opens a cut list whole, and it stays open through a redraw
+                            {"eval": "const h = document.querySelector('.plugin-filter'); h.value = ''; h.dispatchEvent(new Event('input')); "
+                                     f"{row}.querySelector('.plugin-part').click(); window.dispatchEvent(new Event('hub-plugins')); "
+                                     f"const l = {row}.querySelector('.plugin-part'); [l.getAttribute('aria-expanded'), l.classList.contains('clamp-1')]"},
+                            {"errors": 1500})
+        self.assertTrue(got[2]["until"], got[2])
+        self.assertEqual(got[3]["eval"], ["Installed · 2", "Claude and Codex plugins · 1", "Available to install · 3", "Marketplaces"])
+        self.assertEqual(got[4]["eval"], "dusk,notes,owl")       # fox of zeta is not in the shared list
+        self.assertFalse(got[5]["eval"])                          # one catalog left there: no catalog filter
+        self.assertEqual(got[6]["eval"], "shop,zeta")             # the catalogs themselves stay at the bottom
+        for line in ("from catalog zeta", "Tiles and routes", "Skills · 2: routes, tiles", "Commands · 1: plan",
+                     "MCP servers · 1: tiles", "Not given to any session yet",
+                     "MCP server tiles: its settings carry the placeholder <MAPS_CLIENT_ID> instead of sign-in data"):
+            self.assertIn(line, got[7]["eval"])
+        self.assertEqual(got[8]["eval"], ["Give to a session…", "Remove"])
+        self.assertTrue(got[10]["until"], got[10])               # the focus is on the session list
+        self.assertEqual(got[11]["eval"], "a,b")
+        self.assertEqual(got[12]["eval"], [True, "b"])
+        self.assertTrue(got[14]["until"], got[14])                # the core granted it to b: the row says so
+        self.assertFalse(got[15]["eval"])                         # the picker closed
+        self.assertEqual(got[16]["eval"], [False, True])          # the search finds it by a skill's name
+        self.assertEqual(got[17]["eval"], [True, False, True])    # and hides it, its heading too: "nothing matches"
+        self.assertEqual(got[18]["eval"], ["true", False])
+        self.assertEqual(got[-1]["errors"], [])
+        (ev,) = [e for e in journal.read(self.j.path) if e["type"] == "tools.granted"]
+        self.assertEqual((ev["entity"], ev["data"]["tool"], ev["data"]["owner"]), ("b", "maps@zeta", True))
+
+    def test_claude_and_codex_plugins_on_a_page_server_without_the_engine_list(self):
+        # the JS is new at once, the server stays the previous release's until its restart: its /api/marketplaces has
+        # no `engine` and no `builtin` — the section comes from the snapshot's tool catalog, the engines' catalogs by name
+        from modules.market import market
+        self.engine_plugin()
+        with open(os.environ["HUB_CONFIG"]) as f:
+            raw = json.load(f)
+        raw["sets"][0]["market"] = raw["sets"][0]["name"] = "openai-curated"
+        self.j.append("catalog.loaded", None, {"tools": {"maps@openai-curated": {"kind": "plugin", "path": "/x",
+                                                                                 "description": "Tiles and routes"}}})
+        self.settle()
+        old = ("const f = window.fetch; window.fetch = (u, o) => String(u).startsWith('/api/marketplaces') && !String(u).includes('icon') ? "
+               "f(u, o).then((r) => r.json()).then((j) => { delete j.engine; delete j.grant; for (const c of j.catalogs) delete c.builtin; "
+               "return new Response(JSON.stringify(j), {status: 200}); }) : f(u, o);")
+        row = "document.querySelector('.plugin-engine[data-key=\"maps@openai-curated\"]')"
+        with mock.patch.object(market.Market, "search", return_value=[]), \
+                mock.patch.object(market.Market, "updates", return_value={}):
+            got = self.page({"local": {"hub.settingsTab": "plugins"}},
+                            {"go": f"http://127.0.0.1:{self.port}/#/settings", "init": old},
+                            {"until": f"!!{row} && !!document.querySelector('.plugin-mp')", "ms": 8000},
+                            {"eval": f"{row}.innerText"},
+                            {"eval": "[...document.querySelectorAll('.plugin-entry h4')].map((h) => h.textContent).sort().join()"},
+                            {"eval": f"[...{row}.querySelectorAll('.plugin-actions button')].map((b) => b.textContent)"},
+                            {"errors": 1500})
+        self.assertTrue(got[2]["until"], got[2])
+        self.assertIn("from catalog openai-curated", got[3]["eval"])
+        self.assertEqual(got[5]["eval"], ["Remove"])   # no grant path on that server: no "Give to a session…"
+        self.assertIn("Tiles and routes", got[3]["eval"])
+        self.assertEqual(got[4]["eval"], "dusk,fox,notes,owl")   # without the server's flag zeta is a catalog of the hub
+        self.assertEqual(got[-1]["errors"], [])
 
     def test_plugins_tab_without_the_marketplaces_api_keeps_the_old_catalog(self):
         # the JS is served from disk at once, the server is still the old one until restart: its /api/marketplaces
@@ -21335,6 +21590,15 @@ class RussianOwner(Languages):
     def leaked(self, text):
         return [x for x in self.english if x in text]
 
+    def test_helpers_in_a_row_take_the_russian_plural(self):
+        self.helpers_stand()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/"}, {"until": "document.querySelectorAll('#list .srow').length >= 3"},
+                        {"sleep": 400}, {"eval": self.ROW_CAPTION + "('tiles')"}, {"eval": self.ROW_CAPTION + "('geo')"})
+        self.assertTrue(got[-2]["eval"][0].startswith(i18n.tr("ru", "web.sidebar.bg_helpers_model", count=3, model="gpt-6.2-astra") + " · "),
+                        got[-2]["eval"])
+        self.assertIn(" · " + i18n.tr("ru", "web.sidebar.bg_helpers", count=1) + " · ", got[-1]["eval"][0])
+        self.assertNotEqual(i18n.tr("ru", "web.sidebar.bg_helpers", count=3), i18n.tr("en", "web.sidebar.bg_helpers", count=3))
+
     @cut.needs("profile")
     def test_account_cards_fit_their_width_in_russian(self):
         """The same cards in Russian (longer words: a weekday, day and month in the reset line, "busy until …")."""
@@ -22043,6 +22307,14 @@ class CleanTheme(PageInChrome):
         self.assertEqual(shown["maps"][0], "Result of maps: all is ready.", shown)   # free, spins for its executor: its result
         self.assertEqual(shown["x"][0], "working", shown)   # working: the core caption, without the ticking time (".lb" has " · 5s" after it)
         self.assertTrue(shown["x"][1].startswith("working · "), shown)
+
+    def test_a_row_with_helpers_shows_them_in_its_line(self):
+        # the second line of a row (the "Detail" option) takes the core's caption of an idle session with background work
+        self.helpers_stand()
+        got = self.page({"local": {"hub.opt.core:clean": '{"detail":true}'}}, self.go(),
+                        {"until": "document.documentElement.classList.contains('th-clean-detail') && document.querySelectorAll('#list .srow').length > 5"},
+                        {"sleep": 800}, {"eval": "[...document.querySelectorAll('#list .srow')].map((r) => r.querySelector(':scope > .txt')?.dataset.cleanPrev || '')"})
+        self.assertIn("3 helpers · gpt-6.2-astra", got[-1]["eval"])   # without the ticking time: the right column has Clean's own
 
     def test_sorting_by_the_last_message_is_off_by_default_and_rows_drag(self):
         # owner decision (10.11): the theme's sorting comes unchecked — the hub's own order stays and rows drag; checked, a

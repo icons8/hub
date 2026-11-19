@@ -48,13 +48,13 @@ def _mode(home):
     return m.group(1) if m else None
 
 
-def retried(home, info):
+def retried(home, info, codex=None):
     """The trust check's retry (codex_rules.trusted) answered: a sandbox not ready yet is checked with its platform and
-    readiness, in the tick's short time."""
+    readiness, in the tick's short time; codex — the command that retry ran (found anew: installed meanwhile)."""
     s = _STATE.get(os.path.abspath(home))
     if s and not s["ok"] and s["codex"] and (info or {}).get("platform"):
-        _check(os.path.abspath(home), s["codex"], s["env"], info["platform"], info.get("readiness"), RETRY_SETUP,
-               s["args"])
+        _check(os.path.abspath(home), list(codex or s["codex"]), s["env"], info["platform"], info.get("readiness"),
+               RETRY_SETUP, s["args"])
 
 
 def _check(home, codex, env, platform=None, readiness=None, timeout=None, args=()):

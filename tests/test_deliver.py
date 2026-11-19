@@ -19,6 +19,8 @@ import unittest
 import urllib.error
 import urllib.request
 
+from tests.fakes import cut
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVER = os.path.join(ROOT, "deliver", "server.py")
 UPLOAD = os.path.join(ROOT, "tools", "package", "upload.py")
@@ -39,6 +41,7 @@ def sha(data):
 READ, WRITE = "read-key-for-the-test-only", "write-key-for-the-test-only"
 
 
+@cut.needs_deliver()   # the open flavor cuts deliver/ (core/appcode.OPEN_CUT); the subclasses are skipped with it
 class Stand(unittest.TestCase):
     """A server over a temporary data folder, keys READ (the build) and WRITE (the release)."""
     max_body = 1 << 20
@@ -626,6 +629,7 @@ class Install(Stand):
         self.assertFalse([line for line in self.logs if READ in line], self.logs)
 
 
+@cut.needs_deliver()
 class Process(unittest.TestCase):
     """`server.py serve` as the image runs it: settings from the environment, the keys only as their sums."""
 
@@ -888,6 +892,7 @@ class Upload(Stand):
 
 
 
+@cut.needs_deliver()
 class ReleaseKeyStaysHome(unittest.TestCase):
     """Release review 2026-11-09: urllib follows a 30x of a GET and copies Authorization to any host — the release key
     (it publishes a layer to every hub) went to whatever a proxy or a redirect rule in front of the server named."""

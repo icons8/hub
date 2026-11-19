@@ -56,6 +56,24 @@ class Copy(Base):
             self.assertTrue(os.access(os.path.join(copy, "bin", "hub-up"), os.X_OK))
             self.assertTrue(os.access(os.path.join(copy, "core", "x.py"), os.W_OK))   # editable, unlike the layer
 
+    def test_what_an_embed_laid_in_place_is_not_a_file_of_the_copy(self):
+        # Embed API 1.2: a team layer has an embed's deploy/ twice — in the embed and laid at its place (core/embed.PLACED,
+        # the company's signed launcher). The copy keeps the embed's only: a layer built of the copy lays it again (were
+        # both in the copy, the rules would refuse it as the core's own file)
+        tree = dict(TREE, **{"embed/acme/deploy/mac/Acme.app/Contents/Info.plist": "<plist/>\n"})
+        self.work = self.repo(tree=tree, tag="v1.2.4")
+        code = self.layer_of(ref="v1.2.4")
+        self.assertTrue(os.path.isfile(os.path.join(code, "deploy", "mac", "Acme.app", "Contents", "Info.plist")))
+        got = self.make(code)
+        files = set(g(got["path"], "ls-files").splitlines())
+        self.assertIn("embed/acme/deploy/mac/Acme.app/Contents/Info.plist", files)
+        self.assertNotIn("deploy/mac/Acme.app/Contents/Info.plist", files)
+        again = self.layer.build(got["path"], "HEAD", os.path.join(self.root, "again"), sys.executable, version="1.2.5",
+                                 keep=os.path.join(self.root, "seed-again"), check=True)
+        self.assertTrue(again["files"])
+        self.assertTrue(os.path.isfile(os.path.join(self.root, "seed-again", "deploy", "mac", "Acme.app", "Contents",
+                                                    "Info.plist")))
+
     def test_with_access_the_copy_is_a_clone_on_the_releases_commit_with_its_tests(self):
         code = self.layer_of()
         g(self.work, "commit", "-qm", "after the release", "--allow-empty")   # the source has moved on since

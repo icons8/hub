@@ -8,6 +8,7 @@ The step's state is `<state>/setup/<step>.json` (0600, written whole): running |
 words for a person, the progress and what the step found (a link, a device code, a version). The page reads it through
 /api/setup (modules/setup/setup.py) and talks back through two files: `<step>.in` (a code the person pasted) and
 `<step>.cancel`. One process per step (a lock); the log is `<state>/logs/setup.log`, without secrets."""
+import json
 import os
 import re
 import subprocess
@@ -36,8 +37,66 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 ARG = re.compile(r"[A-Za-z0-9][\w.-]{0,79}")   # a step's argument: the voice model's catalog id
 
 
+# the band chose Codex while Codex CLI was not in place (modules/web/server.setup_host): the hub's restart onto Codex
+# waits for the step codex to install it — a hubd that came up before would start sessions on a program not there yet.
+# The mark is the running hubd's: empty — the restart waits; ASKED — asked; hub-up drops it when hubd comes up again
+CODEX_RESTART = "codex.restart"
+ASKED = "asked"
+
+
 def folder(state):
     return os.path.join(state, "setup")
+
+
+def _mark(state):
+    return os.path.join(folder(state), CODEX_RESTART)
+
+
+def restart_after_codex(state, on=True):
+    """The mark CODEX_RESTART: on — the restart onto Codex waits for Codex CLI; off — no more (the band went back to
+    Claude, or the hub came up again since)."""
+    if on:
+        platforms.current.makedirs_private(folder(state))
+        with open(_mark(state), "w", encoding="utf-8"):
+            pass
+    else:
+        try:
+            os.remove(_mark(state))
+        except FileNotFoundError:
+            pass
+
+
+def codex_restart(state):
+    """None — no mark; "" — the restart onto Codex waits for Codex CLI; ASKED — it was asked."""
+    try:
+        with open(_mark(state), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
+def codex_restart_waits(state):
+    return codex_restart(state) == ""
+
+
+def hub_installs_codex(item):
+    """setup.item_codex is one the hub installs itself: none, or its own copy not done (an older one of npm, Homebrew
+    or Codex's own installer is the person's — the band says to update it there)."""
+    return item.get("state") != "ok" and bool(item.get("own") or not (item.get("found") or item.get("version")))
+
+
+def restart_onto_codex(state):
+    """Codex CLI is in place and the mark waits: the hub's restart onto Codex, on the owner's word (the band's), once.
+    ASKED is written first: hub-up drops the mark when hubd comes up again, and a write after that would bring it back."""
+    if not codex_restart_waits(state):
+        return False
+    with open(_mark(state), "w", encoding="utf-8") as f:
+        f.write(ASKED)
+    from core import spool
+    spool.put(os.path.join(state, "spool"), "hub.restart_requested", None,
+              {"parts": [], "now": True, "why": i18n.t("web.srv.setup_host_restart", host="codex"),
+               "channel": "cli", "owner": True, "source": "setup"}, src="setup")
+    return True
 
 
 def status_path(state, step):
@@ -201,8 +260,12 @@ def step_codex(job, installer=None):
     inst = installer or codexinstall.Installer(job.state, say=job.say, progress=job.progress)
     try:
         got, path = inst.ensure_whole()
-    except codexinstall.Failed as e:
+    except codexinstall.Failed as e:   # the mark stays: «Retry» on the band that installs it restarts the hub then
         return job.finish("failed", why=e.why, text=str(e)[-800:])
+    try:
+        restart_onto_codex(job.state)   # while the step still runs: auto.py asks it only of a step that is not running
+    except OSError as e:   # Codex CLI is in place whatever the spool said: the step is done
+        job.log(f"the restart onto Codex was not asked: {type(e).__name__}: {e}")
     job.finish("done", version=got, path=path, text=i18n.t("cli.codex_setup.done", version=got, path=path))
 
 
@@ -249,7 +312,7 @@ def auth_status(claude, env=None):
     return claudeauth.status(claude, env=env)
 
 
-def step_login(job, claude=None, life=LOGIN_LIFE, sleep=time.sleep):
+def step_login(job, claude=None, life=LOGIN_LIFE, sleep=time.sleep, check=None):
     """`claude auth login --claudeai` with pipes (no pty: installer S0-1). Two links: the one Claude Code prints
     (Anthropic shows a code, pasted back into the page — a phone, another computer) and the one it hands to BROWSER
     (returns to its own localhost — a browser on this machine signs in without pasting). Done is `claude auth status`."""
@@ -289,9 +352,50 @@ def step_login(job, claude=None, life=LOGIN_LIFE, sleep=time.sleep):
     said = prog.text()
     st = auth_status(claude)
     if prog.p.returncode == 0 and st and st.get("loggedIn"):
+        (check or recheck)(job, sleep=sleep)
         return job.finish("done", account={k: st[k] for k in ("authMethod", "email", "orgName") if k in st})
     why = "code" if sent and re.search(r"status code 4\d\d|invalid", said, re.I) else "login"
     job.finish("failed", why=why, text=tail(said))
+
+
+RECHECK_WAIT = 10   # s: how long a sign-in that went through waits for the check it started to say «running»
+
+
+def recheck(job, sleep=time.sleep, spawn=None):
+    """The hub check again after a sign-in that went through, started before the sign-in says «done» (owner
+    2026-11-19: a check made when the first sign-in timed out stayed a red «not signed in» band after the code went
+    in, until «Retry» and a reload): the page then reads the check as running — no old red, and it looks every few
+    seconds until the new one is in. In this step's language (HUB_LANG of whoever started it). A check that already
+    runs keeps going (its lock): this one ends at once."""
+    begun = job.clock()
+    try:
+        p = (spawn or _spawn_step)(job.state, "doctor")
+    except OSError as e:
+        return job.log(f"recheck: {e}")
+    end = time.monotonic() + RECHECK_WAIT
+    while time.monotonic() < end and p.poll() is None:
+        try:
+            with open(status_path(job.state, "doctor"), encoding="utf-8") as f:
+                now = json.load(f)
+        except (OSError, ValueError):
+            now = {}
+        if now.get("state") == "running" and (now.get("started") or 0) >= begun - 1:
+            return
+        sleep(TICK)
+
+
+def _spawn_step(state, step):
+    from core import perms
+    os.makedirs(os.path.join(state, "logs"), exist_ok=True)
+    log = open(os.path.join(state, "logs", "setup.log"), "a", encoding="utf-8")
+    try:
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__), state, step], stdin=subprocess.DEVNULL,
+                             stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, HUB_STATE_DIR=state), cwd=state,
+                             close_fds=True, umask=perms.user_umask(), **platforms.current.apart())
+    finally:
+        log.close()
+    threading.Thread(target=p.wait, daemon=True).start()   # reaped: no zombie in this step
+    return p
 
 
 def step_chrome(job, pin=None, run=subprocess.run):
@@ -478,7 +582,8 @@ def step_doctor(job, run=subprocess.run):
         m = DOCTOR_LINE.match(line.rstrip())
         if m:
             rows.append([m.group(1), m.group(2).strip(), redact.mask((m.group(3) or "").strip())[:400]])
-    job.finish("done" if r.returncode == 0 else "failed", rows=rows[:200],
+    # the rows are text in this process's language (HUB_LANG of the page that asked): the page asks again in its own
+    job.finish("done" if r.returncode == 0 else "failed", rows=rows[:200], lang=i18n.current(),
                **({} if rows else {"text": tail(r.stderr or r.stdout or "")}))
 
 

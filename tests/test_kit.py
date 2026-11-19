@@ -17,7 +17,7 @@ OWNER = {"channel": "web", "owner": True}
 
 
 def skill(root, rel, name, hidden=False):
-    path = os.path.join(root, rel, "SKILL.md")
+    path = os.path.join(root, *rel.split("/"), "SKILL.md")   # the separators of the system, as the code joins them
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(f"---\nname: {name}\ndescription: about {name}\n"

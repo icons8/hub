@@ -55,6 +55,8 @@ def credit_file(rel, data):
 
 
 def skipped(rel):
+    # the signed bundle lies in a company's embed in the working tree (embed/<name>/deploy/, core/embed.PLACED)
+    rel = re.sub(r"^embed/[a-z0-9_-]{1,32}/(?=deploy/)", "", rel)
     return any(rel == s or (s.endswith("/") and rel.startswith(s)) for s in SKIP)
 
 

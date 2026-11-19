@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 import platforms
-from core import catalog, journal, marketplace, marketplaces
+from core import catalog, codestore, journal, marketplace, marketplaces
 from tests.test_marketplace import Catalog, entry, listed
 from tests.test_modapi_sources import Hub, git
 
@@ -428,7 +428,13 @@ class OfficialSource(unittest.TestCase):
         pin = embed.file("modules/private.json", REPO)   # the core's own or an embed's
         if pin:   # a team's tree: the repository its modules come from
             with open(pin, encoding="utf-8") as f:
-                self.assertEqual(marketplaces.SOURCE, json.load(f)["repo"])
+                got = json.load(f)
+            if "catalog" in got:   # Embed API 1.2: the open one, and the team's next to it — a key the core reads
+                self.assertEqual(marketplaces.SOURCE, marketplaces.OPEN_SOURCE)
+                self.assertEqual(marketplaces.team_of(REPO), (got["catalog"]["name"], got["repo"],
+                                                              got["catalog"].get("ref")))
+            else:
+                self.assertEqual(marketplaces.SOURCE, got["repo"])
         else:                     # the open tree (core/appcode.OPEN_CUT leaves the file out)
             self.assertEqual(marketplaces.SOURCE, marketplaces.OPEN_SOURCE)
         source = marketplaces.SOURCE
@@ -456,6 +462,308 @@ class OfficialSource(unittest.TestCase):
         self.assertEqual(self.official(env), f"{marketplaces.SOURCE} True")              # a new hub: hub-up downloads it
         self.assertEqual(self.official({**env, "HUB_NO_OFFICIAL_MARKETPLACE": "1"}), "None False")
         self.assertEqual(os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE"), "1")   # tests/__init__: hub-up in tests does not download it
+
+
+def plugin(name, author="alice", sha=SHA, **extra):
+    return entry(name, source={"github": f"{author}/hub-plugin-{name}", "sha": sha}, **extra)
+
+
+class TwoOfficials(unittest.TestCase):
+    """Embed API 1.2: a team's tree names its catalog next to the open one (modules/private.json "catalog"). Until then
+    the team's catalog was the official one under `agents-hub`; on the new core it is the second official one under its
+    own name, on its branch, and `agents-hub` is the open catalog again. What was installed keeps its key and settings:
+    only `market` follows the entry's name (R0 binds what had none, R1 takes the old record, R2 moves to the catalog that
+    has the name)."""
+
+    def setUp(self):
+        self.hub = Hub(self, {})
+        # the team's catalog repo: main — the frozen list the old cores read; the branch team — its own name, its entries
+        self.team = Catalog(self, cat("agents-hub", plugin("a"), plugin("b"), plugin("t", "bob")))
+        self.branch({"name": "icons8-team", "plugins": [plugin("t", "bob")]})
+        self.open = Catalog(self, cat("agents-hub", plugin("a", "icons8", SHA2), plugin("b", "icons8", SHA2)))
+        self.old_core()
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=10, auto=True)
+        self.assertEqual(self.mps()["agents-hub"]["source"], self.team.bare)
+
+    def branch(self, data):
+        work = self.team.src.work
+        if git(work, "rev-parse", "--abbrev-ref", "HEAD") != "team":
+            git(work, "checkout", "-q", "-B", "team")
+        with open(os.path.join(work, marketplace.FILE), "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        git(work, "commit", "-q", "-am", "team")
+        git(work, "push", "-q", "-f", self.team.bare, "team")
+        git(work, "checkout", "-q", "main")
+        return git(work, "rev-parse", "team")
+
+    def patch(self, **values):
+        for k, v in values.items():
+            p = mock.patch.object(marketplaces, k, v)
+            p.start()
+            self.addCleanup(p.stop)
+
+    def old_core(self):
+        self.patch(OFFICIAL=self.team.bare, TEAM=None)
+
+    def new_core(self):
+        self.patch(OFFICIAL=self.open.bare, TEAM=("icons8-team", self.team.bare, "team"))
+
+    def mps(self):
+        return self.hub.cfg().get("marketplaces") or {}
+
+    def install(self, **exts):
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["extensions"] = exts
+
+    def exts(self):
+        return self.hub.cfg().get("extensions") or {}
+
+    def auto(self, now=20):
+        lines, ok = marketplaces.update(self.hub.state, self.hub.cfg_path, now=now, auto=True)
+        self.assertTrue(ok, lines)
+        return lines
+
+    def test_installs_keep_their_keys_and_follow_their_names(self):
+        self.install(**{"alice:a": {"source": "alice/hub-plugin-a", "commit": SHA, "market": "agents-hub", "entry": "a",
+                                    "color": "red", "disabled": True},
+                        "alice:b": {"source": "alice/hub-plugin-b", "commit": SHA},      # from before catalogs
+                        "bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.new_core()
+        self.auto()
+        mps = self.mps()
+        self.assertEqual(sorted(mps), ["agents-hub", "icons8-team"])
+        self.assertEqual((mps["agents-hub"]["source"], mps["agents-hub"]["official"]), (self.open.bare, True))
+        self.assertEqual((mps["icons8-team"]["source"], mps["icons8-team"]["ref"], mps["icons8-team"]["official"]),
+                         (self.team.bare, "team", True))
+        self.assertEqual(marketplace._origin(marketplace._repo(self.hub.state, "agents-hub")), self.open.bare)
+        exts = self.exts()
+        self.assertEqual(sorted(exts), ["alice:a", "alice:b", "bob:t"])                 # the same keys: the settings stay
+        self.assertEqual({k: (x.get("market"), x.get("entry"), x.get("bound")) for k, x in exts.items()},
+                         {"alice:a": ("agents-hub", "a", None), "alice:b": ("agents-hub", "b", True),
+                          "bob:t": ("icons8-team", "t", None)})
+        self.assertEqual((exts["alice:a"]["color"], exts["alice:a"]["disabled"], exts["alice:a"]["source"]),
+                         ("red", True, "alice/hub-plugin-a"))                              # nothing else changes
+        self.assertNotIn("marketplaces_removed", self.hub.cfg())
+        before = self.hub.cfg()
+        self.auto(30)
+        self.assertEqual(self.hub.cfg(), before)                                       # once: a second pass is the same
+        cfg = self.hub.cfg()
+        self.assertEqual(marketplaces.entry_for(self.hub.state, cfg, "alice:a"), "a@agents-hub")
+        self.assertEqual(marketplaces.entry_for(self.hub.state, cfg, "bob:t"), "t@icons8-team")
+
+    def test_skill_sets_are_bound_and_follow_as_plugins_do(self):
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["sets"] = [{"name": "alice:b", "source": "alice/hub-plugin-b", "commit": SHA},
+                           {"name": "bob:t", "source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub",
+                            "entry": "t"},
+                           {"name": "x@claude", "plugin": True, "entry": "x", "market": "claude", "source": "c/x"}]
+        self.new_core()
+        self.auto()
+        got = {s["name"]: (s.get("market"), s.get("entry")) for s in self.hub.cfg()["sets"]}
+        self.assertEqual(got, {"alice:b": ("agents-hub", "b"), "bob:t": ("icons8-team", "t"),
+                               "x@claude": ("claude", "x")})
+
+    def test_a_module_from_the_team_catalog_follows_it(self):
+        mod = {"name": "m", "type": "module", "source": {"git": "https://example.org/m.git", "sha": SHA}}
+        self.team.commit(cat("agents-hub", plugin("a"), mod))
+        self.branch({"name": "icons8-team", "plugins": [mod]})
+        marketplaces.update(self.hub.state, self.hub.cfg_path, "agents-hub", now=15)
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["modules"] = {"sources": [{"git": "https://example.org/m.git", "commit": SHA, "market": "agents-hub",
+                                           "entry": "m"}]}
+        self.new_core()
+        self.auto()
+        self.assertEqual(self.hub.cfg()["modules"]["sources"][0]["market"], "icons8-team")
+
+    def test_without_the_new_key_nothing_moves(self):
+        self.install(**{"alice:a": {"source": "alice/hub-plugin-a", "commit": SHA, "market": "agents-hub", "entry": "a"}})
+        before = self.hub.cfg()
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=10 + marketplaces.REFRESH, auto=True)
+        self.assertEqual(sorted(self.mps()), ["agents-hub"])
+        self.assertEqual(self.exts(), before["extensions"])
+
+    def test_a_removed_official_keeps_both_away(self):
+        marketplaces.remove(self.hub.state, self.hub.cfg_path, "agents-hub")
+        self.new_core()
+        self.auto()
+        self.assertEqual(self.mps(), {})
+        self.assertEqual(self.hub.cfg()["marketplaces_removed"], ["agents-hub", "icons8-team"])
+        self.auto(30)
+        self.assertEqual(self.hub.cfg()["marketplaces_removed"], ["agents-hub", "icons8-team"])
+
+    def test_an_unreadable_old_official_waits_and_the_hub_stays_on_it(self):
+        self.install(**{"alice:b": {"source": "alice/hub-plugin-b", "commit": SHA}})
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["marketplaces"]["agents-hub"].pop("commit")
+            raw["marketplaces"]["agents-hub"]["pending"] = "no network"
+        before = self.hub.cfg()
+        self.new_core()
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=20, auto=True)
+        self.assertEqual(sorted(self.mps()), ["agents-hub"])                          # neither the open one nor the team's
+        self.assertEqual(self.mps()["agents-hub"]["source"], self.team.bare)
+        self.assertEqual(self.exts(), before["extensions"])
+        with catalog.edit_settings(self.hub.cfg_path) as raw:                          # it downloads again
+            raw["marketplaces"]["agents-hub"] = {**before["marketplaces"]["agents-hub"], "commit": git(
+                self.team.src.work, "rev-parse", "main"), "updated": 20}
+            raw["marketplaces"]["agents-hub"].pop("pending")
+        self.auto(30)
+        self.assertEqual(sorted(self.mps()), ["agents-hub", "icons8-team"])
+        self.assertEqual(self.exts()["alice:b"]["market"], "agents-hub")
+
+    def test_a_removal_cut_off_after_hub_json_is_finished_by_the_next_pass(self):
+        self.new_core()
+        real = codestore.remove
+
+        def cut(path, *a, **kw):
+            if os.path.basename(path) == "agents-hub":
+                raise OSError("the machine went down")
+            return real(path, *a, **kw)
+        with mock.patch.object(codestore, "remove", cut):
+            with self.assertRaises(OSError):
+                marketplaces.update(self.hub.state, self.hub.cfg_path, now=20, auto=True)
+        self.assertNotIn("agents-hub", self.mps())                                    # hub.json is all new
+        self.auto(30)
+        self.assertEqual(self.mps()["agents-hub"]["source"], self.open.bare)
+        self.assertEqual(marketplace._origin(marketplace._repo(self.hub.state, "agents-hub")), self.open.bare)
+
+    def test_a_record_moves_only_when_both_read_fine_and_then_its_new_catalog_revokes(self):
+        self.install(**{"bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.new_core()
+        self.auto()
+        self.assertEqual(self.exts()["bob:t"]["market"], "icons8-team")
+        # t goes public, its own repo (revoked there) — read; then the team's branch drops it while the open one's next
+        # download fails
+        self.open.commit(cat("agents-hub", plugin("a", "icons8", SHA2), plugin("b", "icons8", SHA2),
+                             plugin("t", "bob", revoked="broken")))
+        marketplaces.update(self.hub.state, self.hub.cfg_path, "agents-hub", now=30)
+        self.assertEqual(self.exts()["bob:t"]["market"], "icons8-team")                # in both: stays
+        self.branch({"name": "icons8-team", "plugins": []})
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["marketplaces"]["agents-hub"]["error"] = "no network"
+        marketplaces.update(self.hub.state, self.hub.cfg_path, "icons8-team", now=40)
+        self.assertEqual(self.exts()["bob:t"]["market"], "icons8-team")                # the open one did not read fine
+        lines, ok = marketplaces.update(self.hub.state, self.hub.cfg_path, now=50)
+        self.assertTrue(ok, lines)
+        t = self.exts()["bob:t"]
+        self.assertEqual((t["market"], t.get("disabled"), t.get("revoked")), ("agents-hub", True, "broken"))
+
+    def test_a_same_named_entry_of_other_code_does_not_take_a_record(self):
+        self.install(**{"bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.new_core()
+        self.auto()
+        self.open.commit(cat("agents-hub", plugin("a", "icons8", SHA2), plugin("t", "mallory", revoked="x")))
+        self.branch({"name": "icons8-team", "plugins": []})
+        lines, ok = marketplaces.update(self.hub.state, self.hub.cfg_path, now=50)
+        self.assertTrue(ok, lines)
+        t = self.exts()["bob:t"]
+        self.assertEqual((t["market"], t.get("disabled")), ("icons8-team", None))
+
+    def test_without_the_team_catalog_under_its_new_name_nothing_moves(self):
+        self.install(**{"alice:b": {"source": "alice/hub-plugin-b", "commit": SHA}})
+        git(self.team.src.work, "push", "-q", self.team.bare, ":team")                # the branch is not there yet
+        before = self.hub.cfg()
+        self.new_core()
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=20, auto=True)
+        self.assertEqual(sorted(self.mps()), ["agents-hub"])
+        self.assertEqual(self.mps()["agents-hub"]["source"], self.team.bare)          # the hub stays on the old one
+        self.assertEqual(self.exts(), before["extensions"])
+        self.assertFalse(marketplaces.due(self.hub.cfg(), 30))                        # no process every 10 minutes
+        self.assertTrue(marketplaces.due(self.hub.cfg(), 10 + marketplaces.REFRESH))  # its own period retries
+        self.branch({"name": "icons8-team", "plugins": [plugin("t", "bob")]})
+        self.auto(10 + marketplaces.REFRESH)
+        self.assertEqual(sorted(self.mps()), ["agents-hub", "icons8-team"])
+        self.assertEqual(self.exts()["alice:b"]["market"], "agents-hub")
+
+    def test_a_team_plugin_is_the_teams_at_once_and_an_open_namesakes_revocation_misses_it(self):
+        self.install(**{"bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.open.commit(cat("agents-hub", plugin("a", "icons8", SHA2), plugin("t", "mallory", revoked="leaks")))
+        self.new_core()
+        self.auto()
+        t = self.exts()["bob:t"]
+        self.assertEqual((t["market"], t.get("disabled")), ("icons8-team", None))
+
+    def test_the_open_catalog_pending_does_not_hold_the_teams_plugins(self):
+        os.rename(self.open.bare, self.open.bare + ".gone")
+        self.install(**{"bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.new_core()
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=20, auto=True)
+        self.assertTrue(self.mps()["agents-hub"]["pending"])
+        self.assertEqual(self.exts()["bob:t"]["market"], "icons8-team")
+
+    def test_a_market_of_the_wrong_shape_brings_nothing_down(self):
+        self.install(**{"x:y": {"source": "x/y", "commit": SHA, "market": ["agents-hub"], "entry": "y"},
+                        "bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.new_core()
+        self.auto()
+        self.assertEqual(self.exts()["x:y"]["market"], ["agents-hub"])
+
+    def test_the_builds_branch_wins_over_the_one_written_at_adoption(self):
+        self.new_core()
+        self.auto()
+        work = self.team.src.work
+        git(work, "checkout", "-q", "-B", "team2", "team")
+        git(work, "push", "-q", self.team.bare, "team2")
+        git(work, "checkout", "-q", "main")
+        self.patch(TEAM=("icons8-team", self.team.bare, "team2"))
+        marketplaces.update(self.hub.state, self.hub.cfg_path, "icons8-team", now=40)
+        self.assertEqual(self.mps()["icons8-team"]["ref"], "team2")
+
+    def test_a_name_in_both_is_the_teams_at_the_move_and_then_stays_where_it_is(self):
+        self.install(**{"bob:t": {"source": "bob/hub-plugin-t", "commit": SHA, "market": "agents-hub", "entry": "t"}})
+        self.open.commit(cat("agents-hub", plugin("a", "icons8", SHA2), plugin("t", "bob")))
+        self.new_core()
+        self.auto()
+        self.assertEqual(self.exts()["bob:t"]["market"], "icons8-team")              # the team's list names it
+        with catalog.edit_settings(self.hub.cfg_path) as raw:
+            raw["extensions"]["bob:t"]["market"] = "agents-hub"
+        marketplaces.update(self.hub.state, self.hub.cfg_path, now=40)
+        self.assertEqual(self.exts()["bob:t"]["market"], "agents-hub")               # in both: R2 leaves it
+
+    def test_the_open_catalog_revokes_at_once_when_it_is_connected(self):
+        self.install(**{"alice:a": {"source": "alice/hub-plugin-a", "commit": SHA, "market": "agents-hub", "entry": "a"}})
+        self.open.commit(cat("agents-hub", plugin("a", "icons8", SHA2, revoked="leaks keys")))
+        self.new_core()
+        self.auto()
+        a = self.exts()["alice:a"]
+        self.assertEqual((a.get("disabled"), a.get("revoked")), (True, "leaks keys"))
+
+    def test_an_install_newer_than_its_entry_is_not_offered_a_rollback(self):
+        e = marketplace.parse(cat("agents-hub", plugin("a", version="1.0.0")), official=True)["entries"][0]
+        for rec in ({"market": "agents-hub", "entry": "a", "version": "2.0.0", "bound": True}, {"version": "2.0.0"}):
+            self.assertFalse(marketplaces._newer(self.hub.state, "agents-hub", SHA2, e, SHA2[:-1] + "b", rec), rec)
+        for rec in ({"market": "agents-hub", "entry": "a", "version": "0.9.0", "bound": True},
+                    {"market": "agents-hub", "entry": "a", "version": "2.0.0"}):   # installed by the catalog: the commit
+            self.assertTrue(marketplaces._newer(self.hub.state, "agents-hub", SHA2, e, SHA2[:-1] + "b", rec), rec)
+
+
+class TeamOf(unittest.TestCase):
+    """modules/private.json of a tree: "repo" alone — the team's catalog instead of the open one (as before Embed API
+    1.2); "repo" with "catalog" — the open one under `agents-hub` and the team's next to it under its own name."""
+
+    def pinned(self, text):
+        tree = tempfile.mkdtemp()
+        self.addCleanup(platforms.current.rmtree, tree)
+        os.makedirs(os.path.join(tree, "modules"))
+        with open(os.path.join(tree, "modules", "private.json"), "w", encoding="utf-8") as f:
+            f.write(text)
+        return marketplaces.source_of(tree), marketplaces.team_of(tree)
+
+    def test_the_catalog_key(self):
+        open_ = marketplaces.OPEN_SOURCE
+        for text, want in (
+                ('{"repo": "team/modules"}', ("team/modules", None)),
+                ('{"repo": "team/modules", "catalog": {"name": "team-x", "ref": "team"}}',
+                 (open_, ("team-x", "team/modules", "team"))),
+                ('{"repo": "team/modules", "catalog": {"name": "team-x"}}', (open_, ("team-x", "team/modules", None))),
+                ('{"repo": "team/modules", "catalog": {"name": "agents-hub"}}', (open_, None)),   # reserved
+                ('{"repo": "team/modules", "catalog": {"name": "openai-curated"}}', (open_, None)),
+                ('{"repo": "team/modules", "catalog": {"name": "Team X"}}', (open_, None)),
+                ('{"repo": "team/modules", "catalog": {"name": "team-x", "ref": "a..b"}}', (open_, None)),
+                ('{"repo": "team/modules", "catalog": {"name": "team-x", "ref": 7}}', (open_, None)),
+                ('{"repo": "team/modules", "catalog": "team-x"}', (open_, None)),   # a broken key: never the old meaning
+                ('{"catalog": {"name": "team-x"}}', (open_, None)),
+                ("[]", (open_, None))):
+            self.assertEqual(self.pinned(text), want, text)
 
 
 class Kick(unittest.TestCase):

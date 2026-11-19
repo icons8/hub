@@ -256,8 +256,8 @@ class Subagents(Lines, unittest.TestCase):
     def test_a_subagent_running_on_is_background_its_end_notifies_and_its_tokens_count(self):
         self.spawn_v1()
         self.feed(turn_completed("T"))
-        self.assertEqual(self.of("session.background"), [{"tasks": [
-            {"id": "agent_01a1c", "kind": "agent", "title": "check the tests"}]}])
+        self.assertEqual(self.of("session.background"), [{"tasks": [   # the model its spawn named: the row's "helpers · <model>"
+            {"id": "agent_01a1c", "kind": "agent", "title": "check the tests", "model": "gpt-x"}]}])
         self.feed(cmd("item/started", "call_3", "01a1-c", command="pytest"))   # its own step: not a task of its own
         self.assertEqual(len(self.of("session.background")), 1)
         self.feed(usage("01a1-c", 100, 20), cmd("item/completed", "call_3", "01a1-c", status="completed", code=0),

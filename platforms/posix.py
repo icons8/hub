@@ -293,23 +293,6 @@ def console_encoding():
     return "utf-8"
 
 
-def system_language():
-    """The language tag the system speaks, for the hub's first greeting before its owner has written ('ru-RU'); '' when
-    it does not say. A Mac keeps it apart from LANG (launchd gives the hub none), the first of its languages."""
-    tag = ""
-    if sys.platform == "darwin":
-        try:   # ( "ru-RU", "en-US" ) on lines of their own
-            done = subprocess.run(["defaults", "read", "-g", "AppleLanguages"], capture_output=True, text=True,
-                                  timeout=5)
-            tag = next(iter(re.findall(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*", done.stdout)), "") if done.returncode == 0 else ""
-        except (OSError, subprocess.SubprocessError):
-            tag = ""
-    # a stray LC_ALL=C of a service manager must not hide the language the user's LANG names
-    tags = [tag, *(os.environ.get(k) or "" for k in ("LC_ALL", "LC_MESSAGES", "LANG"))]
-    tag = next((t for t in (re.split(r"[.@]", t)[0] for t in tags) if t and t not in ("C", "POSIX")), "")
-    return tag.replace("_", "-")
-
-
 PROC = "/proc"
 
 

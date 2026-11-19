@@ -5,6 +5,7 @@ its endpoint (for people with custom models behind their own address the opus al
 refused with the rule (agent-dev run 2026-10-13: without a refusal, whoever did not read the help never learns the rule)."""
 import os
 import re
+import time
 
 from core import catalog
 from core.catalog import EFFORTS
@@ -35,13 +36,69 @@ def model_ok(model, cfg):
     return catalog.known_model(model, catalog.codex_host(cfg))
 
 
-def DEFAULTS(cfg=None):   # noqa: N802 — read on every access: the hub environment may change
+def codex_listed(state_dir=None, fresh=False):
+    """The ids of the hub's Codex models in Codex's order (model/list as core/codexcli keeps it for the page); [] — not
+    read yet. fresh: also whether the list is younger than a codex update may make it (codexcli.MODELS_MAX_AGE)."""
+    from core import codexcli
+    if state_dir is None:
+        from core.daemon import default_state_dir
+        state_dir = default_state_dir()
+    listed, ts = codexcli.models(state_dir)
+    ids = [m["id"] for m in listed or []]
+    return (ids, bool(ts) and time.time() - ts < codexcli.MODELS_MAX_AGE) if fresh else ids
+
+
+# the Codex family for risky work, as opus is on Claude: model/list calls Astra "Frontier intelligence for the most
+# demanding work", Sol (Codex's default) the workhorse; not its smaller variants
+DEEP, SMALL = "astra", {"mini", "nano", "lite", "small"}
+
+
+def deep(ids):
+    """The first listed model of the DEEP family, or None."""
+    return next((i for i in ids if DEEP in (w := set(i.lower().split("-"))) and not w & SMALL), None)
+
+
+def codex_name(model, cfg, state_dir=None, host=None):
+    """`hub session model`, `--model` on a hub with the Codex host -> (the model for the core, None) or (None, refusal).
+    The host takes only codex/<id>: a bare id of a listed model gets the prefix (the help used to name only Claude's
+    models, and a session that typed the bare id was refused). On a hub entirely on Codex a Claude name is refused too,
+    the list read or not: the host would silently run the hub's model. codex/<id> not in a list older than
+    codexcli.MODELS_MAX_AGE goes as typed (a codex update may have brought the model), and a bare one gets the prefix;
+    a malformed one never. Until model/list is read — a bare id as typed, the core checks the form. A Claude hub — as
+    typed. host: whether the hub has the Codex host (the core's mark codex.host; None — by hub.json and HUB_CODEX)."""
+    cfg = cfg or {}
+    if not (catalog.codex_host(cfg) if host is None else host) or model in ("", "default"):
+        return model, None
+    own = (cfg.get("codex") or {}).get("model") if isinstance(cfg.get("codex"), dict) else None
+    ids, fresh = codex_listed(state_dir, fresh=True)
+    ids += [own] if isinstance(own, str) and MODEL_ID.match(own) and own not in ids else []
+    bare = model[len("codex/"):] if model.startswith("codex/") else model
+    if bare in ids:
+        return f"codex/{bare}", None
+    claude = catalog.known_model(model) and not model.startswith("codex/")
+    if claude and not codex_only(cfg):   # Claude's sessions next to Codex's (HUB_CODEX=1)
+        return model, None
+    formed = bool(MODEL_ID.match(bare))
+    if not claude and formed and ids and not fresh:   # the list may predate the model: the host refuses what Codex lacks
+        return f"codex/{bare}", None
+    if not claude and not ids and (formed or not model.startswith("codex/")):   # nothing to compare with: the core decides
+        return model, None
+    from core import i18n
+    examples = ", ".join([f"codex/{i}" for i in ids[:3]] or ["codex/<id>"])
+    examples += "" if codex_only(cfg) else f" (Claude: {', '.join(catalog.MODELS)})"
+    return None, i18n.t("cli.model.codex_unknown", model=model, examples=examples)
+
+
+def DEFAULTS(cfg=None, ids=None):   # noqa: N802 — read on every access: the hub environment may change
     """Default pairs: own endpoint (ANTHROPIC_BASE_URL, except the account gateway into the API) or model (ANTHROPIC_MODEL) — empty, otherwise normal sonnet/high, risky opus/medium
     (owner decision 2026-10-13). The environment is the same as that of the sessions' claude: its own plus the Claude Code settings env (catalog.user_env) —
     otherwise the page and the owner's terminal would compute by one, and the sessions by another (review 2026-10-13).
-    A hub entirely on Codex: the hub's Codex model, normal medium, risky high (risky reasons deeper on the same model)."""
+    A hub entirely on Codex: normal — the hub's Codex model with medium; risky — high on the deep family of its
+    model/list (ids, read when not given), as opus on Claude: the hub's model is Codex's workhorse by default, and
+    risky work got it too (18.11); none listed — the hub's model."""
     if codex_only(cfg):
-        return {"normal": ("", "medium"), "risky": ("", "high")}
+        top = deep(codex_listed() if ids is None else ids)
+        return {"normal": ("", "medium"), "risky": (f"codex/{top}" if top else "", "high")}
     env = {**os.environ, **catalog.user_env()}
     own = env.get("ANTHROPIC_BASE_URL") and not _gateway_to_api(env)
     if own or env.get("ANTHROPIC_MODEL"):   # the person's own model — leave it alone

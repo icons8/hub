@@ -20,7 +20,7 @@ from unittest import mock
 
 import platforms
 from core import appcode, spool
-from tests.fakes import stands
+from tests.fakes import cut, stands
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_KEY = "build-key-of-the-test-0001"
@@ -55,6 +55,7 @@ TREE = {"core/__init__.py": "", "core/version.py": "RUNTIME_MIN = 1\n", "core/x.
         "bin/hub-up": "print('up')\n", "modules/__init__.py": "", "README.md": "readme\n"}
 
 
+@cut.needs_deliver()   # its subclasses are skipped with it (the open flavor has no deliver/)
 class Stand(unittest.TestCase):
     """A repo with releases, their layers built by the factory, the delivery server over a temporary folder, and an
     app's state folder whose launcher installed the v1.2.3 seed (its shell names the server and the build key)."""

@@ -86,9 +86,13 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 # Mac one's drawing
 WINDOWS = os.path.join(HERE, "windows")
 WINDOWS_SHELL = ("app.py",)
-# (the team's bundle or the open flavor's, where it lies or where the cut put it — the same drawing)
+# (the team's bundle or the open flavor's, where it lies or where the cut put it — the same drawing; the team's is in
+# its embed in the working tree, core/embed.PLACED)
 ICNS = next((p for p in (os.path.join(REPO, *b.split("/"), "Contents", "Resources", "logo.icns")
                          for b in ("deploy/mac/Agents Hub.app",
+                                   *sorted(f"embed/{n}/deploy/mac/Agents Hub.app" for n in (
+                                       os.listdir(os.path.join(REPO, "embed")) if os.path.isdir(os.path.join(REPO, "embed"))
+                                       else []) if os.path.isfile(os.path.join(REPO, "embed", n, "embed.json"))),
                                    *(x for pair in layer.appcode.OPEN_SWAP for x in reversed(pair))))
              if os.path.isfile(p)), os.path.join(REPO, "deploy", "mac", "Agents Hub.app", "Contents", "Resources", "logo.icns"))
 # S0-8: without core.longpaths git fails on paths over 260 characters (worktree add, add) — in the system config of the

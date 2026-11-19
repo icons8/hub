@@ -3,6 +3,7 @@
 Event: {"seq", "ts", "src", "type", "entity", "data"}. An unfinished last line (power cut) is skipped on read
 and cut off on the next write.
 """
+import hashlib
 import json
 import os
 import re
@@ -352,6 +353,28 @@ def _first_seq(path):
             return json.loads(f.readline()).get("seq")
     except (OSError, ValueError):
         return None
+
+
+HEAD_BYTES = 160   # the start of the journal's first line: the number and the time of its first event
+
+
+def head_of(path):
+    """A mark of the journal file: the hash of the start of its first line (the number and the time of the first
+    event), no further than that line: the journal grows, and a short first line must not take in the second. The state
+    file keeps it: a journal started anew from number 1 has the same first number as the one it replaced, and a line
+    boundary at the saved offset (the same line length) made the old file look like its own (11-18)."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha1(f.read(HEAD_BYTES).split(b"\n", 1)[0]).hexdigest()[:16]
+    except OSError:
+        return None
+
+
+def of_this_journal(snap, path):
+    """Whether the state file snap was saved over the start of this journal: its number, and the mark of the start (a
+    file saved before the mark was kept has none — only the number is checked, until hubd saves the file anew)."""
+    head = snap.get("head")
+    return snap["first"] == _first_seq(path) and (head is None or head == head_of(path))
 
 
 PER_SESSION = 200            # and each session keeps its last events, even if it has been silent for long (02.10)
@@ -752,7 +775,7 @@ def compact_archives(state_dir, apply=False, backup_dir=None, no_space=lambda pa
 def save_state(state_dir, state):
     """The state and the journal end it is folded up to — commands read only what comes after."""
     path = os.path.join(state_dir, "journal.jsonl")
-    snap = {"seq": state["seq"], "offset": os.path.getsize(path), "first": _first_seq(path),
+    snap = {"seq": state["seq"], "offset": os.path.getsize(path), "first": _first_seq(path), "head": head_of(path),
             "state": {k: v for k, v in state.items() if not k.startswith("_")}}
     target = os.path.join(state_dir, STATE_FILE)
     with open(target + ".tmp", "w", encoding="utf-8") as f:
@@ -765,7 +788,8 @@ def save_state(state_dir, state):
 
 
 def read_state_file(state_dir):
-    """The state file as saved (seq, offset, first, state). Read whole and closed before parsing: while a reader holds it,
+    """The state file as saved (seq, offset, first, head — the mark of the journal's start, journal.head_of; absent in a file saved
+    before it was kept — and state). Read whole and closed before parsing: while a reader holds it,
     Windows refuses hubd the replace, and parsing tens of MB takes longer than reading them. OSError, ValueError."""
     with open(os.path.join(state_dir, STATE_FILE), encoding="utf-8") as f:
         text = f.read()
@@ -820,7 +844,7 @@ def load_state(state_dir, decisions=False):
         snap = read_state_file(state_dir)
         with open(path, "rb") as f:
             size = f.seek(0, 2)
-            if snap["offset"] > size or snap["first"] != _first_seq(path):
+            if snap["offset"] > size or not of_this_journal(snap, path):
                 raise ValueError("the state file is not of this journal")
             f.seek(snap["offset"])
             tail = [json.loads(x) for x in f.read().split(b"\n") if x.strip()]
@@ -856,7 +880,7 @@ def state_at(state_dir, seq, snap=None):
             return AHEAD
         tail = []
         with open(path, "rb") as f:
-            if snap["offset"] > f.seek(0, 2) or snap["first"] != _first_seq(path):
+            if snap["offset"] > f.seek(0, 2) or not of_this_journal(snap, path):
                 return None
             f.seek(snap["offset"])
             for line in f:

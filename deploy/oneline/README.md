@@ -20,7 +20,7 @@ without a key (`layers/deliver.json` is `{"url"}` alone) under the same rule.
 
 The release puts these files on the delivery server with that server's address written in at their
 `@@HUB_DELIVER_URL@@` mark (`tools/package/upload.py <server> script`: the core names no server of its own), and the
-server (`deliver/server.py`) hands them out with the build key written in at `@@HUB_DELIVER_KEY@@`. Each script does only what has to happen before the environment's Python exists, the
+server (the team build's `deliver/server.py`, which the open build does not carry) hands them out with the build key written in at `@@HUB_DELIVER_KEY@@`. Each script does only what has to happen before the environment's Python exists, the
 same way on its OS, and then hands over to `install.py` of the environment:
 
 1. the build of this machine, one of six: `mac-arm64` (also under Rosetta: `sysctl hw.optional.arm64` = 1), `mac-x64`

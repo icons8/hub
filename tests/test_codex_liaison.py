@@ -24,6 +24,7 @@ HERE = os.path.dirname(__file__)
 FAKE_CODEX = os.path.join(HERE, "fakes", "fake_codex.py")
 SKILLS_HEAD = "Skills: the reminder at the start of the conversation lists the skills of your set."   # hosts/streamjson.SKILLS
 IDLE_HEAD = "Before ending a turn, walk the queue"   # hosts/streamjson.IDLE: not the liaison's (it has no queue)
+HELPERS_HEAD = "Work you hand off"   # hosts/streamjson.HELPERS: nor its (no executors of its own), the same on Codex
 SHELL = can.hook_shell()   # the shell Codex runs the core's hook line in, here
 
 
@@ -221,11 +222,13 @@ class HostTest(unittest.TestCase):
             "developerInstructions"]
         self.assertIn(liaison.PROFILE[:60], text)
         self.assertNotIn(IDLE_HEAD, text)
+        self.assertNotIn(HELPERS_HEAD, text)
 
     def test_an_ordinary_session_is_as_before(self):
         params = self.started("maps", cwd=self.state)
         self.assertIn(IDLE_HEAD, params["developerInstructions"])
         text = params["developerInstructions"]
+        self.assertIn(HELPERS_HEAD + " — one whose result the owner", text)   # helpers: Codex subagents as Claude's Agent
         self.assertIn(SKILLS_HEAD, text)   # the skills line (2026-11-18): the Codex thread gets it too, in its own words
         self.assertIn("open that skill first (read its SKILL.md) and work by it.", text)
         self.assertNotIn("Skill tool", text)

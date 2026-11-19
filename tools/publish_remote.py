@@ -7,7 +7,7 @@ last publication:
   publish_remote.py <copy> <url>   0 — only snapshots after the publication, 6 — foreign commits (list on stderr),
                                    3 — the comparison did not work
 
-A snapshot is a "Sync …" commit by PUBLISH_NAME / PUBLISH_EMAIL. The base is the last snapshot on main: published.json
+A snapshot is a "Sync …" (or tools/oss_open.py's "Hub by Icons8, snapshot of …") commit by PUBLISH_NAME / PUBLISH_EMAIL. The base is the last snapshot on main: published.json
 of this address (if it is not in main's history — the history was rewritten, refuse) or a later snapshot from another
 copy; with no record — the last snapshot on main. Everything after the base that is not a snapshot is foreign. To
 override explicitly — --overwrite-remote."""
@@ -16,6 +16,8 @@ import os
 import subprocess
 import sys
 
+# the subjects of snapshots: publish.sh's and tools/publish_pair.py's, and tools/oss_open.py's (the open repository's first)
+SNAPSHOTS = ("Sync ", "Hub by Icons8, snapshot of ")
 HINT = ("go through them — move what is needed into our main — and override explicitly: --overwrite-remote "
         "(the remote main becomes a snapshot, their commits stay only in its history)")
 
@@ -50,7 +52,7 @@ def foreign(repo, ref, pub, name, mail):
     def log(*spec):
         for line in git(repo, "log", "--topo-order", "--format=%H%x1f%an <%ae>%x1f%s", *spec).splitlines():
             sha, who, subject = line.split("\x1f", 2)
-            yield sha, who, subject, who == f"{name} <{mail}>" and subject.startswith("Sync ")
+            yield sha, who, subject, who == f"{name} <{mail}>" and subject.startswith(SNAPSHOTS)
     every = list(log(ref))
     if pub and not any(sha == pub for sha, *_ in every):
         return None

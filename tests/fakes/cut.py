@@ -18,3 +18,12 @@ def needs(*names):
 
 def needs_pin():
     return unittest.skipUnless(PIN, "modules/private.json is cut out of this tree (the open flavor)")
+
+
+# the delivery server of the team build (deliver/): the open flavor cuts the folder (core/appcode.OPEN_CUT)
+DELIVER = os.path.isfile(os.path.join(REPO, "deliver", "server.py"))
+
+
+def needs_deliver():
+    """Skip a test or a class (its subclasses too) when deliver/ is cut out of this tree (the open flavor)."""
+    return unittest.skipUnless(DELIVER, "deliver/ (the team build's delivery server) is cut out of this tree (the open flavor)")

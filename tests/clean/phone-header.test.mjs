@@ -130,6 +130,21 @@ test("on a phone feed search takes the header row; Latest is a white 40 button",
   assert.match(rule("  html.th-clean main > .btn.jumpnew:not(.round)"), /width: 40px; height: 40px/);
 });
 
+test("feed search on every width is a gray 36 r8 field with the icon, the count, the arrows and × inside", () => {
+  // top-level rules (no indent): the computer gets the same field as the phone, not the core's bordered input next to an outside icon
+  const top = (sel) => { const i = css.indexOf("\n" + sel + " {"); assert.ok(i >= 0, sel); return css.slice(i, css.indexOf("}", i)); };
+  assert.match(top("html.th-clean main > .fsearch .fs-row::before"), /border-radius: 8px; background: var\(--c-fill\)/);
+  assert.match(top("html.th-clean main > .fsearch .fs-row"), /height: 36px/);
+  assert.match(top("html.th-clean main > .fsearch .fs-row input"), /border: 0;.*background: none/);
+  assert.match(top("html.th-clean main > .fsearch .fs-close"), /grid-column: 7/);
+  // focus as the left panel's search: a white field with a darker thin border, not a gray line over the gray field
+  assert.match(top("html.th-clean main > .fsearch .fs-row:has(input:focus)::before"), /background: var\(--background\); box-shadow: inset 0 0 0 1px var\(--c-line-strong\)/);
+  // the row ends ↑ ↓ × word: the arrows are the 4th and 3rd from the end (counting 3 and 2 put "↑" outside the grid as text)
+  assert.match(css, /\.fs-btn:nth-last-child\(4\) \{ grid-column: 5; \}/);
+  assert.match(css, /\.fs-btn:nth-last-child\(3\) \{ grid-column: 6; \}/);
+  assert.match(rule("  html.th-clean main > .fsearch .fs-cancel"), /width: auto/);
+});
+
 test("the phone rules use logical insets and keep the back arrow mirrored right-to-left", () => {
   const start = css.indexOf("/* ---- the header on a phone, as in apps");
   assert.ok(start > 0);

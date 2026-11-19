@@ -24,6 +24,7 @@ import urllib.request
 
 import platforms
 from tests import winsafe
+from tests.fakes import cut
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SH = os.path.join(ROOT, "deploy", "oneline", "install.sh")
@@ -145,6 +146,7 @@ class Text(unittest.TestCase):
             eol = subprocess.run(["git", "-C", ROOT, "ls-files", "--eol", "--", rel], capture_output=True, text=True)
             self.assertTrue(eol.stdout.startswith("i/lf "), f"{rel}: git keeps it with CR ({eol.stdout.strip()})")
 
+    @cut.needs_deliver()
     def test_both_scripts_are_ascii_small_and_mark_the_place_of_the_key_once(self):
         srv = load("deliver_server_t", SERVER)
         send = load("deliver_send_t", SEND)
@@ -160,6 +162,7 @@ class Text(unittest.TestCase):
         self.assertIn(b"\nHUB_INSTALL_SERVER='@@HUB_DELIVER_URL@@'", text(SH))
         self.assertIn(b"\n  $Server0 = '@@HUB_DELIVER_URL@@'", text(PS1))
 
+    @cut.needs_deliver()
     def test_the_server_writes_the_key_where_it_is_read_and_param_stays_first(self):
         srv = load("deliver_server_t", SERVER)
         sh_out = srv.with_key("install.sh", text(SH), READ).decode()
@@ -344,23 +347,26 @@ class Stand(unittest.TestCase):
     """deliver/server.py on a free port with one environment for linux-x64 (and the others the test asks for)."""
 
     def setUp(self):
-        self.srv_mod = load("deliver_server_o", SERVER)
         self.dir = tempfile.mkdtemp(prefix="oneline-")
         self.addCleanup(platforms.current.rmtree, self.dir)
-        data = os.path.join(self.dir, "data")
-        self.srv = self.srv_mod.make(data, "127.0.0.1", 0, read=[sha(READ.encode())], write=[sha(WRITE.encode())],
-                                     say=lambda *a: None)
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-        self.addCleanup(self.srv.server_close)
-        self.addCleanup(self.srv.shutdown)
-        self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
+        self.url = "http://127.0.0.1:1"   # no delivery server where deliver/ is cut out of the tree (the open flavor): nothing listens
+        if cut.DELIVER:
+            self.srv_mod = load("deliver_server_o", SERVER)
+            data = os.path.join(self.dir, "data")
+            self.srv = self.srv_mod.make(data, "127.0.0.1", 0, read=[sha(READ.encode())], write=[sha(WRITE.encode())],
+                                         say=lambda *a: None)
+            threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+            self.addCleanup(self.srv.server_close)
+            self.addCleanup(self.srv.shutdown)
+            self.url = f"http://127.0.0.1:{self.srv.server_address[1]}"
         self.home = os.path.join(self.dir, "home")
         os.makedirs(self.home)
         self.out = os.path.join(self.dir, "stub.json")
         self.bin = os.path.join(self.dir, "bin")
         os.makedirs(self.bin)
         self.arc = archive()
-        self.publish("linux-x64", self.arc)
+        if cut.DELIVER:
+            self.publish("linux-x64", self.arc)
 
     def call(self, method, path, data=None, headers=None):
         req = urllib.request.Request(self.url + path, data=data, method=method,
@@ -411,6 +417,7 @@ class Stand(unittest.TestCase):
 
 
 @unittest.skipIf(BASH is None or os.name == "nt", "install.sh is for macOS and Linux")
+@cut.needs_deliver()
 class Pick(Stand):
     """The build of the machine, and the machines refused before anything is downloaded."""
 
@@ -502,6 +509,7 @@ class Pick(Stand):
 
 
 @unittest.skipIf(BASH is None or os.name == "nt", "install.sh is for macOS and Linux")
+@cut.needs_deliver()
 class Install(Stand):
     """The whole script against the stand, into a temporary home (this machine's platform; the stand serves linux-x64,
     so the build is pinned by stand-ins of uname on a Mac)."""
@@ -1227,6 +1235,7 @@ class OpenInstall(Stand):
 
 
 @unittest.skipIf(BASH is None or os.name == "nt", "install.sh is for macOS and Linux")
+@cut.needs_deliver()
 class Lock(Stand):
     """One install at a time: the second waits for the first, a lock whose holder is gone is taken."""
 
@@ -1320,6 +1329,7 @@ for _name in ("usermod", "chgrp", "chown", "mkswap", "swapoff", "systemctl"):
 
 
 @unittest.skipIf(BASH is None or os.name == "nt", "install.sh is for macOS and Linux")
+@cut.needs_deliver()
 class Server(Stand):
     """--server: a fresh Ubuntu VM as root (a cloud's user data), the system's programs as stand-ins over a system root
     in a temporary folder; the hub's own install then runs for real as the stand's install does, under that user."""

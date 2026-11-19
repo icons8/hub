@@ -352,6 +352,16 @@ IDLE = ("Before ending a turn, walk the queue: for each task without an executor
         "an open backlog is your shortfall. Gates — prod, money, clients, the irreversible, repo — only on the "
         "owner's \"yes\", a reversible step lifts none; launch the rest.")
 
+# for sessions that hand work off (not executors, nor the liaison: no executors of their own), on Claude and Codex
+# alike (owner decision 2026-11-18): a hub on Codex ran three reviews the owner asked for as Codex subagents after its
+# `hub task run --model` was refused; they are not in the session list, and the owner took the work for stopped.
+# evals/prompts/helpers-rule.json
+HELPERS = ("Work you hand off — one whose result the owner or whoever set it waits for (a task, an investigation, an "
+           "edit, a review) — goes to the hub's executors (`hub task run`): the owner sees them in the session list. "
+           "Your own helper agents (the Agent tool, Codex subagents) are for support work inside your turn — a search, "
+           "reading, a parallel check — and you gather what they found yourself in the same turn. A refused `hub task "
+           "run` is fixed as the refusal says, or reported to whoever set the task; its work does not move to helpers.")
+
 # for all sessions (2026-10-14): findings along the way used to get lost if mentioned in passing
 FINDINGS = ("Found something unrelated along the way (a bug, a stale doc, a broken neighbour) — first answer on your own "
             "task, naming the finding briefly, then take it up next; if the repo has a drift or parking rule for "
@@ -556,8 +566,11 @@ def _background(use, text):
     inp = use[1]
     out = re.search(r"Output is being written to: (\S+?)\.?(?:\s|$)", text)   # the output file: the watcher looks at it (2026-10-03)
     title = str(inp.get("description") or inp.get("command") or inp.get("prompt") or "")
+    # a helper agent's model: only when the session named one in the call (otherwise its definition's or the session's —
+    # Claude Code says which nowhere for a background agent: no steps of it stream)
+    model = inp.get("model") if kind == "agent" and isinstance(inp.get("model"), str) else ""
     return {"id": m.group(1), "kind": kind, "title": redact.mask_head(title, 120),
-            **({"output": out.group(1)} if out else {})}
+            **({"model": model[:80]} if model else {}), **({"output": out.group(1)} if out else {})}
 
 
 def _limits(info):
@@ -906,6 +919,7 @@ class StreamHost(Trees):
             named.insert(named.index(("first_action", FIRST_ACTION)) + 1, ("ask_what", ASK_WHAT))
         if not bus and not executor_of and not liaison:   # an executor and the liaison have no queue to walk through
             named.append(("idle", IDLE))
+            named.append(("helpers", HELPERS))   # nor executors of their own to hand work to
         named.append(("findings", FINDINGS))
         if not liaison:   # the liaison reads other hubs' words: the book is closed to it (bin/hub not_for_liaison)
             named.append(("contacts", CONTACTS))

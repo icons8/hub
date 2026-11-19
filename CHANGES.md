@@ -102,11 +102,90 @@ attaches to each session's next message only what it has not seen yet; the page 
   deadline (15 minutes) together with everything it started, instead of waiting for pipes a grandchild of `claude` still
   holds. A chunk that missed the deadline goes to "not sorted out" with "no answer in 900 s", and the next `--extract`
   repeats only it. Nothing to enable — thanks: @Scremliss
+- The hub has a new mark, the orange sun of dots: the browser tab (and its red-dot variant while a question waits for
+  you), the app installed from the page (PWA, the home screen icon of a phone), the README and, in the open release,
+  the Mac launcher `Hub by Icons8.app` (it takes the new icon when the install line runs again). The README has new
+  screenshots: the Clean look next to an iPhone, the Telegram bot on an iPhone, all at @2x. Reload the page (⌘R /
+  Ctrl+R); an app installed from the page takes the new icon when the browser refreshes it — thanks: @kalimullin
+  (icons8/hub PR #1).
+- Settings → Plugins: plugins of the Claude Code and Codex catalogs are no longer in the shared list. What the hub
+  installed from them has a section of its own, "Claude and Codex plugins": for each — its catalog, what is inside
+  (skills, commands, MCP servers), which sessions have it, a warning when a server's settings carry a placeholder instead
+  of sign-in data (it will not connect), and the buttons "Give to a session…" and "Remove". The hub still installs them
+  when you ask it and gives each to the sessions that need it. The other catalogs and the catalogs block at the bottom
+  stay as they were.
+- Builds with their own plugin catalog (Embed API 1.2): `modules/private.json` of a build's embed may name its
+  catalog with `"catalog": {"name": …, "ref": …}`. The hub then connects two official catalogs by itself — the open
+  one as `agents-hub` and the company's under its own name, from its branch — and each revokes only what was installed
+  from it. A hub that had the company's catalog as `agents-hub` moves to the pair by itself at its first catalog pass:
+  every installed plugin keeps its key, settings and on/off switch; it just belongs to the catalog that lists it now.
+  See EXTENDING.md, "A build's own plugin catalog".
+- `hub app src` and `hub app apply` on a build made of the open core and a company's embeds: the working copy is a clone
+  of the open core at the release's core commit, and none of its commits carries the embeds — a pull request from it
+  goes to a public repository. The build of your edits takes the embeds from the release you run. A working copy made
+  earlier from a tree with the embeds is set aside as `own/core.before-<version>` (its origin removed) with your edits
+  in it, and a new one is made; the Hub Developer moves the edits over as a patch.
+- Publishing the open core and an embed: `tools/publish_pair.py <core repository> --embed <embed repository>` publishes
+  one commit as two snapshots — the open core (everything but `embed/`) and the embed's folder into its own closed
+  repository, the embed first, all checks of both before the first push. A repository whose tree did not change gets
+  no commit. `--tag vX.Y.Z` / `--release` tags both under one number newer than the last release of either; a fix of
+  the embed alone is a release of the embed alone. The embed's address is never an open repository.
+- Page, Clean: the feed search on a computer is the same field as on a phone and in the left panel — a gray 36 px
+  field with the magnifier inside on the left, the "1 of 3" count, the arrows and the close × inside on the right, no
+  border of its own. On a phone the up arrow showed as a stray "↑" outside the field and "Cancel" was cut off at the
+  screen's edge; both are fixed. Nothing to do to update — thanks: @visualpharm.
+- Builds with an embed (Embed API 1.2): an embed may carry files under `deploy/` — its company's own Mac launcher
+  signed with its Developer ID, for one — and a team build lays them at the same path of its layer, in place of the
+  open flavor's launcher. See EXTENDING.md, "Files a build lays in place".
+- Telegram group: `/here <session>` on a session that is neither an agent nor a direction (an executor, a plain
+  session) no longer refuses — it offers "Make an agent", "Make a direction" and "Cancel"; an admin's press makes it
+  one, as `hub session role` and `hub direction new` do (a running turn goes on), and binds the topic at once: "`maps`
+  — agent, the topic is bound". An agent or a direction is bound at once, as before. `/here` alone says what the topic
+  is bound to and who is who: each session's role and its topic as a link. Words in the group that begin with a
+  mention of a person (`@name …`) are for that person: the hub reads them with its next turn, but they start none —
+  no "typing", no "⏳". The late line reads "⏳ The hub is still busy: <what it does>" (with "your message is in the
+  queue" while it waits; a session that runs no turn — "⏳ No answer from `maps` yet: …") instead of "The reply is
+  delayed: hub — …". Needs `hub restart telegram`.
+- A hub on Codex: `hub session model <session> <id>` and `hub task run … --model <id>` take the bare id of a model of
+  the hub's Codex (`gpt-…` as the page's model menu lists it) and turn it into `codex/<id>`; before, they were refused
+  with a hint that named only Claude's models. An id the hub's Codex does not list is refused with the form and a few
+  real ids, and so is a Claude name on a hub entirely on Codex (it used to run the hub's model silently). `--work
+  risky` on Codex now runs on the deep model of the list (Astra), as risky work runs on opus with Claude; before, it
+  got Codex's default workhorse model with high effort. "Settings → Executors" still decide when they name a model.
+- A session's own helper agents (Claude Code's Agent tool, Codex subagents) are counted in its row of the session list
+  with their model and how long they run: "3 helpers · gpt-6.2-astra · 25 min" instead of "in background 3: /root/…",
+  in Classic and in Clean's detailed list; the tooltip names each helper with its model and time, the rows under
+  Classic's session header call them helpers too, and `hub show` names the model. The model is the one the call named:
+  Codex always names it, Claude Code only when the session chose one (otherwise the row shows the count alone). On the
+  row of an idle hub the helpers take the place of "main session". Reload the page (⌘R / Ctrl+R); the model appears
+  after `hub restart`.
+- Sessions hand work someone waits for (a task, an investigation, a review) to the hub's executors, not to their own
+  helper agents: those are for a search, reading or a parallel check inside the turn. Before, a session could run such
+  work as Codex subagents or background Agent calls, which the session list does not show, and the work looked stopped.
+- The open build no longer carries the team build's delivery server (`deliver/`): the open hub is given out by pages and
+  releases, and nothing in it used the folder. A hub from git is unchanged.
+- A new hub greets you when you first open its page, in your browser's language (the hub's language in Settings →
+  General still comes first): on a machine set to English a Russian browser got an English hello over a Russian page.
+  The hub check speaks the page's language too: a check made in another language runs again by itself, and the red
+  band of the hub check no longer shows rows in a language you do not read. A check made before you signed in to
+  Claude (the first sign-in timed out, the code went in later) no longer stays a red band until "Retry" and a reload:
+  the page drops it and checks again within seconds; a check that found trouble before a restart runs again after it.
+  Needs `hub restart`.
+- A hub switched to Codex on the band: the hub restarts onto Codex only once Codex CLI is installed (before, the
+  restart came first, and on a fresh hub every session failed to start with "the bans do not hold"). A failed install
+  restarts nothing: the band says why and has "Retry". A hub on Codex that came up before Codex CLI was there finds it
+  by itself as soon as it is installed: sessions start without a restart.
 ### For sessions
 - `hub tools grant <session> <tool> --for mN|qN` of a risky tool: the owner's message, or the question of the card they
   answered, must name the tool by its id ("the browser" does not). When the yes to a card should also connect a risky
   tool, name its id in the question (`browser:mac`): the answer is then the yes to it. Otherwise grant it without
   `--for` — the core asks the owner.
+- On a hub on Codex the model of `hub session model` and of `--model` is `codex/<id>` (a bare id of the hub's Codex
+  model list is accepted too); on a hub entirely on Codex Claude names do not apply.
+- Work you hand off (a task, an investigation, a review someone waits for) goes to the hub's executors (`hub task
+  run`); your own helper agents (Agent, Codex subagents) are for support work inside your turn — a search, reading, a
+  parallel check — and you gather their findings in the same turn. A refused `hub task run` is fixed as the refusal
+  says or reported, not moved to helpers.
 
 ## 2026-11-18
 - Mac, the open release: the hub runs through its own launcher, `Hub by Icons8.app` (Login Items show "Hub by Icons8"),
@@ -220,12 +299,6 @@ attaches to each session's next message only what it has not seen yet; the page 
   square next to the search field with the number of sessions waiting for you; a click opens the first of them, as
   Classic's red button. It stays in view during a search and with the "Now" filter. Off, nothing changes. Page only:
   reload it (⌘R / Ctrl+R).
-- The hub has a new mark, the orange sun of dots: the browser tab (and its red-dot variant while a question waits for
-  you), the app installed from the page (PWA, the home screen icon of a phone), the README and, in the open release,
-  the Mac launcher `Hub by Icons8.app` (it takes the new icon when the install line runs again). The README has new
-  screenshots: the Clean look next to an iPhone, the Telegram bot on an iPhone, all at @2x. Reload the page (⌘R /
-  Ctrl+R); an app installed from the page takes the new icon when the browser refreshes it — thanks: @kalimullin
-  (icons8/hub PR #1).
 
 ## 2026-11-17
 - The hub's Telegram bot can work in a group of several people instead of your private chat: whoever is an admin of the

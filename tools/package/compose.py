@@ -60,6 +60,7 @@ def unpack(data, into, only=None):
     with tarfile.open(fileobj=io.BytesIO(data)) as t:
         members = [m for m in t.getmembers() if only is None or only(m.name)]
         t.extractall(into, members=members, filter="data")
+    return [m.name for m in members if m.isreg() and m.mode & 0o111]   # the programs, for the tree's index
 
 
 def embedded(name):
@@ -90,7 +91,7 @@ def compose(prof, core, ref, out):
     work = tempfile.mkdtemp(prefix="hub-compose-")
     try:
         data, commit = fetch(core, ref, os.path.join(work, "core"))
-        unpack(data, out)
+        programs = unpack(data, out)
         here = {e["name"] for e in prof["embeds"] if e["repo"] == "."}   # the embeds the core's tree already has
         top = os.path.join(out, embed.FOLDER)
         for name in sorted(os.listdir(top)) if os.path.isdir(top) else []:
@@ -103,17 +104,22 @@ def compose(prof, core, ref, out):
                 continue
             os.makedirs(os.path.join(work, e["name"]))
             data, got = fetch(e["repo"], e["ref"], os.path.join(work, e["name"]))
-            unpack(data, os.path.join(out, embed.FOLDER, e["name"]), embedded)
+            programs += [f"{embed.FOLDER}/{e['name']}/{n}"
+                         for n in unpack(data, os.path.join(out, embed.FOLDER, e["name"]), embedded)]
             made["embeds"].append({"name": e["name"], "repo": plain(e["repo"]), "ref": e["ref"], "commit": got})
         bad = embed.problems(out, wanted=profiles.wanted(prof))
         if bad:
             raise Refused("the embeds break the rules (core/embed.py):\n" + "\n".join(bad[:20]))
         with open(os.path.join(out, TOP), "w", encoding="utf-8", newline="\n") as f:
             json.dump(made, f, ensure_ascii=False, indent=1)
-        for args in (("init", "-q", "-b", "main"), ("add", "-A"),
-                     ("-c", "user.name=factory", "-c", "user.email=factory@example.test", "commit", "-q", "--no-verify",
-                      "-m", f"{prof['name']}: core {ref} with {', '.join(profiles.wanted(prof)) or 'no embeds'}")):
-            git(out, *args)
+        git(out, "init", "-q", "-b", "main")
+        git(out, "add", "-A")
+        # a program stays one in the tree's commit, as in the archives: a disk without the bit (Windows) gives git none
+        laid = [n for n in dict.fromkeys(programs) if os.path.isfile(os.path.join(out, *n.split("/")))]
+        for i in range(0, len(laid), 200):
+            git(out, "update-index", "--chmod=+x", "--", *laid[i:i + 200])
+        git(out, "-c", "user.name=factory", "-c", "user.email=factory@example.test", "commit", "-q", "--no-verify",
+            "-m", f"{prof['name']}: core {ref} with {', '.join(profiles.wanted(prof)) or 'no embeds'}")
         return made
     except BaseException:
         if os.path.isdir(out):

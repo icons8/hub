@@ -37,6 +37,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -61,9 +62,11 @@ DENIED = "Denied by the owner"            # the core's refusal text when the own
 # ...and its earlier form: a refusal an earlier core made is recognised too (not steered into the turn as a reason)
 DEFAULT_DENIALS = (DENIED, langdata.legacy("owner_denied"))
 TRUST_TIMEOUT = 20
-RETRY = 5 * 60                            # not trusted — a new attempt at a session start at most once in RETRY s,
+RETRY = 5 * 60                            # not trusted — a new attempt at a session start at most once in RETRY s
+                                          # (at once when codex is found where it was not: installed meanwhile),
 RETRY_TIMEOUT = 5                         # and shorter: the start runs in hubd's tick
-_TRUSTED = {}                             # the hub's Codex folder -> {"ok", "codex", "env", "at"} (prepare_home)
+_TRUSTED = {}                             # the hub's Codex folder -> {"ok", "codex", "env", "at", "find"} (prepare_home)
+_RETRYING = threading.Lock()              # trusted()'s checks again, one at a time
 _FLAGS = {}                               # the hub's Codex folder -> the path of a thread config's hooks in its keys
 # a hook of the trust check's own command line: hooks/list names the path a thread config's hooks have in this Codex
 # (flags_path) — on Windows "C:\\<session-flags>\\config.toml", whatever the drive of the folder (live 2026-11-05)
@@ -235,9 +238,11 @@ def _ours(hooks, path):
             or str(h.get("key", "")).startswith(tuple(p + ":" for p in paths))]
 
 
-def prepare_home(home, codex=None, env=None, args=()):
-    """The core's hooks.json, no multi_agent in config.toml and trust in its own hook (trusted_hash from hooks/list)."""
-    _TRUSTED[os.path.abspath(home)] = {"ok": False, "codex": codex, "env": env, "at": time.time(), "args": list(args)}
+def prepare_home(home, codex=None, env=None, args=(), find=None):
+    """The core's hooks.json, no multi_agent in config.toml and trust in its own hook (trusted_hash from hooks/list).
+    find() — the codex command now (the host's: codex_bin at every use), for trusted()'s retries."""
+    _TRUSTED[os.path.abspath(home)] = {"ok": False, "codex": codex, "env": env, "at": time.time(), "args": list(args),
+                                       "find": find}
     path = os.path.join(home, "hooks.json")
     want = hooks_json()
     with open(path, "w", encoding="utf-8") as f:
@@ -277,7 +282,9 @@ def _trust(home, codex, env, want, timeout=TRUST_TIMEOUT, info=None, args=()):
             f.write(text + "".join(add))
         hooks = _ours(_hooks_list(codex, env, home, timeout, folder=args), path)
     ok = listed_trusted(hooks, home)   # hooks.json was written from `want` above
-    _TRUSTED[os.path.abspath(home)] = {"ok": ok, "codex": codex, "env": env, "at": time.time(), "args": list(args)}
+    find = (_TRUSTED.get(os.path.abspath(home)) or {}).get("find")
+    _TRUSTED[os.path.abspath(home)] = {"ok": ok, "codex": codex, "env": env, "at": time.time(), "args": list(args),
+                                       "find": find, "there": _there(codex)}
     if not ok:
         print(f"codex: Codex does not trust the core's hook ({[h.get('trustStatus') for h in hooks]}) — sessions will not start",
               file=sys.stderr, flush=True)
@@ -302,7 +309,9 @@ def listed_trusted(hooks, home):
 def trusted(state_dir, now=None, home=None):
     """The core's hook is trusted in home (the hub's Codex folder by default; an account folder of the Codex pool has its
     own trust — the key is its hooks.json path). Not — one more attempt (hooks/list is sometimes slow on the first start
-    after an update), but at most once in RETRY: a session start must not wait for Codex on every round."""
+    after an update), but at most once in RETRY: a session start must not wait for Codex on every round — and at once
+    when the codex command is another now or its program is there now and was not (find: Codex CLI installed after
+    the host came up). A trusted folder whose codex command is another now is checked again with it, at once."""
     if not state_dir:
         return False
     home = os.path.abspath(home or os.path.join(state_dir, "codex-home"))
@@ -310,12 +319,43 @@ def trusted(state_dir, now=None, home=None):
     if not t:
         return False
     now = time.time() if now is None else now
-    if not t["ok"] and t["codex"] and now - t["at"] >= RETRY:
-        info = {}
-        ok = _trust(home, t["codex"], t["env"], hooks_json(), RETRY_TIMEOUT, info=info, args=t.get("args") or ())
-        codex_sandbox.retried(home, info)   # the same run's platform and readiness: no second app-server for them
+    if not t["codex"]:
+        return t["ok"]
+    codex = _found(t)
+    changed = codex != list(t["codex"])
+    if t["ok"] and not changed:
+        return True
+    # another codex now (installed after the start; the hub's own copy put in place): its trust is checked before a
+    # session runs it — a trusted hook is trusted by that Codex's hash, not by any
+    new = changed or not t.get("there", True) and _there(codex)
+    if new or now - t["at"] >= RETRY:
+        with _RETRYING:   # two spawns at once: one check, the other reads its outcome (config.toml is written once)
+            done = _TRUSTED.get(home)
+            if done is not t and done and list(done["codex"]) == codex:   # checked meanwhile with this codex
+                return done["ok"]
+            info = {}
+            # a codex just put in place gets the start's wait once (its first app-server is slower): a miss is RETRY away
+            ok = _trust(home, codex, t["env"], hooks_json(), TRUST_TIMEOUT if new else RETRY_TIMEOUT, info=info,
+                        args=t.get("args") or ())
+            codex_sandbox.retried(home, info, codex)   # the same run's platform and readiness: no second app-server for them
         return ok
     return t["ok"]
+
+
+def _there(codex):
+    """The program of a codex command is on disk (a path) or in PATH (a name)."""
+    exe = (list(codex or []) or [""])[0]
+    return bool(exe) and (os.path.isfile(exe) if os.path.dirname(exe) else bool(shutil.which(exe)))
+
+
+def _found(t):
+    """The codex command of a trust record now: its find() (the host's search at every use), else the one it had."""
+    try:
+        found = t["find"]() if callable(t.get("find")) else None
+    except Exception as e:  # noqa: BLE001 — a search that failed keeps the command the record had
+        print(f"codex: the codex command cannot be found anew: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        found = None
+    return list(found) if found else list(t["codex"])
 
 
 def features(default, **session):

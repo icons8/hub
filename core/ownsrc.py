@@ -129,6 +129,80 @@ def _write_meta(copy, data):
         json.dump(data, f, ensure_ascii=False, indent=1)
 
 
+def _open_core(man):
+    """The release is composed of an open core and embeds (tools/package/compose.py; MANIFEST "core"): the copy is the
+    open core's — a PR from it goes to a public repository, so no commit of it may carry the embeds (the own build takes
+    them from the release, build())."""
+    core = man.get("core")
+    return isinstance(core, dict) and isinstance(core.get("commit"), str) and bool(core["commit"])
+
+
+def _at(man):
+    """The commit of the source repository a clone stands on: a composed tree is a commit of its own that no repository
+    has — the clone is of the open core, at MANIFEST "core"."""
+    return man["core"]["commit"] if _open_core(man) else man.get("commit") or ""
+
+
+def _source(man):
+    """The repository the copy clones by default: of a composed release, its open core (MANIFEST "core" "repo", an
+    https address with no sign-in in it), else the release's "source"."""
+    repo = man["core"].get("repo") if _open_core(man) else None
+    if isinstance(repo, str) and re.fullmatch(r"https://[^@\s/]+/\S+", repo):
+        return repo
+    return man.get("source")
+
+
+def _carries_embeds(copy):
+    """A commit on a branch of the copy has a path under embed/ or EMBED.json (what a push could carry; the open core's
+    remote branches never have them). git cannot tell — Refused: a copy is never moved on a guess."""
+    r = _run(copy, "log", "--branches", "-1", "--format=%H", "--", "embed", "EMBED.json")
+    if r.returncode:
+        raise Refused(f"git log in {copy}: {codestore.said(r)}")
+    return bool(r.stdout.strip())
+
+
+def _stale(copy, man):
+    """The copy cannot follow this release: the release is of an open core, and a branch of the copy carries the embeds
+    (a clone of a closed tree with them, a copy of a release's files with them) — a PR of it would publish them. A copy
+    made for an open core whose own commits put embed/ in is the person's, not stale: Refused, nothing moves."""
+    if not (_open_core(man) and _carries_embeds(copy)):
+        return False
+    if _meta(copy).get("open"):
+        raise Refused(f"a commit on a branch of {copy} has embed/ (a push carries every ancestor): the copy is of the "
+                      f"open core and goes to a public repository — put the branch back on `{RELEASE}` and commit the "
+                      "edits again without embed/ (the embeds are not edited here)")
+    return True
+
+
+def _set_aside(own, copy, meta, say):
+    """The stale copy to own/core.before-<its version>[.N], its remotes removed (nothing in it is pushed by mistake);
+    the person's edits stay there, the Hub Developer moves them as a patch."""
+    linked = [line[9:] for line in _git(copy, "worktree", "list", "--porcelain").splitlines()
+              if line.startswith("worktree ")][1:]
+    if linked:   # moved, their .git would point nowhere
+        raise Refused(f"{copy} is of a tree with the embeds and has working trees of its own ({', '.join(linked)}): "
+                      "`git worktree remove` them, then `hub app src`")
+    base = os.path.join(own, f"{CORE}.before-{re.sub(r'[^0-9A-Za-z.+_-]', '_', str(meta.get('version') or 'x'))}")
+    aside, n = base, 1
+    while os.path.lexists(aside):
+        n += 1
+        aside = f"{base}.{n}"
+    try:
+        os.replace(copy, aside)
+    except OSError as e:   # Windows: a program holds a file of the copy
+        raise Refused(f"{copy} is of a tree with the embeds and cannot be set aside now ({e}): close what holds it, "
+                      "then `hub app src`") from e
+    for remote in _run(aside, "remote").stdout.split():
+        with contextlib.suppress(Refused):
+            _git(aside, "remote", "remove", remote)
+    left = _run(aside, "remote").stdout.split()
+    say(f"the working copy was of {meta.get('source') or 'the release files'}, its history has code the open core has "
+        f"not: set aside as {aside} ({'remotes left: ' + ', '.join(left) + ' — remove them' if left else 'no remotes'}), "
+        f"a new copy is made; the committed edits move as a patch — `git -C {aside} diff --binary {RELEASE}...{LOCAL} -- . "
+        f"':!embed' ':!EMBED.json' | git apply` in the new copy; changes not committed stay in {aside}")
+    return aside
+
+
 def release_of(code):
     """(manifest, layer folder) of the release the hub runs — on a build of the person's edits, the release it is over;
     Refused on a hub that does not run from a code layer."""
@@ -146,12 +220,28 @@ def release_of(code):
         raise Refused(str(e)) from None
 
 
+def placed(man):
+    """The paths of a layer's manifest a team build laid in place of an embed's file (embed/<name>/<path> under
+    core/embed.PLACED, the same path outside it)."""
+    from core import embed
+    out = set()
+    for rel in man["files"]:
+        parts = rel.split("/", 2)
+        if len(parts) == 3 and parts[0] == embed.FOLDER and parts[2].startswith(embed.PLACED) and parts[2] in man["files"]:
+            out.add(parts[2])
+    return out
+
+
 def _release_files(root, man, into):
     """The release's own files (sources, not bytecode; not the layer's git stop) from its layer folder into a folder,
-    each checked against the manifest: an edited layer gives no copy of an edit as the release."""
-    bad = []
+    each checked against the manifest: an edited layer gives no copy of an edit as the release. A release of an open
+    core (_open_core) gives no embed: the copy stays the open core's. What a team build laid in place of an embed's
+    (core/embed.PLACED — the company's signed launcher) is not the copy's either: the embed has it, a build of the copy
+    lays it again (and the company's signed files stay out of an open core's copy)."""
+    bad, apart = [], _open_core(man)
+    laid = placed(man)
     for rel, entry in sorted(man["files"].items()):
-        if appcode._cache(rel) or rel == appcode.GIT_STOP[0]:
+        if appcode._cache(rel) or rel == appcode.GIT_STOP[0] or apart and rel.startswith("embed/") or rel in laid:
             continue
         src, dest = os.path.join(root, *rel.split("/")), os.path.join(into, *rel.split("/"))
         if appcode._sha_or_none(src) != entry["sha256"]:
@@ -226,6 +316,9 @@ def _made(state, code, url, say):
     own = folder(state)
     copy = path(state)
     _sweep(own)
+    if os.path.isdir(os.path.join(copy, ".git")) and _stale(copy, man):
+        _not_on_release(copy)
+        _set_aside(own, copy, _meta(copy), say)
     if os.path.isdir(os.path.join(copy, ".git")):
         return follow(state, code, say=say)
     if os.path.isdir(copy) and not appcode.is_pointer(copy) and not os.listdir(copy):
@@ -235,7 +328,7 @@ def _made(state, code, url, say):
     work = None
     try:
         try:
-            work = _make(own, man, root, url or man.get("source"), say, named=bool(url))
+            work = _make(own, man, root, url or _source(man), say, named=bool(url))
         except OSError as e:   # the disk, a folder another program holds (Windows: an antivirus, a git that has not let go)
             raise Refused(f"{copy} is not made: {e}" + ("" if url else "; or from a clone of the source on this machine: "
                                                         "`hub app src --repo <its folder>`")) from e
@@ -270,8 +363,9 @@ def _make(own, man, root, url, say, named=False):
     """The finished copy in a new work folder of own -> its path (the caller moves it into place or discards it). A clone
     that fails — the network, a proxy that garbles the pack, no such commit — gives the copy of the release's files, said
     in a line; the failed clone's folder is never reused: what git left in it may be held by the system."""
-    commit, why = man.get("commit") or "", None
-    meta = {"kind": "archive", "version": man["version"], "commit": commit}
+    commit, why = _at(man), None
+    meta = {"kind": "archive", "version": man["version"], "commit": man.get("commit") or "",
+            **({"open": True} if _open_core(man) else {})}
     work = tempfile.mkdtemp(prefix=".core-", dir=own)
     try:
         if url:
@@ -286,6 +380,10 @@ def _make(own, man, root, url, say, named=False):
                 _git(work, "config", "core.autocrlf", "false")
                 _git(work, "checkout", "-q", "-B", LOCAL, commit)
                 _git(work, "branch", "-f", RELEASE, commit)
+                if _open_core(man):   # the clone's own default branch: of a tree with embeds it would carry them
+                    for b in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads").split():
+                        if b not in (LOCAL, RELEASE):
+                            _git(work, "branch", "-D", b)
                 meta.update(kind="clone", source=url)
             else:
                 say(f"no clone of {url}: {why}; the copy is made of the release's files, without tests"
@@ -313,14 +411,15 @@ def follow(state, code, say=print):
         return status(state, code)
     _not_on_release(copy)
     if meta.get("kind") == "clone":
-        for more in ((), (commit,)):   # the branches first; a commit no branch names yet — by itself
-            if not _has(copy, commit):
+        at = _at(man)
+        for more in ((), (at,)):   # the branches first; a commit no branch names yet — by itself
+            if not _has(copy, at):
                 _git(copy, "fetch", "-q", "origin", *more, timeout=900, remote=meta.get("source"))
-        _git(copy, "branch", "-f", RELEASE, commit)
+        _git(copy, "branch", "-f", RELEASE, at)
     else:
         _commit_release(copy, root, man, parent=RELEASE)
     say(f"`{RELEASE}` is now {man['version']}; the edits on `{LOCAL}` are not merged: `git merge {RELEASE}` on request")
-    _write_meta(copy, {**meta, "version": man["version"], "commit": commit})
+    _write_meta(copy, {**meta, "version": man["version"], "commit": commit, **({"open": True} if _open_core(man) else {})})
     return status(state, code)
 
 
@@ -376,10 +475,19 @@ def _factory(root, args, timeout=FACTORY_TIMEOUT):
         raise Refused(f"the build did not start: {e}") from None
     said = (r.stdout + r.stderr).strip()
     if r.returncode:
+        if "unrecognized" in said and "--embeds-from" in said.split("unrecognized", 1)[1]:
+            raise Refused("the release's factory takes no embeds from the release: an older release")
         if "--own" in said and "unrecognized" in said:
             raise Refused("the release's factory builds no edits: an older release")
         raise Refused(f"the build: {said[-1500:] or r.returncode}")
     return said
+
+
+def _embeds_apart(copy, sha, man):
+    """A release of an open core with embeds, and the copy's commit has no embed/ (it never has: _stale): the build
+    takes them from the release. A team's tree with its embeds builds the copy's own (a person's edit of them stays)."""
+    return _open_core(man) and any(rel.startswith("embed/") for rel in man["files"]) and \
+        bool(_run(copy, "cat-file", "-e", f"{sha}:embed").returncode)
 
 
 def build(state, code, python=None, say=print):
@@ -416,8 +524,10 @@ def build(state, code, python=None, say=print):
                 *(["--source", man["source"]] if man.get("source") else []),
                 *(["--issues", man["issues"]] if man.get("issues") else []),
                 # the company's build profile the release is of (core/embed.py): a release that names one has a factory
-                # that knows the flag; the embeds come with the copy's own tree
-                *(["--profile-name", man["profile"]] if isinstance(man.get("profile"), str) else [])]
+                # that knows the flag; the embeds come with the copy's own tree, or — a copy of an open core, which has
+                # none — from the release's own folder
+                *(["--profile-name", man["profile"]] if isinstance(man.get("profile"), str) else []),
+                *(["--embeds-from", root] if _embeds_apart(copy, sha, man) else [])]
         try:
             _factory(root, args)   # the clean release's own factory, in its own process
         except BaseException:

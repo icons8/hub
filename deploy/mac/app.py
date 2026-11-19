@@ -4,7 +4,8 @@ launchd starts not python3 but the bundle's executable (launcher.c), and hub-up 
 background work and the folder access to the bundle: "Login Items" shows the hub's name and logo, not "python3"; access
 to the repository folder (for example ~/Desktop) is granted once per bundle, the children get the same.
 
-The bundle is built once on a machine with a Developer ID certificate and can lie in the repository ready-made
+The bundle is built once on a machine with a Developer ID certificate and can lie in the repository ready-made: the
+company's embed carries it (embed/<name>/deploy/mac/Agents Hub.app, core/embed.PLACED), a team layer has it in place
 (deploy/mac/Agents Hub.app): colleagues need no compiler and get no "unidentified developer" mark. The open flavor
 carries instead "Hub by Icons8.app", built from the same launcher.c, universal and signed ad hoc (it lies in
 deploy/mac/open/, the open cut puts it in place of the team's: core/appcode.OPEN_SWAP). A bundle's name is its folder's:
@@ -13,7 +14,8 @@ still installs: install.sh builds the bundle from launcher.c with an ad-hoc sign
 store the paths to Python and hub-up — the launchd agent passes them, so the bundle is the same for everyone and the
 signature stays intact.
 
-  app.py build "<Developer ID Application: …>"   build and sign deploy/mac/Agents Hub.app (after editing launcher.c)
+  app.py build "<Developer ID Application: …>"   build and sign the team's bundle where it lies (shipped(); after editing
+                                                   launcher.c)
   app.py build - [BUNDLE] [--id ID]                ad-hoc signature, no certificate: what install.sh builds when the checkout
                                                    has no ready bundle; BUNDLE — where to put it (its folder's name is
                                                    the app's); ID — another hub's own identifier (HUB_INSTANCE:
@@ -21,6 +23,7 @@ signature stays intact.
                                                    "deploy/mac/open/Hub by Icons8.app" (its identifier OPEN_ID)
   app.py name                                      the name of the bundle a hub of this tree keeps in its state folder
   app.py names                                     the names of every flavor's (one a line)
+  app.py shipped                                   the ready bundle of this tree (shipped()), or an empty line
   app.py drop-others STATE PLIST                   the other flavor's copy of an earlier install goes, once the agent
                                                    PLIST runs through this tree's bundle
   app.py app-plist REPO STATE APP                  the downloaded app (installer S5): the agent runs APP's shell
@@ -56,14 +59,31 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 
 
 def shipped(here=HERE):
-    """The bundle that lies ready in the tree (deploy/mac/<name>.app): the team's or the open flavor's, or None."""
+    """The bundle that lies ready in the tree (deploy/mac/<name>.app): the team's or the open flavor's, or None. A tree
+    from git keeps the team's in its embed (embed/<name>/deploy/mac/, core/embed.PLACED): a team layer has it in place."""
     for name in NAMES:
         if os.path.isdir(os.path.join(here, name)):
             return os.path.join(here, name)
+    for top in embeds(os.path.dirname(os.path.dirname(here))):
+        for name in NAMES:
+            path = os.path.join(top, "deploy", "mac", name)
+            if os.path.isdir(path):
+                return path
     return None
 
 
-BUNDLE = shipped() or os.path.join(HERE, NAME + ".app")
+def embeds(repo):
+    """The embed folders of the tree repo, by name: embed/<name>/ with its passport (core/embed.py roots, read here
+    without the core: install.sh runs this file before the hub is set up)."""
+    top = os.path.join(repo, "embed")
+    names = sorted(os.listdir(top)) if os.path.isdir(top) else []
+    return [os.path.join(top, n) for n in names
+            if re.fullmatch(r"[a-z0-9_-]{1,32}", n) and os.path.isfile(os.path.join(top, n, "embed.json"))]
+
+
+# where the team's bundle lies, or is built and signed: the embed's in a tree with one (a team layer has it in place)
+BUNDLE = shipped() or os.path.join(next(iter(embeds(REPO)), os.path.dirname(os.path.dirname(HERE))), "deploy", "mac",
+                                   NAME + ".app")
 
 
 def name_of(bundle):
@@ -278,6 +298,8 @@ def main(argv):
         print(bundle)
     elif argv == ["name"]:
         print(os.path.basename(BUNDLE))
+    elif argv == ["shipped"]:
+        print(shipped() or "")
     elif argv == ["names"]:
         print("\n".join(NAMES))
     elif argv[:1] == ["drop-others"] and len(argv) == 3:

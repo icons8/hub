@@ -632,16 +632,20 @@ def model_flags(cfg, model=None):
     return []
 
 
-def plugin_servers(path, key=None):
-    """The MCP a plugin brings: --strict-mcp-config drops such servers, and the session is left without the tools
-    (Atlassian). We pass them ourselves under the name `plugin:<plugin>:<server>`: Claude Code stores the login (OAuth)
-    under it, so the server connects without a new login. Where a plugin declares them follows Claude Code
-    (plugins-reference, `mcpServers`): first `.mcp.json` in the root, then the manifest's `mcpServers` in order, a
-    dict of servers, a `./…json` path to such a dict or an array of them; a server with the same name declared later
-    replaces the earlier one (as with chrome-devtools-mcp: the server only in plugin.json, and the session got the
-    plugin without the browser). Files only inside the plugin folder. The hub does not unpack `.mcpb`/`.dxt` bundles
-    and skips a path that gave no servers; both get a line in the hub log. key (`<name>@<set>`) is whose settings to
-    substitute into ${user_config.*}."""
+def declared_servers(path):
+    """The MCP servers a plugin folder declares, as written -> {server: settings}; none without a plugin name (Claude
+    Code would not load it). Nothing is filled in: plugin_servers does that for a session, the plugins page
+    (core/engineplugins.py) shows them as they are."""
+    return _declared(path)[2]
+
+
+def _declared(path):
+    """(the manifest, the plugin's name, {server: settings}); ({}, None, {}) — no name or no manifest to read. Where a
+    plugin declares them follows Claude Code (plugins-reference, `mcpServers`): first `.mcp.json` in the root, then the
+    manifest's `mcpServers` in order, a dict of servers, a `./…json` path to such a dict or an array of them; a server
+    with the same name declared later replaces the earlier one (as with chrome-devtools-mcp: the server only in
+    plugin.json, and the session got the plugin without the browser). Files only inside the plugin folder. The hub does
+    not unpack `.mcpb`/`.dxt` bundles and skips a path that gave no servers; both get a line in the hub log."""
     root = os.path.realpath(path)
 
     def read(rel):
@@ -672,10 +676,10 @@ def plugin_servers(path, key=None):
         manifest = {"name": os.path.basename(os.path.normpath(path)),
                     **({"mcpServers": codex["mcpServers"]} if codex.get("mcpServers") else {})}
     except (OSError, ValueError):
-        return {}
+        return {}, None, {}
     plugin = manifest.get("name") if isinstance(manifest, dict) else None
     if not plugin:
-        return {}
+        return {}, None, {}
     found = read(".mcp.json")
     if found is None:
         if os.path.lexists(os.path.join(path, ".mcp.json")):
@@ -695,6 +699,17 @@ def plugin_servers(path, key=None):
                 sys.stderr.write(f"catalog: plugin {plugin}: mcpServers \"{item}\" could not be read (no file inside the "
                                  "plugin, not JSON or no servers in it), the session will be without them\n")
             found.update(got or {})
+    return manifest, plugin, found
+
+
+def plugin_servers(path, key=None):
+    """The MCP a plugin brings: --strict-mcp-config drops such servers, and the session is left without the tools
+    (Atlassian). We pass them ourselves under the name `plugin:<plugin>:<server>`: Claude Code stores the login (OAuth)
+    under it, so the server connects without a new login. Which servers — declared_servers. key (`<name>@<set>`) is
+    whose settings to substitute into ${user_config.*}."""
+    manifest, plugin, found = _declared(path)
+    if not plugin:
+        return {}
     # Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} only for the plugin's own servers; from --mcp-config it would
     # arrive as is. ${user_config.*} and ${VAR} / ${VAR:-default} (the session's environment, expand_env) too: the
     # string as is would be passed to the server. With no value (a secret field is not in settings.json) the server

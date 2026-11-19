@@ -444,6 +444,19 @@ export function shortName(name, under) {
   return name;
 }
 
+// a session's background split for its row: its own helper agents as one caption ("3 helpers · <model>", the models the
+// host named, in the order they started; none named — the count alone), and the commands
+export function bgParts(background) {
+  const all = [...(background || [])].sort((a, b) => a.since - b.since);
+  const agents = all.filter((x) => x.kind === "agent"), cmds = all.filter((x) => x.kind !== "agent");
+  // the first two models; more — "+N" (the tooltip names each helper's own)
+  const named = [...new Set(agents.map((x) => x.model).filter((m) => typeof m === "string" && m))];
+  const models = named.slice(0, 2).join(", ") + (named.length > 2 ? ` +${named.length - 2}` : "");
+  const helpers = !agents.length ? "" : models ? t("web.sidebar.bg_helpers_model", { count: agents.length, model: models })
+    : t("web.sidebar.bg_helpers", { count: agents.length });
+  return { helpers, agents, cmds };
+}
+
 function sessionRow(s, forks = [], under = null, queued = []) {
   const li = el("li", forks.length || queued.length ? "has-forks" : null);
   const b = el("button", "srow");
@@ -472,11 +485,15 @@ function sessionRow(s, forks = [], under = null, queued = []) {
     a.addEventListener("click", (e) => { e.stopPropagation(); e.preventDefault(); openPalette(a.getBoundingClientRect(), s.name); });
     nm.prepend(a, document.createTextNode(" "));
   }
-  // what exactly runs in the background and for how long (otherwise it is unclear what the session is doing)
-  const first = bgWork ? [...s.background].sort((a, b) => a.since - b.since)[0] : null;
-  const label = bgWork ? (s.background.length === 1 ? t("web.sidebar.bg_one", { title: first.title || first.id, elapsed: elapsed(first.since) })
-    : t("web.sidebar.bg_many", { count: s.background.length, title: first.title || first.id })) : s.label;
-  const lb = el("span", "lb", s.kind === "hub" ? t("web.sidebar.main_session", { label })
+  // what exactly runs in the background and for how long (otherwise it is unclear what the session is doing): its own
+  // helper agents as a count and their model ("3 helpers · <model>" — they are not rows of the list), then commands
+  const { helpers, agents, cmds } = bgParts(s.background);
+  const first = cmds[0] || null;
+  const cmdLabel = !first ? "" : cmds.length === 1 ? t("web.sidebar.bg_one", { title: first.title || first.id, elapsed: elapsed(first.since) })
+    : t("web.sidebar.bg_many", { count: cmds.length, title: first.title || first.id });
+  const label = bgWork ? [helpers, cmdLabel].filter(Boolean).join(" · ") : s.label;
+  // the hub's helpers take the place of "main session": the row is narrow, and the model must not be cut off
+  const lb = el("span", "lb", s.kind === "hub" && !(bgWork && helpers) ? t("web.sidebar.main_session", { label })
     : s.role === "agent" && s.about ? `${label} · ${s.about}` : label);
   const base = lb.textContent;   // nothing on top (recap, result) — then "waited" is allowed
   // what it is working on now — the watchdog's recap (like the recap in Claude Code) instead of the agent description
@@ -496,8 +513,14 @@ function sessionRow(s, forks = [], under = null, queued = []) {
   // the delegation bypassed you and the start would be about something old
   else if (smart() && crew && s.state === "idle" && s.out_head && s.owner_out === s.last_out) lb.textContent = brief(plain(s.out_head), headCut(s));
   if (s.state === "busy") { const t = el("span", "elapsed", ` · ${elapsed(s.since)}`); t.dataset.since = s.since; lb.append(t); }
-  if (!bgWork && (s.background || []).length) lb.append(document.createTextNode(` · ${t("web.sidebar.bg_count", { count: s.background.length })}`));
-  if (bgWork) lb.title = s.background.map((x) => `${x.title || x.id} · ${elapsed(x.since)}` + (x.out ? `\n  ${x.out}` : "")).join("\n");
+  // helpers alone: how long the first one runs, ticking (it is alive, not stopped); a command's caption has its own time
+  else if (bgWork && agents.length && !cmds.length && lb.textContent === label) {
+    const t = el("span", "elapsed", ` · ${elapsed(agents[0].since)}`); t.dataset.since = agents[0].since; lb.append(t);
+  }
+  if (!bgWork && helpers) lb.append(document.createTextNode(` · ${helpers}`));
+  if (!bgWork && cmds.length) lb.append(document.createTextNode(` · ${t("web.sidebar.bg_count", { count: cmds.length })}`));
+  if (bgWork) lb.title = s.background.map((x) => `${x.title || x.id}${x.kind === "agent" && x.model ? ` · ${x.model}` : ""} · ${elapsed(x.since)}`
+    + (x.out ? `\n  ${x.out}` : "")).join("\n");
   // idle or asleep — what it waits for, in its own word (hub waiting; "idle" alone says nothing useful).
   // The rest about the direction board lives inside the session (the "Board" under the header); the list shows only a counter (more would be noisy)
   if (["idle", "asleep"].includes(s.state) && !bgWork && s.waiting) {

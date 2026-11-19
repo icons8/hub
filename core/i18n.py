@@ -303,7 +303,13 @@ def lang_facts(st):
     read without the journal lock."""
     if not st:
         return None
-    return {"owner": {"lang": (st.get("owner") or {}).get("lang")}, "ui_lang_default": st.get("ui_lang_default")}
+    o = st.get("owner") or {}
+    # came — the language the owner's page said when they first came (reducer owner.came), for what the hub does for
+    # them before they write (the greeting, the setup steps); met — the core no longer waits for them to come
+    came = o.get("came") if isinstance(o.get("came"), dict) else {}
+    return {"owner": {"lang": o.get("lang"), "came": came.get("lang"),
+                      "met": bool(came or o.get("invited") or o.get("greeted") or o.get("seen"))},
+            "ui_lang_default": st.get("ui_lang_default")}
 
 
 def saved_state(state_dir, strict=False):
@@ -371,13 +377,6 @@ def owner_code(st):
 def state_lang(st):
     """A human's language from the core state: the owner (not Latin) -> a pre-languages hub (ru); unknown - None."""
     return owner_code(st) or ((st or {}).get("ui_lang_default") or None)
-
-
-def system_language():
-    """The language of the machine's own settings as a ready one (None: it does not say, or it has no catalog). A hub
-    nobody has opened yet knows no language of its owner: the first greeting (core/system.invite_due) takes this one."""
-    import platforms
-    return negotiate(platforms.current.system_language())
 
 
 def human(cfg, st, header=None, page=False, default=None):

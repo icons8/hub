@@ -115,7 +115,29 @@ class Logo(unittest.TestCase):
 # the open flavor's launcher: in place in the open tree, in deploy/mac/open/ of a team's (core/appcode.OPEN_SWAP)
 OPEN_BUNDLE = next((p for p in (os.path.join(app.HERE, app.OPEN_NAME + ".app"),
                                 os.path.join(app.HERE, "open", app.OPEN_NAME + ".app")) if os.path.isdir(p)), None)
-TEAM_BUNDLE = os.path.join(app.HERE, app.NAME + ".app")
+# the team's, signed by the company: in its embed in the working tree (core/embed.PLACED), in place in a team layer
+_EMBEDS = os.path.join(app.REPO, "embed")
+TEAM_BUNDLE = next((p for p in [os.path.join(app.HERE, app.NAME + ".app")] + [
+    os.path.join(_EMBEDS, e, "deploy", "mac", app.NAME + ".app") for e in sorted(os.listdir(_EMBEDS) if os.path.isdir(_EMBEDS)
+                                                                                 else [])
+    if os.path.isfile(os.path.join(_EMBEDS, e, "embed.json"))] if os.path.isdir(p)), os.path.join(app.HERE, app.NAME + ".app"))
+
+
+class Shipped(unittest.TestCase):
+    def test_the_ready_bundle_in_place_first_then_the_embeds(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(platforms.current.rmtree, tmp)
+        here = os.path.join(tmp, "deploy", "mac")
+        os.makedirs(here)
+        self.assertIsNone(app.shipped(here))
+        team = os.path.join(tmp, "embed", "acme", "deploy", "mac", app.NAME + ".app")
+        os.makedirs(team)
+        self.assertIsNone(app.shipped(here))               # a folder without a passport is no embed
+        with open(os.path.join(tmp, "embed", "acme", "embed.json"), "w") as f:
+            f.write('{"embed": 1, "api": "1.2"}')
+        self.assertEqual(app.shipped(here), team)          # a tree from git: the embed's
+        os.makedirs(os.path.join(here, app.OPEN_NAME + ".app"))
+        self.assertEqual(app.shipped(here), os.path.join(here, app.OPEN_NAME + ".app"))   # a layer: the one in place
 
 
 @unittest.skipUnless(sys.platform == "darwin", "macOS only")
@@ -136,6 +158,7 @@ class ShippedBundle(unittest.TestCase):
                 self.assertEqual(sorted(archs), ["arm64", "x86_64"])
                 self.assertEqual(subprocess.run([exe, "/bin/sh", "-c", "exit 3"]).returncode, 3)
         self.assertIn(app.BUNDLE, (TEAM_BUNDLE, os.path.join(app.HERE, app.OPEN_NAME + ".app")))
+        self.assertTrue(os.path.isdir(TEAM_BUNDLE) or OPEN_BUNDLE, "no bundle of either flavor in this tree")
 
 
 @unittest.skipUnless(OPEN_BUNDLE, "a tree without the open flavor's launcher")

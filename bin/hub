@@ -72,16 +72,13 @@ def lead_repo(rest):
     lead as the core counts it below (--session, the session itself, or for the hub and the owner the one named <slug>);
     a session in a core copy gives the repo of its copy, not the copy the core removes later. None — the direction gets
     a git folder of its own (modules/directions/direction.own_repo)."""
-    from hosts import worktree
+    from modules.directions import direction
     if "--adopt" in rest or "--session" in rest[-1:]:   # --adopt names its repo; a bare --session is the usage error
         return None
     sessions = current()["sessions"]
     boss = not ME or (sessions.get(ME) or {}).get("kind") == "hub"
     who = rest[rest.index("--session") + 1] if "--session" in rest[2:-1] else (rest[1] if boss else ME)
-    sess = sessions.get(who) or {}
-    copy = sess.get("worktree")
-    path = copy.get("repo") if isinstance(copy, dict) and copy.get("repo") else sess.get("cwd")
-    return path if isinstance(path, str) and path and worktree.folder(path)[0] == "ok" else None
+    return direction.repo_of(sessions.get(who))
 
 
 def value_of(words, flag):
@@ -221,7 +218,7 @@ def pin_flags(words, need=False, task=None):
         if flag == "--work":
             work = value
         else:
-            pin[flag[2:]] = value
+            pin[flag[2:]] = codex_model(value) if flag == "--model" else value
     routed, load = callable(task), task
     task = None if routed else task
     if work is not None or need:
@@ -250,6 +247,24 @@ def pin_flags(words, need=False, task=None):
         eco = modelrule.economy(cfg, mine) if kind == "normal" and saved and not pin else None
         pin = {**(by_work or {}), **pin, **({"work": kind} if kind else {}), **({"economy": eco} if eco else {})}
     return pin, words
+
+
+def codex_model(model):
+    """A model typed for a session or an executor, in the form the hub's engine takes (core/modelrule.codex_name: on a
+    Codex hub a bare listed id becomes codex/<id>); an unknown one ends the command with the form and real ids."""
+    from core import catalog, modelrule
+    try:
+        cfg = catalog.load_config(STATE)
+    except ValueError:   # broken hub.json: as typed, the core decides
+        return model
+    # a hub with Claude's sessions next to Codex's knows it by the core's mark (HUB_CODEX=1 may be only in the
+    # service's environment, not this terminal's); a Claude name needs no look
+    host = catalog.codex_host(cfg) or model not in ("", "default") and not catalog.known_model(model) and \
+        catalog.codex_state(current())
+    model, why = modelrule.codex_name(model, cfg, STATE, host=bool(host))
+    if why:
+        sys.exit(why)
+    return model
 
 
 def pin_rule():
@@ -1890,7 +1905,7 @@ def main(argv):
         name, model = (rest[1], rest[2]) if len(rest) == 3 else (ME, rest[1])
         if not name:
             sys.exit(i18n.t("cli.session.model_whom"))
-        put("session.model_set", name, {"model": model})
+        put("session.model_set", name, {"model": codex_model(model)})
     elif cmd == "session" and rest[:1] == ["parallel"] and len(rest) == 3:
         # own executor count of a specialist or direction (owner, hub, agent-dev): 0 means "self" with the old event
         # session.solo_set (an old core after a rollback knows it), a number >= 1 and default use session.parallel_set

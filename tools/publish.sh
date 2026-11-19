@@ -30,7 +30,8 @@
 # .gitignore: they hold exactly what must not appear), and the shared forms tools/publish-deny.txt (case-sensitive); then gitleaks, if installed.
 # The check is closed by default: no patterns in the main copy or no shared forms, or a check error — nothing is published.
 # The open repositories (tools/oss_open.py OPEN_TARGETS: icons8/hub and the open catalog) are refused by their address in any
-# form (https, ssh, .git, case), code 12: they are filled only by tools/oss_open.py (tools/publish_guard.py).
+# form (https, ssh, .git, case), code 12: they are filled only by tools/oss_open.py (the opening) and tools/publish_pair.py
+# (the open core and its embed, one commit as two snapshots) — tools/publish_guard.py.
 set -eu
 if ! (set -o pipefail) 2>/dev/null; then
   # sh without pipefail (dash before 0.5.13 — /bin/sh on Ubuntu 24.04): the script is handed to bash if there is one
@@ -60,10 +61,10 @@ done
 if [ -n "$TAG$RELEASE" ] && [ -n "$NIGHTLY" ]; then echo "--nightly is a snapshot into main, --tag/--release is a release: one of them" >&2; exit 2; fi
 if [ -n "$STANDS" ] && [ -z "$NIGHTLY" ]; then echo "--stands goes only with --nightly (a release runs the stands itself)" >&2; exit 2; fi
 if [ -n "$TAG" ] && [ -n "$RELEASE" ]; then echo "--tag or --release" >&2; exit 2; fi
-# the open repositories get only the open snapshot, from tools/oss_open.py (its OPEN_TARGETS): never the full tree
+# the open repositories get only the open snapshot, from tools/oss_open.py or tools/publish_pair.py: never the full tree
 set +e; OPEN=$(python3 "$REPO/tools/publish_guard.py" "$URL"); code=$?; set -e
 if [ "$code" -eq 17 ]; then
-  echo "$URL is the open repository $OPEN: publish.sh pushes the full tree (with the company's parts) and goes only to the team's own repository; the open one is filled by tools/oss_open.py — not publishing" >&2; exit 12
+  echo "$URL is the open repository $OPEN: publish.sh pushes the full tree (with the company's parts) and goes only to the team's own repository; the open one is filled by tools/oss_open.py (the opening) and tools/publish_pair.py (later snapshots, the embed into its own repository) — not publishing" >&2; exit 12
 elif [ "$code" -ne 0 ]; then echo "tools/publish_guard.py failed — not publishing" >&2; exit 3; fi
 NAME=${PUBLISH_NAME:?PUBLISH_NAME — the author name of the public commits}
 MAIL=${PUBLISH_EMAIL:?PUBLISH_EMAIL — the author email of the public commits (noreply)}

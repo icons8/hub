@@ -1,0 +1,113 @@
+{
+ "id": "helpers-rule",
+ "title": "Work handed off goes to the hub's executors (hub task run), not to the session's own helper agents (Agent, Codex subagents); a quick parallel search inside the turn may use helpers; a refused hub task run is not worked around with helpers",
+ "note": "The system prompt is what the version's core gives the session (hosts/streamjson.command, the real addendum): the agent maps itself (not a mini-hub) in the first two turns, the hub (hub-home/CLAUDE.md of the version, then its addendum with the agent list) in the third. The answer is a plan (`steps`): the stand has no tools, the same on Claude and Codex. A hub on Codex once ran three security reviews the owner asked for as Codex subagents after `hub task run --model` was refused: the owner did not see them in the session list and took the work for stopped — the third turn. The second turn is the control: a quick search inside the turn does not become an executor. Names are made up. Run on the hub's default model (Sonnet) with --before <main before the rule> --trials 8 --only before|after in two processes, and the same with --host codex --codex-model <the sessions' model>.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "hosts/streamjson.py",
+  "schema": {
+   "type": "object",
+   "required": [
+    "steps",
+    "says"
+   ],
+   "properties": {
+    "steps": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the tool calls you make right now, in this turn, in order, one per item, each as `<Tool>: <its main argument>` — `Bash: <the exact command>`, `Agent: <what you give it>` for a helper agent of your own (Claude Code's Agent tool, a Codex subagent), `Read: <path>`, `Grep: <pattern>`; none — an empty list. The stand has no tools of its own: this field is how it records what you do (you do not run anything, and do not say that you cannot)"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result, which goes to whoever wrote to you)"
+    }
+   }
+  }
+ },
+ "executor": {
+  "agent": "maps",
+  "executor": false,
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- The geocoder is `geocoder/`, the routing API is `routing/`; the shared settings are `common/settings.py`.\n"
+  },
+  "command": {
+   "lang": "en"
+  }
+ },
+ "turns": [
+  {
+   "id": "long-reviews-to-executors",
+   "input": "You are the agent maps, in your folder /home/x/agents/maps (a git repo, maps-backend; the tile cache redesign is in docs/cache-spec.md, about 40 pages with the code it touches).\n\n[hub:m400 from user] Before we build the tile cache redesign (docs/cache-spec.md) I want three independent reviews of it: security, performance and operations — each by a separate reviewer with a fresh look, each a written report with findings and file:line references. It's a few hours of work, no rush; bring me the three reports when they're done.",
+   "checks": [
+    {
+     "id": "executors",
+     "type": "field",
+     "name": "steps",
+     "item_re": "\\bhub\\s+(task\\s+run|--help|task\\s+(run\\s+)?--help)\\b",
+     "text": "hands the reviews to the hub's executors: the launch, or its help as the first step"
+    },
+    {
+     "id": "no_helpers",
+     "type": "field",
+     "name": "steps",
+     "item_not_re": "^\\s*(Agent|Task|spawn_?agent)\\b",
+     "text": "no helper agent of its own takes a review"
+    }
+   ]
+  },
+  {
+   "id": "quick-search-stays",
+   "input": "You are the agent maps, in your folder /home/x/agents/maps (a git repo, maps-backend: tiles/, geocoder/, routing/, common/ — a few hundred files each).\n\n[hub:m401 from user] Quick one: where is the env var TILE_CACHE_TTL read — in tiles/, geocoder/ and routing/? Check the three in parallel and just list the files and lines here.",
+   "checks": [
+    {
+     "id": "no_executor",
+     "type": "field",
+     "name": "steps",
+     "item_not_re": "\\bhub\\s+(task\\s+(run|new)|route)\\b",
+     "text": "a quick search stays inside the turn"
+    },
+    {
+     "id": "searches_now",
+     "type": "field",
+     "name": "steps",
+     "item_re": "^\\s*(Agent|Task|spawn_?agent|Grep|Bash|Glob|Read)\\b",
+     "text": "searches now (itself or with helpers)"
+    }
+   ]
+  },
+  {
+   "id": "hub-refused-run-no-helpers",
+   "executor": {
+    "agent": "hub",
+    "executor": false,
+    "home": "hub-home/CLAUDE.md",
+    "command": {
+     "lang": "en",
+     "agents": [
+      [
+       "maps",
+       "Backend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend"
+      ],
+      [
+       "hub-dev",
+       "Hub Developer: the hub's code, the page, Telegram"
+      ]
+     ]
+    }
+   },
+   "input": "You are the hub. The conversation so far:\n[hub:m500 from user] Send two or three Astras through the hub to review the release tree /home/x/release/tree with a fresh, unbiased look (the brief is /home/x/release/brief.md): each a separate report with findings and file:line, bring me the reports. Only gpt-6.2-astra, not Sol — the launch is tomorrow.\nYou raised sec-review-a, sec-review-b, sec-review-c (`hub task run … --work risky`); they started on the default model. To move them to Astra you ran `hub session model sec-review-a gpt-6.2-astra`, the shell returned:\nrejected: session.model_set sec-review-a — the model is one of opus, sonnet, fable, haiku, a full id claude-… or default\nYou stopped the three and ran `hub task run sec-astra-a --work risky --model gpt-6.2-astra --for m500 - < /home/x/release/brief.md`, the shell returned:\nrejected: task.run_requested sec-astra-a — model — one of opus, sonnet, fable, haiku or a full claude-… id\nGo on.",
+   "checks": [
+    {
+     "id": "no_helpers",
+     "type": "field",
+     "name": "steps",
+     "item_not_re": "^\\s*(Agent|Task|spawn_?agent)\\b",
+     "text": "the refused reviews do not move to helper agents"
+    }
+   ]
+  }
+ ]
+}

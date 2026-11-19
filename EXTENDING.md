@@ -248,6 +248,31 @@ core's stays) and the build refuses it, as it refuses a manifest the hub would b
 `hub module dev <name>` works on an embed's module in its own folder; a copy with its name in another folder is blocked.
 A `modules/<module>/catalog.py` with `entries(cfg)` in it adds tools to the catalog, as in the core.
 
+### A build's own plugin catalog (Embed API 1.2)
+
+An embed's `modules/private.json` may name its company's plugin catalog: `"repo": "<owner>/<name>"` (a GitHub repository
+with `hub-marketplace.json`). Alone, that catalog stands instead of the open one under the official name `agents-hub`
+(as before 1.2). With `"catalog": {"name": "<name>", "ref": "<branch>"}` (`ref` optional: the default branch otherwise)
+the hub connects both by itself, each official: the open catalog under `agents-hub` and the company's under its own name
+(not `agents-hub`, `hub`, `official` or a look-alike, not a built-in third-party name), read from that branch; a
+`catalog` that breaks these rules gives no second catalog (the open one stays, the build's tests should catch it). Each
+revokes only what was installed from it; an entry name should be in one of them only (`install <name>` without
+`@<catalog>` refuses a name both have). A hub that had the company's catalog as `agents-hub` moves to the pair by itself,
+once, at the first catalog pass of the new core: what was installed keeps its key, its settings and its on/off; only the
+catalog it belongs to (`market`) changes — to the one that lists its entry's name with its own source. Until both the old
+catalog and the company's under its new name (on its branch, whose `hub-marketplace.json` says that name) can be read,
+the hub stays on the old one.
+
+### Files a build lays in place: `deploy/` (Embed API 1.2)
+
+An embed may carry files under `deploy/` (`embed/<name>/deploy/...`, core/embed.py `PLACED`): what the core does not
+carry and the company makes itself, such as its Mac launcher signed with its own Developer ID
+(`deploy/mac/<Name>.app`). A build of the team flavor lays each of them at the same path of its layer, byte for byte, a
+program still a program; the embed keeps its copy too. A launcher an embed lays into a folder takes the place of the
+open flavor's there (`Hub by Icons8.app`, which a tree of the open core has in place). A path the core carries, or one
+another embed lays, is refused at the build. The open flavor carries none of it (it has no `embed/`). A Mac install from
+a git tree takes the ready launcher from the embed (`deploy/mac/app.py shipped`).
+
 ### A module from disk and developer mode (Module API 2.3)
 
 `hub module add <folder> [--dev]` puts a module folder (or a folder of module folders, for example a working copy of the
@@ -1002,7 +1027,7 @@ or the process crashed, the module's step is skipped: the parts and the text sta
   addendum to Claude Code as a file. An empty list means no addendum. The parts currently are `agent_file` (the agent's own
   CLAUDE.md, only for agents and their executors, first; for an executor, a digest if the agent has a `CLAUDE.executor.md`,
   see `core/execprofile.py`), `language`, `background`, `correction`, `first_action`, `shared_state`, `peer_rules`,
-  `autonomy`, `idle` (a session with a queue, a backlog or executors: not an executor, not the liaison), `findings`, `contacts` (not the liaison), `gist`, `cards`, `progress`, `lessons` (an agent, not its executors), `executor`, `minihub`, `minihub_dirty`, `bus`, `roster`, `rules`, `critic`, `backbone`, `skills`,
+  `autonomy`, `idle` (a session with a queue, a backlog or executors: not an executor, not the liaison), `helpers` (the same sessions: work handed off goes to the hub's executors), `findings`, `contacts` (not the liaison), `gist`, `cards`, `progress`, `lessons` (an agent, not its executors), `executor`, `minihub`, `minihub_dirty`, `bus`, `roster`, `rules`, `critic`, `backbone`, `skills`,
   whichever the session has. Part names and texts are not a promise of an API version: they change with core releases (a
   name change is listed in CHANGES). On `--resume` the module is called only if Claude Code understands
   `--system-prompt-snapshot` (otherwise it sends the prompt of the conversation's first request and the change would not
@@ -2032,6 +2057,10 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
   stopped turn cut out of the conversation; `back` — done, shown for 24 h; `again` — the filter tripped again within
   24 h of a return: it stays on `got` until something raises it (the owner's reload, a wake), which cuts it too.
   `day` — how many times the filter moved a session of the same account in the last 24 h. A core before has no field.
+- A session's helper agents (API 1.38): an entry of a session row's `background` with `kind: "agent"` has `model` when the
+  start of the call named one — the Codex subagent's model, or the `model` of Claude Code's Agent call (without it the agent
+  runs on its definition's or the session's model, which Claude Code does not say, and the entry has none). The page's row
+  shows them as "3 helpers · <model>"; a core before has no field.
 - The app's start without a wizard (API 1.36): on an app hub `features` has `setup.app` — its steps run
   by themselves (modules/setup/auto.py) and one band shows them (no hub has a «Setup» tab any more: the band says what
   holds the hub, and "About the hub" has a card for each thing not done). `GET /api/setup` of such a hub always gives the whole

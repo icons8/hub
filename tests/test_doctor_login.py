@@ -104,6 +104,20 @@ class DoctorLogin(unittest.TestCase):
         self.assertEqual(level, "ok")
         self.assertEqual(self.asked, [])                               # the host does not ask either
 
+    def test_a_key_sessions_get_from_the_owners_claude_settings_counts(self):
+        # sessions start with the login of the owner's Claude Code settings (catalog.user_env): so does the check —
+        # not the doctor process's own environment (a red band over a hub whose sessions answered)
+        import json
+        self.answer = {"loggedIn": False}
+        home = os.path.join(self.root, "claude")
+        os.makedirs(home)
+        with open(os.path.join(home, "settings.json"), "w") as f:
+            json.dump({"env": {"CLAUDE_CODE_OAUTH_TOKEN": "x" * 20}}, f)
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": home}):
+            os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+            level, _, _ = self.row("Claude sign-in")
+        self.assertEqual((level, self.asked), ("ok", []))
+
     def test_the_whole_claude_command_is_asked_not_only_its_first_word(self):
         self.answer = {"loggedIn": True}
         with unittest.mock.patch.object(journal, "load_state", lambda state_dir: {}):

@@ -20,7 +20,9 @@ version ({"before": …, "after": …}) when the text the prompt reads is made b
 as ⟦KEY⟧ with the turn's `consts` {KEY: {file, name, format?, optional?}} — that constant of each version (an `optional` one a
 version lacks is an empty line, and the input may then leave the mark out); `format` {"lang": …} takes
 a language code (ru, en) or any word a core used — each version gets the word its core puts into the rule. `executor` (of the case or of a turn: {agent, files: {CLAUDE.md,
-CLAUDE.executor.md, CLAUDE.executor.src.md}, executor?: false for the agent itself, command?: {more arguments of host.command}}) — the prompt is what the version's core gives that agent's executor (its whole addendum, built
+CLAUDE.executor.md, CLAUDE.executor.src.md}, executor?: false for the agent itself, command?: {more arguments of host.command},
+home?: a file of the version — hub-home/CLAUDE.md — for a session with no agent file, the hub itself (not an executor):
+that file, then the addendum}) — the prompt is what the version's core gives that agent's executor (its whole addendum, built
 by the version's hosts/streamjson from the files); the case's `prompt` then names only the schema. `files` are put into
 the folder where the model works, `tools` allows it to read them. `hub_cli` ({"session": S}) — the model has the `hub`
 of the version in its PATH (bin/hub from `git archive`, a state folder of its own, as session S): what it calls is
@@ -501,7 +503,7 @@ spec = json.load(sys.stdin)
 home = os.environ["HOME"]
 folder = os.path.join(home, "agents", spec["agent"])
 os.makedirs(folder)
-for name, text in spec["files"].items():
+for name, text in (spec.get("files") or {}).items():
     with open(os.path.join(folder, name), "w", encoding="utf-8", newline="") as f:
         f.write(text)
 sys.path.insert(0, os.getcwd())
@@ -511,12 +513,19 @@ host.fresh_prompt = False
 # `executor: false` — the agent itself (a mini-hub boss), not its executor; `command` — more of host.command's own
 # arguments (bus, minihub, spec, spec_boss…): a version that does not take one has the prompt without it
 import inspect
-want = {"agent_file": os.path.join(folder, "CLAUDE.md"), **({"executor_of": spec["agent"]} if spec.get("executor", True) else {}),
+# `home` (a file of the version, hub-home/CLAUDE.md) — a session without an agent file whose folder carries that CLAUDE.md
+# (the hub itself): the file, then the addendum the core gives such a session
+want = {**({} if spec.get("home") else {"agent_file": os.path.join(folder, "CLAUDE.md")}),
+        **({"executor_of": spec["agent"]} if spec.get("executor", True) and not spec.get("home") else {}),
         **(spec.get("command") or {})}
 known = inspect.signature(host.command).parameters
 cmd = host.command("w", "s-1", **{k: v for k, v in want.items() if k in known})
 with open(cmd[cmd.index("--append-system-prompt-file") + 1], encoding="utf-8") as f:
-    sys.stdout.write(json.dumps({"text": f.read(), "profile": host.profile_used.get("w")}))
+    text = f.read()
+if spec.get("home"):
+    with open(spec["home"], encoding="utf-8") as f:
+        text = f.read().rstrip("\n") + "\n\n" + text
+sys.stdout.write(json.dumps({"text": text, "profile": host.profile_used.get("w")}))
 """
 
 

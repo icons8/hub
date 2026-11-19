@@ -133,6 +133,11 @@ def empty():
             "browsers": {}, "limits": {}}
 
 
+# `hub session model` with a model the Codex host does not take (core/modelrule.codex_name refuses it in the command)
+MODEL_BAD_CODEX = T("core.reducer.model_bad_codex", "the model is codex/<id> — a model of the hub's Codex (its list: the "
+                                                    "page's model menu) — or default; only where the hub runs Claude "
+                                                    "sessions too (not entirely on Codex) — also one of {models} or a "
+                                                    "full id claude-…")
 # an error in the fold code (reduce): the start is forms.PREFIXES[CORE_FAILURE], which readers without the code field match
 CORE_FAILURE_TEXT = T("core.reducer.core_failure", "core failure on event {type}: {error}: {detail} ({where})")
 
@@ -815,6 +820,8 @@ def _apply(st, ev, actions):
         return _ask_expired(st, ev, data)
     if kind == "owner.invited":
         return _owner_invited(st, ev, data)
+    if kind == "owner.came":
+        return _owner_came(st, ev, data)
     if kind == "question.withdrawn":
         # a session withdraws its own question to the owner, the hub any (07.10: two identical questions from two
         # sessions, no way to remove the duplicate): the card leaves the page, Telegram and reminders
@@ -1515,10 +1522,13 @@ def _apply(st, ev, actions):
         if sess and isinstance(data.get("tasks"), list):
             # the full background task list from Claude Code is the truth: what is not in it has finished
             old = sess.get("background") or {}
-            # the output file and last output (watchdog, 03.10) are unknown to Claude Code's list: keep our own
-            keep = lambda tid: {k: v for k, v in (old.get(tid) or {}).items() if k in ("output", "out", "out_at")}  # noqa: E731
+            # the output file and last output (watchdog, 03.10) are unknown to Claude Code's list: keep our own; a
+            # helper agent's model too (the start of its call named it, Claude Code's list does not)
+            keep = lambda tid: {k: v for k, v in (old.get(tid) or {}).items()  # noqa: E731
+                                if k in ("output", "out", "out_at", "model")}
             sess["background"] = {t["id"]: {"id": t["id"], "kind": t.get("kind"), "title": t.get("title") or "",
-                                            "since": (old.get(t["id"]) or {}).get("since", ev["ts"]), **keep(t["id"])}
+                                            "since": (old.get(t["id"]) or {}).get("since", ev["ts"]), **keep(t["id"]),
+                                            **_bg_model(t)}
                                   for t in data["tasks"] if t.get("id")}
             # not a set: the order decides which of the departed _bg_gone remembers, and it must not depend on PYTHONHASHSEED
             _bg_gone(sess, [tid for tid in old if tid not in sess["background"]], ev["ts"])
@@ -1535,6 +1545,7 @@ def _apply(st, ev, actions):
             return
         sess.setdefault("background", {})[data["id"]] = {"id": data["id"], "kind": data.get("kind"),
                                                          "title": data.get("title") or "", "since": ev["ts"],
+                                                         **_bg_model(data),
                                                          **({"output": str(data["output"])[:400]} if data.get("output") else {})}
         return
     if kind == "session.background_output":
@@ -2156,6 +2167,8 @@ def _session_event(st, ev, data, actions):
                                         "the owner, the hub or the session itself sets the model"), itself=True)
         model = str(data.get("model") or "")
         if model != "default" and not known_model(model, catalog.codex_state(st)):
+            if catalog.codex_state(st):   # the Codex host: its form (`hub session model` gives real ids itself)
+                raise Rejected(MODEL_BAD_CODEX.format(models=", ".join(MODELS)))
             raise Rejected(T("core.reducer.model_bad", "the model is one of {models}, a full id claude-… or default")
                            .format(models=", ".join(MODELS)))
         if model == "default":
@@ -5020,9 +5033,11 @@ def _owner_answers_form(st, ev, sess, msg, actions, text=None, after=None):
 
 
 def first_word(st):
-    """The owner has never written: no mark, nothing read, none of his messages (a hub from before this version is not a first)."""
+    """The owner has never written: no mark, nothing read, none of his messages (a hub from before this version is not a
+    first). What their page marked read after they came (owner.came: it opens on the hub's chat) is no word of theirs."""
     o = st["owner"]
-    return not o.get("greeted") and not o.get("seen") and not any(m.get("from_owner") for m in st["messages"].values())
+    return not o.get("greeted") and (bool(o.get("came")) or not o.get("seen")) \
+        and not any(m.get("from_owner") for m in st["messages"].values())
 
 
 def _owner_event(st, ev, data, kind):
@@ -5202,13 +5217,29 @@ FIRST_AFTER_INVITE = (", the first message, you have greeted them already: no se
                       "step of ONBOARDING.md (step 6), quietly, and answer their words")
 
 
+def _owner_came(st, ev, data):
+    """The owner came for the first time (owner 2026-11-19: a fresh hub greeted a person with a Russian browser in the
+    machine's English): their page opened and said its language. Kept once, and only while the hub has not met them
+    (first_word); the core greets them after it, in this language (core/system.invite_due)."""
+    if not tools.from_owner(data):
+        raise Rejected(T("core.reducer.came_who", "only the owner's page says they came"))
+    if st["owner"].get("came") or st["owner"].get("invited") or not first_word(st):
+        return   # met already: a hub in use, or a second page
+    st["owner"]["came"] = {"ts": ev["ts"], "lang": i18n.known(data.get("lang")), "via": data.get("channel")}
+
+
+def invite_open(st):
+    """Nobody has greeted the owner and they have not written (first_word)."""
+    return not st["owner"].get("invited") and first_word(st)
+
+
 def _owner_invited(st, ev, data):
     """The first start of the hub (core/system.invite_due): the hub session gets one message to greet the owner by
     ONBOARDING.md, once for the whole journal. Their first word after that is no introduction again (FIRST_AFTER_INVITE)."""
     if data.get("channel") != "core":
         raise Rejected(T("core.reducer.invite_who", "the core invites the owner"))
     hub = _hub(st)
-    if not hub or st["owner"].get("invited") or not first_word(st):
+    if not hub or not invite_open(st):
         return   # a fact with no consequences: the invitation was made, or the owner has already written
     st["owner"]["invited"] = ev["ts"]
     new_message(st, f"m{ev['seq']}", hub, INVITE.format(language=i18n.name(data.get("lang"))), ev["ts"],
@@ -7346,6 +7377,12 @@ def _watch_promise(st, ev, data):
     what = " ".join(str(data.get("what") or "").split())[:200] or PROMISE_DEFAULT
     new_message(st, f"m{ev['seq']}", name, PROMISE_NUDGE.format(what=what), ev["ts"], origin=forms.ORIGIN_CORE,
                 **({"root": sess["turn_root"]} if sess.get("turn_root") else {}))
+
+
+def _bg_model(task):
+    """A background helper agent's model as the host named it (the page shows it in the session's row), else nothing."""
+    model = task.get("model") if task.get("kind") == "agent" else None
+    return {"model": model[:80]} if isinstance(model, str) and model.strip() else {}
 
 
 def _bg_gone(sess, ids, ts):

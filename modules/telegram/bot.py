@@ -58,7 +58,7 @@ UPLOAD_TRIES = 3   # this many times one file upload fails while the Bot API res
 TYPING_EVERY = 5         # Telegram clears "typing…" itself after ~5 s — refresh it while a turn for his message runs
 FIRST_LINE_AFTER = 45    # a turn longer than this — its first line ("accepted, passing on …") goes at once, the result later
 VOICE_SLOW_AFTER = 60    # a voice message is transcribed longer than this — one line "still transcribing" (otherwise a single 👀 for minutes)
-LATE_AFTER = 600         # nothing for him within 10 min — one line "⏳ The reply is delayed"
+LATE_AFTER = 600         # nothing for him within 10 min — one line "⏳ <who> is still busy: <what it does>"
 # Telegram's answer to a send into a topic that was deleted or closed: the message goes to "General" instead
 THREAD_GONE = re.compile(r"thread not found|topic_(?:closed|deleted|id_invalid)|topic (?:is )?closed", re.I)
 PAIR_TTL = 600           # the pairing code lives 10 minutes
@@ -340,6 +340,10 @@ KEEP_ASKS, KEEP_TOOL_KEYS, KEEP_ROUTES = 100, 200, 3000   # how much of the old 
 KEEP_STOP_KEYS = 50      # buttons of the /stop list: only the last lists can still be pressed
 STOPPABLE = ("starting", "busy", "dialog")   # "working" executors: those /stop offers
 STOP_LIST_TTL = 600      # a /stop list is good for 10 minutes: an old button must not stop the executor's later run
+HERE_FACTS = ("session.role_set", "task.backlog")   # what a /here press puts: the topic is bound when the core takes it
+HERE_OFFER_TTL = 600     # /here's "Make an agent / a direction" is good for 10 minutes, and for one press
+HERE_LIST = 30           # /here lists who is who: no more sessions than fit a glance
+KEEP_HERE = 50           # /here offers and presses waiting for the core that the state file keeps
 # voice failure code (VoiceError.kind) -> catalog key of the reason, as on the page (Web.VOICE_WHY): its own copy, not an import —
 # a process of the previous release holds the old modules.voice in memory while the new files are read from disk
 VOICE_WHY = {"format": "web.srv.voice_why_format", "ffmpeg_start": "web.srv.voice_why_ffmpeg_start",
@@ -375,7 +379,8 @@ class Bot:
         for k, v in (("offset", 0), ("seq", None), ("routes", {}), ("owner_msgs", {}), ("asks", {}), ("held", {}), ("keys", {}),
                      ("cards", {}), ("turn", {}), ("failed", []), ("live", {}), ("retry", {}), ("told", []), ("unasked", {}),
                      ("threads", {}), ("posted", {}), ("card_html", {}), ("quoted", {}), ("transcribe", {}),
-                     ("voiced", {}), ("notices", {}), ("digest", {}), ("topics", {}), ("topic_of", {})):
+                     ("voiced", {}), ("notices", {}), ("digest", {}), ("topics", {}), ("topic_of", {}),
+                     ("here_offers", {}), ("binding", {})):
             self.st.setdefault(k, v)
         self.sending, self.attempt = None, {}   # the event being sent and its parts sent in this attempt (once)
         # the group: the person of the update being handled ({role, tg, name}: what put() names), the session the event being
@@ -419,6 +424,8 @@ class Bot:
         drop = set(tools[:-KEEP_TOOL_KEYS])
         stops = [k for k, v in self.st["keys"].items() if v.get("do") == "stop"]
         drop |= set(stops[:-KEEP_STOP_KEYS])
+        heres = [k for k, v in self.st["keys"].items() if v.get("do") == "here"]   # three buttons an offer
+        drop |= set(heres[:-3 * KEEP_HERE])
         self.st["keys"] = {k: v for k, v in self.st["keys"].items()
                            if k not in drop and ("ask" not in v or not (asks.get(v["ask"]) or {"done": True}).get("done"))}
         if hasattr(self, "hubs"):
@@ -429,6 +436,9 @@ class Bot:
         topic_of = self.st.get("topic_of") or {}
         for k in list(topic_of)[:-KEEP_ROUTES]:
             del topic_of[k]
+        for kept in (self.st["here_offers"], self.st["binding"]):
+            for k in list(kept)[:-KEEP_HERE]:
+                del kept[k]
         voiced = self.st["voiced"]
         for k in list(voiced)[:-KEEP_VOICED]:
             del voiced[k]
@@ -1071,16 +1081,23 @@ class Bot:
 
     def here_cmd(self, arg, m):
         """/here <session> in a topic of the group: the topic's words go to that session, its results, questions and
-        pictures come here; /here — what it is bound to; /here off — unbound. "General" is always the hub. An executor
-        is not bound: it sleeps when it hands in, and its words go to whoever raised it."""
+        pictures come here; /here — what it is bound to and who is who; /here off — unbound. "General" is always the
+        hub. A topic is a long-lived session's: an agent or a direction (and the hub) is bound at once; any other one
+        (an executor sleeps when it hands in, a plain session) gets "Make an agent" / "Make a direction" / "Cancel" —
+        an admin's press makes it one through the core and binds the topic when the core has taken it (here_press)."""
         thread = m.get("message_thread_id") if m.get("is_topic_message") else None
-        say = lambda text: self.send(text, reply_to=m["message_id"])  # noqa: E731
-        if not thread:
-            return say(i18n.t("telegram.group.here_general"))
+        say = lambda text, **kw: self.send(text, reply_to=m["message_id"], **kw)  # noqa: E731
         topics, key = self.st["topics"], str(thread)
         if not arg:
-            return say(i18n.t("telegram.group.here_is", name=topics[key]) if key in topics
-                       else i18n.t("telegram.group.here_none"))
+            if not thread:
+                head = i18n.t("telegram.group.here_general")
+            elif key in topics:
+                head = i18n.t("telegram.group.here_is_role", name=topics[key], role=self.role_word(topics[key]))
+            else:
+                head = i18n.t("telegram.group.here_none")
+            return say("\n\n".join(x for x in (head, self.who_is_who()) if x))
+        if not thread:
+            return say(i18n.t("telegram.group.here_general"))
         if arg == "off":
             topics.pop(key, None)
             return say(i18n.t("telegram.group.here_off"))
@@ -1089,12 +1106,150 @@ class Bot:
         sess = st["sessions"].get(name or "")
         if not sess or sess["state"] in ("removed", "closed", "failed"):
             return say(i18n.t("telegram.group.here_unknown", name=arg))
-        if minihub.runner(sess):
-            return say(i18n.t("telegram.group.here_executor", name=name))
+        if not self.long_lived(sess):
+            offer = secrets.token_hex(4)
+            self.st["here_offers"][offer] = {"session": name, "thread": thread, "ts": self.clock()}
+            rows = [[{"text": i18n.t(label), "callback_data": self.key({"do": "here", "offer": offer, "as": role})}]
+                    for label, role in (("telegram.group.here_make_agent", "agent"),
+                                        ("telegram.group.here_make_direction", "direction"),
+                                        ("telegram.group.here_cancel", None))]
+            return say(i18n.t("telegram.group.here_offer", name=name, role=self.role_word(name)), buttons=rows)
+        self.bind_topic(key, name)
+        say(i18n.t("telegram.group.here_set", name=name))
+
+    @staticmethod
+    def long_lived(sess):
+        """A topic's session: a specialist or a direction (minihub.lead), the hub, the liaison — not an executor or a
+        plain session."""
+        return minihub.lead(sess) or sess.get("kind") == "hub" or bool(sess.get("liaison"))
+
+    def bind_topic(self, key, name):
+        topics = self.st["topics"]
         for k in [k for k, v in topics.items() if v == name]:   # one topic per session
             del topics[k]
         topics[key] = name
-        say(i18n.t("telegram.group.here_set", name=name))
+
+    def role_word(self, name):
+        """Who the session is, in a word: the hub, an agent, a direction, an executor, a session (+ its icon)."""
+        sess = self.reader.state["sessions"].get(name) or {}
+        if sess.get("kind") == "hub":
+            return i18n.t("telegram.hub")
+        key = "telegram.group.role_direction" if sess.get("backlog") else "telegram.group.role_agent" \
+            if sess.get("role") == "agent" else "telegram.group.role_executor" if minihub.runner(sess) \
+            else "telegram.group.role_session"
+        icon = sess.get("own_icon") or sess.get("icon")
+        return i18n.t(key) + (f" {icon}" if icon else "")
+
+    def topic_link(self, thread):
+        """A link to a topic of the bound supergroup (t.me/c/<id>/<topic>: its members open it), or None."""
+        chat = str(self.group() or "")
+        return f"https://t.me/c/{chat[4:]}/{thread}" if chat.startswith("-100") and chat[4:].isdigit() else None
+
+    def who_is_who(self):
+        """/here: the sessions a topic may take, who each is, and which topic each has — the asleep executors aside."""
+        st, bound = self.reader.state, {v: k for k, v in self.st["topics"].items()}
+        names = [n for n, s in sorted(st["sessions"].items()) if s.get("kind") != "hub" and (n in bound or (
+            s["state"] not in ("removed", "closed", "failed") and not (minihub.runner(s) and views.shown(s["state"]) == "asleep")))]
+        if not names:
+            return ""
+        lines = []
+        for n in names[:HERE_LIST]:
+            line = f"- `{n}` — {self.role_word(n)}"
+            if n in bound:
+                link = self.topic_link(bound[n])
+                topic = i18n.t("telegram.group.here_topic")
+                line += f" · [{topic}]({link})" if link else f" · {topic}"
+            lines.append(line)
+        if len(names) > HERE_LIST:
+            lines.append(i18n.t("telegram.group.here_more", count=len(names) - HERE_LIST))
+        return i18n.t("telegram.group.here_list") + "\n" + "\n".join(lines)
+
+    def here_press(self, payload, cq):
+        """A press on /here's offer: make the session an agent or a direction — the same facts as `hub session role
+        <name> agent` and `hub direction new <name> --session <name>`, so a running turn goes on and the session becomes
+        a mini-hub after it — and bind the topic once the core has taken the fact (here_done). The card loses its buttons."""
+        offer = self.st["here_offers"].get(payload.get("offer") or "")
+        msg = (cq.get("message") or {}).get("message_id")
+        if not offer or offer.get("used") or self.clock() - offer.get("ts", 0) > HERE_OFFER_TTL:
+            self.unbutton(msg)   # an old card: no buttons that do nothing
+            return i18n.t("telegram.cb_stale")
+        name, role = offer["session"], payload.get("as")
+        st = self.reader.state
+        sess = st["sessions"].get(name)
+        if role is not None and (not sess or sess["state"] in ("removed", "closed", "failed")):
+            return i18n.t("telegram.group.here_gone", name=name)
+        slug = None
+        if role == "direction" and not self.long_lived(sess):
+            slug, why = self.make_direction(name, sess)
+            if why:   # the buttons stay: "Make an agent" may still do
+                self.send(why, reply_to=msg)
+                return i18n.t("telegram.group.here_not_made")
+        offer["used"] = True
+        self.unbutton(msg)
+        if role is None:
+            return i18n.t("telegram.group.here_cancelled")
+        if self.long_lived(sess):   # made an agent or a direction meanwhile (the hub, the page): only the topic is left
+            self.bind_topic(str(offer["thread"]), name)
+            self.send(i18n.t("telegram.group.here_made", name=name, role=self.role_word(name)), route={"session": name})
+            return i18n.t("telegram.cb_done")
+        if role == "agent":
+            last = max((d for d in st.get("delegations", {}).values() if d.get("session") == name),
+                       key=delegations.born, default=None)
+            about = sess.get("about") or (sess.get("gist") or {}).get("text") or (last or {}).get("words") or name
+            fact = ("session.role_set", name, {"role": "agent", "about": reducer.one_line(about, 120, word=True)})
+        else:
+            fact = ("task.backlog", None, {"slug": slug, "session": name})
+        req = secrets.token_hex(6)
+        self.st["binding"][req] = {"session": name, "thread": offer["thread"], "msg": msg, "as": role}
+        self.put(fact[0], fact[1], {**fact[2], "req": req})
+        return i18n.t("telegram.cb_accepted")
+
+    def unbutton(self, msg):
+        """The buttons off a message of the bot (pressed, or too old to press)."""
+        try:
+            self.api.call("editMessageReplyMarkup", chat_id=self.chat(), message_id=msg, reply_markup={"inline_keyboard": []})
+        except TgError:
+            pass
+
+    def make_direction(self, name, sess):
+        """The direction's backlog named like the session, in the repo it works in (or a git folder of its own) — what
+        `hub direction new` does before its fact; one that is there already is taken unless another session leads it
+        or waits for it. (its name, None) or (None, why not — in the owner's words)."""
+        from modules.directions import direction
+        try:
+            path = direction.path_of(direction.check_slug(name))
+            if not os.path.isdir(os.path.join(path, "backlog")):
+                direction.new(name, direction.repo_of(sess))
+                return name, None
+            slugs = direction.names_of(name)
+        except direction.Fail as e:
+            return None, str(e)
+        except (OSError, ValueError) as e:   # the disk, an unreadable hub.json (direction.root): a line, not a broken press
+            return None, f"{type(e).__name__}: {e}"[:300]
+        st = self.reader.state
+        lead = next((n for n, s in st["sessions"].items()
+                     if n != name and s.get("backlog") in slugs and s["state"] != "removed"), None)
+        lead = lead or next((n for n, v in (st.get("pending_backlogs") or {}).items()   # the hub gave it to one not up yet
+                             if n != name and (v.get("slug") if isinstance(v, dict) else n) in slugs), None)
+        if lead:
+            return None, i18n.t("telegram.group.here_direction_taken", slug=slugs[0], name=lead)
+        return os.path.basename(path), None   # a renamed direction: the name its folder has now, as the CLI sends
+
+    def here_done(self, ev, why):
+        """The core took (or refused) the fact of a /here press: the topic is bound — one line in it — or the reason."""
+        req = (ev.get("data") or {}).get("req") or ""
+        bind = self.st["binding"].get(req)
+        if bind is None:
+            return False
+        if why:
+            self.send(i18n.t("telegram.group.here_refused", name=bind["session"], why=coretext.human(why)),
+                      reply_to=bind["msg"])
+        else:
+            self.bind_topic(str(bind["thread"]), bind["session"])
+            self.send(i18n.t("telegram.group.here_made", name=bind["session"], role=self.role_word(bind["session"])),
+                      route={"session": bind["session"]})
+        self.st["binding"].pop(req)   # after the line went: a failed send repeats the event, and the line with it
+        return True
 
     def migrated(self, new):
         """The group became a supergroup (topics turned on): a new chat id; the bot follows it (follow_chat)."""
@@ -1127,7 +1282,7 @@ class Bot:
             except TgError as e:
                 sys.stderr.write(f"telegram: the old chat was not told where the bot went: {e}\n")
         for k in ("routes", "owner_msgs", "cards", "threads", "quoted", "live", "notices", "card_html", "topic_of",
-                  "topics", "keys", "asks", "bus_msgs"):
+                  "topics", "keys", "asks", "bus_msgs", "here_offers", "binding"):
             if k in self.st:
                 self.st[k] = {}
         self.st["told"] = []
@@ -1301,7 +1456,8 @@ class Bot:
             self.send(i18n.t("telegram.not_understood"), reply_to=m["message_id"])
             return
         route = self.st["routes"].get(str((m.get("reply_to_message") or {}).get("message_id")))
-        if route and route.get("ask") and not member:  # a reply to a session question — one's own answer option ("Other")
+        remark = self.to_a_person(m)
+        if route and route.get("ask") and not member and not remark:  # a reply to a session question — one's own answer option ("Other")
             if text and self.answer(route["ask"], route.get("q", 0), text, words=True):
                 self.react(m["message_id"], "👌")
                 if failed:   # the answer went in words — still tell about the file that did not arrive
@@ -1310,6 +1466,8 @@ class Bot:
             # the question is already closed (answered by a button or on the page) — this is just a message to that session: before, it silently
             # disappeared (a message did not reach either the journal or the session)
         data = {"text": text or "(attachments)", "attachments": files, "tg": {"chat": m["chat"]["id"], "id": m["message_id"]}}
+        if remark:   # words to a person of the group: the hub reads them with its next turn, they start none
+            data["fyi"] = True
         if failed:   # not downloaded — to the hub as a field, not into the owner's words
             data["attach_failed"] = failed
         quote = self.quote(m, route)
@@ -1335,6 +1493,27 @@ class Bot:
         self.put("message.received", None, data)
         if failed:
             self.attach_failed_reply(m, failed)
+
+    def to_a_person(self, m):
+        """Words in the group that begin with a mention of a person (@name, or a name picked from the list) and not of
+        this bot: people talk to each other there, and that is no task for the hub — no turn, no "typing", no "⏳"."""
+        if self.group() is None:
+            return False
+        text = m.get("text") is not None
+        raw = str((m.get("text") if text else m.get("caption")) or "")
+        start = len(raw) - len(raw.lstrip())   # whitespace is one UTF-16 unit, as Telegram counts the offset
+        for e in (m.get("entities") if text else m.get("caption_entities")) or []:
+            if not isinstance(e, dict) or e.get("offset") != start:
+                continue
+            if e.get("type") == "text_mention":
+                return not (e.get("user") or {}).get("is_bot")
+            if e.get("type") == "mention" and isinstance(e.get("length"), int):
+                try:
+                    me = str(self.me().get("username") or "")
+                except TgError:   # unknown: a mention of the bot is rare, a turn the hub takes for a remark is not
+                    me = ""
+                return raw[start + 1:start + e["length"]].lower() != me.lower()
+        return False
 
     def attach_failed_reply(self, m, failed, recorded=True):
         """Why an attachment was not downloaded (size, Telegram error, network) — to the owner as a reply to his message. After
@@ -1746,6 +1925,8 @@ class Bot:
                 note = i18n.t("telegram.stop_gone")
         elif payload["do"] == "spec":   # "Accept" / "Drop" on a spec card (core/specmode.py)
             note = self.spec_press(payload)
+        elif payload["do"] == "here":   # /here's "Make an agent" / "Make a direction" / "Cancel"
+            note = self.here_press(payload, cq)
         elif payload["do"] == "group_bind":   # "Move the bot there" / "Keep it here" on another group's request
             note = self.group_press(payload, cq)
         elif payload["do"] == "spec_set":   # /spec: specs on or off for a session
@@ -2000,6 +2181,8 @@ class Bot:
                 ev = {**ev, "refused": why}
             elif ev["type"] == "session.stop_requested" and data.get("channel") == "telegram" and data.get("tg"):
                 ev = {**ev, "stop_refused": why}   # /stop: pressed, and the core refused (it slept already) — say why
+            elif ev["type"] in HERE_FACTS and data.get("req") in self.st["binding"]:
+                ev = {**ev, "bind_refused": why}   # /here's "Make an agent": the core refused — say why, bind nothing
             else:
                 return
         if ev["type"] == "turn.result":
@@ -2150,7 +2333,8 @@ class Bot:
         return who - {None}
 
     def late_text(self, key):
-        """"⏳ The reply is delayed: whose message it is — what it is doing" (recap, "waiting", state — from the core)."""
+        """"⏳ <who> is still busy: <what it is doing>" — whose the message is (recap, "waiting", state — from the core);
+        one still in the queue says so; a session that runs no turn (asleep, waiting) "has not answered yet"."""
         st, live = self.reader.state, self.st["live"][key]
         msg = st["messages"].get(key) or {}
         who = msg.get("session") or (live.get("turn") or {}).get("session")
@@ -2159,10 +2343,11 @@ class Bot:
                 who = d["session"]   # the hub passed it to an executor — we wait for it
         sess = st["sessions"].get(who) or {}
         doing = self.doing(sess)
-        if msg.get("state") == "queued":
-            doing = i18n.t("telegram.late_queued", doing=doing)
-        label = i18n.t("telegram.hub") if sess.get("kind") == "hub" or not who else f"`{who}`"
-        return i18n.t("telegram.late", label=label, doing=doing), who
+        label = i18n.t("telegram.late_hub") if sess.get("kind") == "hub" or not who else f"`{who}`"
+        # "still busy" only while it runs a turn: an asleep or waiting session has not answered yet
+        line = "telegram.late_waits" if sess.get("state") not in chain.BUSY else \
+            "telegram.late_busy_queued" if msg.get("state") == "queued" else "telegram.late_busy"
+        return i18n.t(line, label=label, doing=doing), who
 
     def outgoing(self, ev):
         """An event of the journal → the chat. In the group, what it says goes to the topic of the session it is about."""
@@ -2181,6 +2366,8 @@ class Bot:
             self.react(data["tg"]["id"], "👎")
             self.send(i18n.t("telegram.not_delivered", why=coretext.human(ev["refused"])), reply_to=data["tg"]["id"])
             return
+        if kind in HERE_FACTS and data.get("channel") == "telegram" and self.here_done(ev, ev.get("bind_refused")):
+            return
         if kind == "session.stop_requested" and data.get("channel") == "telegram" and data.get("tg"):   # /stop: the core's word
             if ev.get("stop_refused"):
                 self.send(i18n.t("telegram.stop_refused", name=name, why=re.sub(r" \(\S+ in [^)]+\)$", "", str(coretext.human(ev["stop_refused"])))),
@@ -2197,7 +2384,8 @@ class Bot:
                 self.send(i18n.t("web.cmd.back_ok") + ".")
         if kind == "message.received" and data.get("tg") and data.get("channel") == "telegram":
             self.st["owner_msgs"][f"m{ev['seq']}"] = data["tg"]["id"]
-            if self.clock() - ev["ts"] < LIVE_FOR:   # old (the bot was down) — without live feedback
+            # old (the bot was down) — without live feedback; a remark to a person of the group (fyi) starts no turn to wait for
+            if self.clock() - ev["ts"] < LIVE_FOR and not data.get("fyi"):
                 self.st["live"][f"m{ev['seq']}"] = {"tg": data["tg"]["id"], "chat": data["tg"]["chat"], "ts": ev["ts"]}
             return
         if kind == "session.said" and name and not data.get("parent"):   # the first line of a turn (not the words of his agent)

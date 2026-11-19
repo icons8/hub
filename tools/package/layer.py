@@ -300,11 +300,13 @@ def check_open(repo, ref, work, python, args=(), timeout=7200, forbid=()):
 
 
 def build(repo, ref, out, python, flavor="team", version=None, channel=None, forbid=(), keep=None, tested=None,
-          source=None, issues=None, own=None, profile=None, wanted=None, check=False):
+          source=None, issues=None, own=None, profile=None, wanted=None, check=False, embeds_from=None):
     """The layer archive and its sheet in out; own — the manifest's "own" of a hub's own build (core/ownsrc.py); keep — a path where the built folder is left as well (the shell's seed);
     tested — the commit --test ran on: the layer is of it even if ref has moved since (a tag that no longer names it
     gives a nightly version); profile — the name of the company's build profile, wanted — its embeds; check — the
-    rules of embedding and the contract of the slots (embed_check) hold the tree first, as for every profile.
+    rules of embedding and the contract of the slots (embed_check) hold the tree first, as for every profile;
+    embeds_from — a hub's own build of a copy of an open core, which has no embed/: the embeds come from that release
+    folder (each file checked against its manifest), and so do "core" and "embeds" of the MANIFEST.
     -> the sheet (dict). Refused — nothing is left in out."""
     if flavor not in appcode.FLAVORS:
         raise Refused(f"flavor {flavor!r}: one of {', '.join(appcode.FLAVORS)}")
@@ -337,9 +339,15 @@ def build(repo, ref, out, python, flavor="team", version=None, channel=None, for
             for n in names:
                 if os.path.islink(os.path.join(d, n)):
                     raise Refused(f"{os.path.relpath(os.path.join(d, n), tree)}: a link in the tree")
+        release = None
+        if embeds_from:
+            more, release = embeds_of(embeds_from, tree)
+            programs |= more
         if check:   # by this machine's Python: the result is the tree's, not the platform's being built
             embed_check(tree, sys.executable, None if flavor == "open" else wanted)
-        made = provenance(repo, commit, tree, profile, cut=flavor == "open")   # EMBED.json goes with the open cut
+        made = provenance(repo, commit, tree, profile, cut=flavor == "open") if release is None else \
+            {"profile": profile or release.get("profile"), "core": release.get("core"),
+             "embeds": release.get("embeds") or []}   # EMBED.json goes with the open cut
         if flavor == "open":
             cut_open(tree, forbid=forbid)
             programs = {swapped(p) for p in programs}   # a program the swap moved is one at its place too
@@ -355,6 +363,8 @@ def build(repo, ref, out, python, flavor="team", version=None, channel=None, for
                     appcode.remove_tree(path)
                 elif os.path.isfile(path):
                     os.unlink(path)
+        if flavor != "open":   # the open flavor has no embed/ left (cut_open)
+            programs = place(tree, programs)
         with open(os.path.join(tree, appcode.GIT_STOP[0]), "wb") as f:
             f.write(appcode.GIT_STOP[1])
         r = subprocess.run([python, "-I", "-m", "compileall", "-q", "-j", "0", "--invalidation-mode", "checked-hash", "."],
@@ -385,6 +395,38 @@ def build(repo, ref, out, python, flavor="team", version=None, channel=None, for
         appcode.remove_tree(work)
 
 
+def place(tree, programs):
+    """A team layer: the files the embeds place (core/embed.PLACED — the company's signed Mac launcher) laid at their path
+    of the tree, byte for byte, a program among them still one; each embed keeps its own copy (a build of a person's edits
+    takes the embeds from the release's files, embeds_of). The open flavor's launcher (appcode.OPEN_SWAP's place, where a
+    composed tree of the open core has it) goes from a folder an embed lays a launcher of its own into. -> the programs.
+    Refused: the tree has that path already. A factory whose core is older than Embed API 1.2 lays nothing."""
+    try:
+        from core import embed
+    except ImportError:   # a core before the Embed API (the factory of an earlier release builds a person's edits)
+        return programs
+    if not (hasattr(embed, "placed") and hasattr(embed, "bundle")):
+        return programs
+    laid, seen = embed.placed(tree), set()
+    for name, rel in laid:
+        dest, src = os.path.join(tree, *rel.split("/")), f"{embed.FOLDER}/{name}/{rel}"
+        whole = embed.bundle(rel)
+        if os.path.lexists(dest) or whole and (name, whole) not in seen and os.path.lexists(os.path.join(tree, *whole.split("/"))):
+            raise Refused(f"{src}: the tree has {whole or rel} already")
+        if whole:
+            seen.add((name, whole))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(os.path.join(tree, *src.split("/")), dest)
+        if src in programs:
+            programs = programs | {rel}
+    apps = {os.path.dirname(embed.bundle(rel)) for _, rel in laid if embed.bundle(rel)}
+    for _, dst in appcode.OPEN_SWAP:
+        there = os.path.join(tree, *dst.split("/"))
+        if dst.endswith(".app") and os.path.dirname(dst) in apps and os.path.isdir(there):
+            appcode.remove_tree(there)
+    return programs
+
+
 def embed_check(tree, python, wanted=None):
     """The checks every build profile passes (Embed API, spec d2144426 §6), on the commit's tree with its tests: the
     rules of embedding (core/embed.py problems; wanted — exactly the profile's embeds) and the contract of each slot an
@@ -413,6 +455,30 @@ def embed_check(tree, python, wanted=None):
         raise Refused(f"the check of the embeds did not run: {(r.stdout + r.stderr).strip()[-600:]}")
     if bad:
         raise Refused("the embeds do not keep the Embed API (core/embed.py):\n" + "\n".join(bad[:20]))
+
+
+def embeds_of(root, tree):
+    """The embeds of the release in the layer folder root into the build tree (which must have no embed/ of its own):
+    its sources as its MANIFEST lists them, each with its sum (an edited release gives none) -> (the programs among
+    them, the release's manifest: the build's MANIFEST names its "core" and "embeds")."""
+    if os.path.lexists(os.path.join(tree, "embed")):
+        raise Refused("--embeds-from: the tree has an embed/ of its own")
+    try:
+        man = appcode.load(root)
+    except appcode.Bad as e:
+        raise Refused(f"--embeds-from: {e}") from None
+    programs = set()
+    for rel, entry in sorted(man["files"].items()):
+        if not rel.startswith("embed/") or appcode._cache(rel):
+            continue
+        src, dest = os.path.join(root, *rel.split("/")), os.path.join(tree, *rel.split("/"))
+        if appcode._sha_or_none(src) != entry["sha256"]:
+            raise Refused(f"--embeds-from: {rel} differs from its release")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(src, dest)
+        if entry.get("x"):
+            programs.add(rel)
+    return programs, man
 
 
 def provenance(repo, commit, tree, profile=None, cut=False):
@@ -456,6 +522,7 @@ def main(argv=None):
     ap.add_argument("--own", help="a hub's own build of the person's edits: the manifest's \"own\" as JSON (core/ownsrc.py)")
     ap.add_argument("--profile-name", help="the company's build profile the layer is of (its MANIFEST names it)")
     ap.add_argument("--keep", help="also leave the built folder here")
+    ap.add_argument("--embeds-from", help="a hub's own build: the embeds of this release folder (its tree has none)")
     ap.add_argument("--test", action="store_true",
                     help="open flavor: first the whole suite (tools/test.py) on the cut tree with its tests; red — no layer")
     a = ap.parse_args(argv)
@@ -477,7 +544,8 @@ def main(argv=None):
         except ValueError:
             raise Refused("--own: not JSON") from None
         sheet = build(a.repo, a.ref, a.out, a.python, a.flavor, a.version, a.channel, forbid, keep=a.keep,
-                      tested=tested, source=a.source, issues=a.issues, own=own, profile=a.profile_name, check=True)
+                      tested=tested, source=a.source, issues=a.issues, own=own, profile=a.profile_name, check=True,
+                      embeds_from=a.embeds_from)
     except (Refused, appcode.Bad) as e:
         sys.exit(f"layer.py: {e}")
     print(f"{sheet['archive']['name']}  {sheet['files']} files  {sheet['archive']['size'] / 1e6:.1f} MB  "

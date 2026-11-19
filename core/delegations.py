@@ -100,6 +100,9 @@ RECORD = ("Task {did}: its record is `hub task show` (the owner, the hub and who
 
 
 BAD_MODEL = T("core.delegations.bad_model", "model — one of {models} or a full claude-… id")
+BAD_MODEL_CODEX = T("core.delegations.bad_model_codex",
+                    "model — codex/<id>, a model of the hub's Codex (its list: the page's model menu); only where the "
+                    "hub runs Claude sessions too (not entirely on Codex) — also one of {models} or a full claude-… id")
 BAD_EFFORT = T("core.delegations.bad_effort", "effort — one of {efforts}")
 
 
@@ -110,7 +113,7 @@ def pinned(data, codex=False):
     from core.catalog import EFFORTS, MODELS, known_model
     out = {k: str(data[k]) for k in ("model", "effort") if data.get(k)}
     if "model" in out and not known_model(out["model"], codex):
-        raise Rejected(BAD_MODEL.format(models=", ".join(MODELS)))
+        raise Rejected((BAD_MODEL_CODEX if codex else BAD_MODEL).format(models=", ".join(MODELS)))
     if "effort" in out and out["effort"] not in EFFORTS:
         raise Rejected(BAD_EFFORT.format(efforts=", ".join(EFFORTS)))
     return out

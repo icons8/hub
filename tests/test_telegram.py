@@ -308,9 +308,42 @@ class TelegramTest(unittest.TestCase):
         self.now += 600
         self.bot.tick()
         (late,) = self.fake.sent()
-        self.assertTrue(late["text"].startswith("⏳ The reply is delayed: hub"), late["text"])
-        self.assertIn("reading the build logs", late["text"])
+        # who is busy and with what, in one sentence: not "the reply is delayed: hub — <its line>" glued together
+        self.assertEqual(late["text"], "⏳ The hub is still busy, your message is in the queue. Now: reading the build logs")
         self.assertEqual(late["reply_parameters"]["message_id"], 5)
+
+    def test_in_his_private_chat_a_mention_is_still_words_for_the_hub(self):
+        # only in a group do people talk to each other; here "@name …" is his message to the hub, with live feedback
+        self.clocked(text="@julia asked for the totals", entities=[{"type": "mention", "offset": 0, "length": 6}])
+        (ev,) = [e for e in journal.read(self.j.path) if e["type"] == "message.received"]
+        self.assertNotIn("fyi", ev["data"])
+        self.assertIn(f"m{ev['seq']}", self.bot.st["live"])
+
+    def test_the_late_notice_of_a_session_on_its_turn_names_it_and_its_work(self):
+        self.j.append("session.requested", "w", {"cwd": "/w", "session_id": "w"})
+        self.j.append("session.started", "w", {"session_id": "w"})
+        self.bot.tick()
+        self.bot.st["routes"]["40"] = {"session": "w"}
+        self.clocked(reply_to=40)
+        mid = next(f"m{e['seq']}" for e in journal.read(self.j.path) if e["type"] == "message.received")
+        self.j.append("turn.started", "w", {"marker": mid})
+        self.j.append("session.recap", "w", {"text": "rendering the second scene", "by": "watch"})
+        self.bot.tick()
+        self.now += 601
+        self.bot.tick()
+        (late,) = [b for b in self.fake.sent() if "⏳" in b["text"]]
+        self.assertEqual(late["text"], "⏳ <code>w</code> is still busy: rendering the second scene")
+
+    def test_a_session_that_runs_no_turn_is_not_called_busy(self):
+        self.j.append("session.requested", "w", {"cwd": "/w", "session_id": "w"})
+        self.j.append("session.started", "w", {"session_id": "w"})
+        self.bot.tick()
+        self.bot.st["routes"]["40"] = {"session": "w"}
+        self.clocked(reply_to=40)   # its turn has not started (the core has not typed it yet)
+        self.now += 601
+        self.bot.tick()
+        (late,) = [b for b in self.fake.sent() if "⏳" in b["text"]]
+        self.assertEqual(late["text"], "⏳ No answer from <code>w</code> yet: free")
 
     def test_the_late_notice_does_not_pass_the_last_turns_line_for_the_current_one(self):
         # the model of the "what it is working on" line hit its limit: there is no new line — do not show the previous turn's line

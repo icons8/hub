@@ -115,7 +115,7 @@ fi
 # The "Agents Hub.app" bundle (built and signed in advance, deploy/mac/app.py; the open flavor's "Hub by Icons8.app",
 # signed ad hoc): "Login Items" show the hub's name, not "python3", and folder access goes to the bundle. If the signature
 # does not match, launchd runs Python directly, as before.
-# A checkout without the signed bundle (deploy/mac/Agents Hub.app) is fine: the installer builds its own from launcher.c with an ad-hoc signature (clang from the Command Line Tools). No clang or a failed
+# A checkout without the signed bundle (deploy/mac/Agents Hub.app, or embed/<name>/deploy/mac/ in a tree from git) is fine: the installer builds its own from launcher.c with an ad-hoc signature (clang from the Command Line Tools). No clang or a failed
 # build: no bundle, launchd runs Python directly.
 NAME=$("$PY" "$REPO/deploy/mac/app.py" name)   # this tree's: "Agents Hub.app", the open flavor's "Hub by Icons8.app"
 BUNDLE="$STATE/$NAME"
@@ -123,10 +123,11 @@ rm -rf "$BUNDLE"
 if [ -n "$APP" ]; then   # the downloaded app is the bundle itself
   PLIST=$("$PY" "$REPO/deploy/mac/app.py" app-plist "$REPO" "$STATE" "$APP")
 else
-  if [ -d "$REPO/deploy/mac/$NAME" ] && [ -z "$INSTANCE" ]; then
+  SHIPPED=$("$PY" "$REPO/deploy/mac/app.py" shipped)   # deploy/mac/, or the embed's in a tree from git
+  if [ -n "$SHIPPED" ] && [ -z "$INSTANCE" ]; then
     # the signed bundle is com.hub-core: an instance builds its own com.hub-<name> (Login Items and folder access are
     # kept by the bundle's identifier — the main hub's would be shared)
-    ditto "$REPO/deploy/mac/$NAME" "$BUNDLE" 2>/dev/null || true
+    ditto "$SHIPPED" "$BUNDLE" 2>/dev/null || true
   elif ! command -v clang >/dev/null 2>&1; then
     echo "No clang (Command Line Tools: xcode-select --install): installing the hub without \"$NAME\", Login Items will show python3." >&2
   elif ! "$PY" "$REPO/deploy/mac/app.py" build - "$BUNDLE" ${INSTANCE:+--id "$LABEL"} >/dev/null; then

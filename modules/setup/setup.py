@@ -42,7 +42,7 @@ LOGIN_TTL = 20       # s: no sign-in yet — sooner (the person may have signed 
 DOCTOR_FRESH = 600   # s: the page runs `hub doctor` itself when the last one is older
 PROGRESS_FRESH = 60  # s: the layer's download writes its progress twice a second; an older file is a process that died
 JOB_KEYS = ("step", "state", "started", "ts", "text", "why", "progress", "version", "path", "url", "local_url", "code_sent",
-            "account", "code", "verify", "login", "signed", "access", "invite", "kind", "rows", "modules", "model")
+            "account", "code", "verify", "login", "signed", "access", "invite", "kind", "rows", "modules", "model", "lang")
 CODE = re.compile(r"[\x21-\x7e]{1,2000}")   # a pasted authorization code: printable ASCII, one line
 
 

@@ -22,6 +22,9 @@ from tests.test_hubbus import need_ssh
 from tests.test_hubbus_s2 import server_module
 
 FP = "hb1-" + "a" * 26
+# the relay is a server of Linux (relay/README.md: Docker on a Linux server): its reading clock cuts a slow socket there and
+# on macOS; on Windows the cut socket's reading thread keeps its place, and there is no file limit (no resource module)
+POSIX_ONLY = unittest.skipIf(os.name == "nt", "the relay runs on a Linux server (relay/README.md)")
 
 
 def until(test, seconds=5.0):
@@ -132,6 +135,7 @@ class Connections(unittest.TestCase):
         self.assertEqual((status, body), (200, b"ok"))
         self.assertTrue(until(lambda: self.held() == 2), self.held())   # the answered one has given its place back
 
+    @POSIX_ONLY
     def test_a_long_poll_holds_its_place_and_the_reading_clock_does_not_cut_it(self):
         self.mod.CONNS, self.mod.READ_FOR = 2, 0.3
         relay = self.serve()
@@ -149,6 +153,7 @@ class Connections(unittest.TestCase):
         status, _, body = parse(read_all(poll))
         self.assertEqual((status, json.loads(body)), (200, {"items": []}))
 
+    @POSIX_ONLY
     def test_a_body_sent_slowly_is_cut_by_the_same_clock(self):
         self.mod.READ_FOR = 0.3
         relay = self.serve()
@@ -204,6 +209,7 @@ class Connections(unittest.TestCase):
         self.assertEqual(self.mod.counted("203.0.113.5"), "203.0.113.5")
         self.assertEqual(self.mod.counted("2001:db8:1:2::5"), "2001:db8:1:2::/64")
 
+    @POSIX_ONLY
     def test_a_short_file_limit_is_raised_or_takes_connections_off(self):
         import resource
         limits = {"now": (1024, 4096)}

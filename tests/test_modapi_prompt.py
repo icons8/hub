@@ -15,7 +15,7 @@ from hosts import streamjson
 from hosts.streamjson import StreamHost, StreamProcess
 from tests.fakes.modstand import Stand
 
-CORE = ["language", "background", "correction", "first_action", "ask_what", "shared_state", "peer_rules", "autonomy", "idle", "findings", "contacts", "gist", "cards", "progress", "skills"]
+CORE = ["language", "background", "correction", "first_action", "ask_what", "shared_state", "peer_rules", "autonomy", "idle", "helpers", "findings", "contacts", "gist", "cards", "progress", "skills"]
 
 
 class Stub:
@@ -94,7 +94,7 @@ class WithoutModules(Base):
         f = self.agent(h)
         cmd = h.command("w", "s-1", agent_file=f)
         core = [streamjson.LANGUAGE, streamjson.BACKGROUND, streamjson.CORRECTION, streamjson.FIRST_ACTION, streamjson.ASK_WHAT,
-                streamjson.SHARED_STATE, streamjson.PEER_RULES, streamjson.AUTONOMY, streamjson.IDLE, streamjson.FINDINGS, streamjson.CONTACTS, streamjson.GIST,
+                streamjson.SHARED_STATE, streamjson.PEER_RULES, streamjson.AUTONOMY, streamjson.IDLE, streamjson.HELPERS, streamjson.FINDINGS, streamjson.CONTACTS, streamjson.GIST,
                 streamjson.CARDS, streamjson.PROGRESS, streamjson.LESSONS, streamjson.SKILLS]
         self.assertEqual(self.prompt(cmd), "# Agent\n\nown rules\n\n" + "\n\n".join(core) + "\n")
 

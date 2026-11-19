@@ -260,12 +260,17 @@ def login_row(command, st, cfg, login):
     no sign-in and no pool — sessions do not come up; a login module's pool — a warning (its accounts are not asked
     about); the built-in accounts pool with a usable account — ok, the normal state of a hub on its own accounts.
     Called from a session — without the session's own login keys (they are
-    its pool profile, not the machine's)."""
+    its pool profile, not the machine's). Otherwise the environment is the one sessions start with (hosts/streamjson
+    _launch_env): the hub's own and the login of the owner's Claude Code settings (catalog.user_env, session_env) —
+    a key there signs sessions in, whatever the doctor's own process has."""
+    import platforms
     from core import modlaunch, profiles, providers
-    env = dict(os.environ)
-    if env.get("HUB_SESSION"):
+    env = dict(platforms.current.owner_env(os.environ))
+    if env.get("HUB_SESSION"):   # its CLAUDE_CONFIG_DIR may be its profile's too: its settings are not the machine's
         for k in (*modlaunch.AUTH_ENV, "ANTHROPIC_BASE_URL", modlaunch.HEADERS, profiles.STUB_ENV, profiles.UPSTREAM_ENV):
             env.pop(k, None)
+    else:
+        env.update({**catalog.user_env(), **catalog.session_env(cfg)})
     what = i18n.t("cli.doctor.what_claude_login")
     if any(env.get(k) for k in modlaunch.AUTH_ENV) or modlaunch.provider(env) or profiles.on_gateway(env):
         return "ok", what, i18n.t("cli.doctor.claude_env")   # the host does not ask either

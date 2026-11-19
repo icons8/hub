@@ -862,18 +862,6 @@ def console_encoding():
     return f"cp{_kernel32().GetOEMCP()}"
 
 
-def system_language():
-    """The language tag the user's Windows speaks ('ru-RU'), for the hub's first greeting before its owner has written;
-    '' when it does not say."""
-    try:
-        name = ctypes.WinDLL("kernel32").GetUserDefaultLocaleName
-        name.argtypes, name.restype = [wintypes.LPWSTR, ctypes.c_int], ctypes.c_int
-        buf = ctypes.create_unicode_buffer(85)
-        return buf.value if name(buf, 85) else ""
-    except (OSError, AttributeError):
-        return ""
-
-
 def service_unit(state_dir, home=None, platform=sys.platform):
     """The hub at Windows sign-in is held by a scheduler task (not a service): `hub on` runs it; `hub off` is
     `hub stop` (the task does not start the hub again). No task, or the task runs another hub (its action is not this

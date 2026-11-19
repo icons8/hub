@@ -26,31 +26,68 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # HUB_NO_OFFICIAL_MARKETPLACE (tests, stands) — no official one: the hub downloads nothing by itself, and the official
 # names (`agents-hub` and similar) are not read from any source
 OPEN_SOURCE = "icons8/agents-hub-plugins"
+OFFICIAL_NAME = "agents-hub"
 
 
-def source_of(repo):
-    """The official catalog of the core tree repo: its modules/private.json "repo" (owner/name), else OPEN_SOURCE."""
+def _pin(repo):
+    """The tree's modules/private.json (the core's own or an embed's) as a dict, else {}."""
     try:
         with open(embed.file("modules/private.json", repo) or os.path.join(repo, "modules", "private.json"),
                   encoding="utf-8") as f:
-            got = json.load(f).get("repo")
-    except (OSError, ValueError, AttributeError):
-        return OPEN_SOURCE
+            got = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def _github(got):
     # the reader's own rule of a GitHub source (core/marketplace._source): owner/name, the name not dots only
-    good = isinstance(got, str) and marketplace.GITHUB.fullmatch(got) and got.split("/")[1].strip(".")
-    return got if good else OPEN_SOURCE
+    return isinstance(got, str) and bool(marketplace.GITHUB.fullmatch(got)) and bool(got.split("/")[1].strip("."))
 
 
-SOURCE = source_of(REPO)
-OFFICIAL = None if os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE") else SOURCE
-OFFICIAL_NAME = "agents-hub"
+def officials_of(repo):
+    """The official catalogs of the core tree repo, from its modules/private.json read once -> (source, team):
+    - source — of the catalog named OFFICIAL_NAME: the file's "repo" (owner/name) alone stands instead of the open
+      catalog (a team's own, as before Embed API 1.2); otherwise OPEN_SOURCE;
+    - team — "repo" with "catalog": {"name", "ref"?} (Embed API 1.2): that repository's catalog next to the open one,
+      under its own name and on its branch -> (name, owner/name, ref or None); None — no such key, or a key of the wrong
+      shape — no second catalog, and the open one stays under OFFICIAL_NAME (never the meaning before 1.2: a hub that has
+      already moved to the pair would lose both official ones; tests/test_marketplaces holds the tree's key to
+      the rules)."""
+    pin = _pin(repo)
+    repo_, want = pin.get("repo"), pin.get("catalog")
+    if not _github(repo_):
+        return OPEN_SOURCE, None
+    if "catalog" not in pin:
+        return repo_, None
+    name, ref = (want.get("name"), want.get("ref")) if isinstance(want, dict) else (None, None)
+    good = isinstance(name, str) and not marketplace._bad_name(name) and not marketplace.reserved(name) and \
+        name not in BUILTIN_SOURCES and \
+        (ref is None or isinstance(ref, str) and bool(codestore.REF.fullmatch(ref)) and ".." not in ref)
+    return OPEN_SOURCE, (name, repo_, ref) if good else None
+
+
+def source_of(repo):
+    return officials_of(repo)[0]
+
+
+def team_of(repo):
+    return officials_of(repo)[1]
+
+
 # catalogs every hub connects by itself next to the official one (owner 2026-11-17: "the hub must support Claude's and
 # Codex's marketplaces out of the box, otherwise users who are not power users get no skills"): name -> source. Third
 # party for the hub — no right to revoke what was installed (that is the official one's); removed by the owner — they do
-# not come back (marketplaces_removed); their names are read only from these sources. None under
+# not come back (marketplaces_removed); their names are read only from these sources. Empty under
 # HUB_NO_OFFICIAL_MARKETPLACE, like the official one
-BUILTIN = {} if os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE") else {
-    "claude-plugins-official": "anthropics/claude-plugins-official", "openai-curated": "openai/plugins"}
+BUILTIN_SOURCES = {"claude-plugins-official": "anthropics/claude-plugins-official", "openai-curated": "openai/plugins"}
+BUILTIN = {} if os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE") else dict(BUILTIN_SOURCES)
+# SOURCE — of the catalog named OFFICIAL_NAME; TEAM — the team's catalog next to the open one, (name, owner/name, ref) or
+# None: official as the open one, each revokes what was installed from it. OFFICIAL and TEAM are None under
+# HUB_NO_OFFICIAL_MARKETPLACE
+SOURCE, _TEAM = officials_of(REPO)
+OFFICIAL = None if os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE") else SOURCE
+TEAM = None if os.environ.get("HUB_NO_OFFICIAL_MARKETPLACE") else _TEAM
 REFRESH = 24 * 3600   # catalogs refresh daily by default (hub.json marketplaces_refresh_hours); a failed download —
                       # the retry is after the same period (or `update`)
 CHECK = 600           # hub-up checks whether it is time every 10 minutes
@@ -121,19 +158,30 @@ def official_url():
     return url_of(OFFICIAL, exists=False) if OFFICIAL else None
 
 
+def team_url():
+    return url_of(TEAM[1], exists=False) if TEAM else None
+
+
 def is_official(url):
-    return bool(OFFICIAL) and same(url, official_url())
+    """The address is an official catalog's: the one named OFFICIAL_NAME or the team's (TEAM)."""
+    return bool(OFFICIAL) and same(url, official_url()) or bool(TEAM) and same(url, team_url())
 
 
 def builtins():
-    """[(name, address, official)] of the catalogs the hub connects by itself: the official one first."""
+    """[(name, address, official)] of the catalogs the hub connects by itself: the official ones first."""
     return ([(OFFICIAL_NAME, official_url(), True)] if OFFICIAL else []) + \
+        ([(TEAM[0], team_url(), True)] if TEAM else []) + \
         [(n, url_of(src, exists=False), False) for n, src in BUILTIN.items()]
 
 
 def builtin_of(name):
     """The address a built-in catalog name belongs to, or None."""
     return next((u for n, u, _ in builtins() if n == name), None)
+
+
+def ref_of(name):
+    """The branch a built-in catalog is read from (the team's "ref"), or None — the default branch."""
+    return TEAM[2] if TEAM and name == TEAM[0] else None
 
 
 def _section(cfg, key="marketplaces", kind=dict):
@@ -294,12 +342,14 @@ def _tree(repo, commit, path):
 
 def _newer(state_dir, name, commit, e, have, rec=None):
     """The catalog commit is newer than the installed one: an external entry — another sha; "./path" — another folder
-    in the catalog commit. An entry installed before catalogs (rec without `market`) stands on the author's head — it
-    may be newer than the pinned one: if the catalog version is older than the installed one, that is a rollback, not
-    "newer available"; if versions are equal or unknown, the commit decides."""
+    in the catalog commit. An entry installed before catalogs (rec without `market`, or bound to its entry only later —
+    `bound`, _retire) may stand on the author's head, newer than the pinned one: if the catalog version is older than
+    the installed one, that is a rollback, not "newer available"; if versions are equal or unknown, the commit decides.
+    A record the catalog installed has the version of what it installed: there the commit decides (an entry's `version`
+    may lag behind its manifest)."""
     if not e["pinned"] or not have:
         return False
-    if rec and not rec.get("market") and version_order(e.get("version"), rec.get("version")) == -1:
+    if rec and (not rec.get("market") or rec.get("bound")) and version_order(e.get("version"), rec.get("version")) == -1:
         return False
     s = e["source"]
     if s["kind"] != "path":
@@ -360,13 +410,13 @@ def add(state_dir, cfg_path, text, ref=None, now=None, restart=None, notify=None
     official = is_official(url)
     got = marketplace.fetch(state_dir, url, ref, official=official)
     name, commit = got["name"], got["commit"]
-    bound = builtin_of(name) if name != OFFICIAL_NAME else None
+    bound = builtin_of(name) if name != OFFICIAL_NAME else None   # the team's name too: only from its own source
     try:
         if bound and not same(bound, url):   # a built-in name from another source: it would stand in for the real one
             raise RuntimeError(i18n.t("core.marketplaces.builtin_name", name=name, source=codestore.shown(bound)))
         _record(cfg_path, name, url, {"source": url, **({"ref": ref} if ref else {}), "commit": commit,
                                       "updated": now, **({"official": True} if official else {}),
-                                      **({"builtin": True} if bound else {})},
+                                      **({"builtin": True} if bound and not official else {})},
                 drop=("error", "pending", "tried"), create=True, unremove=official or bool(bound))
     except RuntimeError:
         with marketplace._busy(state_dir):   # we just put the clone under this name — the source in hub.json is another
@@ -380,28 +430,207 @@ def add(state_dir, cfg_path, text, ref=None, now=None, restart=None, notify=None
     return lines + [i18n.t("core.marketplaces.whats_in", name=name)]
 
 
-def adopt(state_dir, cfg_path, now):
-    """The built-in catalogs (builtins: the official one, Claude Code's and Codex's) at first start: not in hub.json and
-    the owner did not remove it — connect it; if the download failed — `pending` with the reason (retry at the next
-    update). One that fails does not hold the others. -> (lines, ok)."""
+def adopt(state_dir, cfg_path, now, **hooks):
+    """The built-in catalogs (builtins: the official ones, Claude Code's and Codex's) at first start: not in hub.json and
+    the owner did not remove it — connect it (the team's on its ref); if the download failed — `pending` with the reason
+    (retry at the next update). One that fails does not hold the others. An official one connected now revokes at once
+    what was installed from its entries (as each refresh does). -> (lines, ok)."""
     lines, ok = [], True
     for name, url, official in builtins():
         cfg = catalog.read_settings(cfg_path)
-        if name in _section(cfg) or name in _section(cfg, "marketplaces_removed", list):
-            continue
+        if name in _section(cfg) or name in _section(cfg, "marketplaces_removed", list) or \
+                TEAM and name == TEAM[0] and _unretired(_section(cfg).get(OFFICIAL_NAME)):
+            continue   # the team's catalog is still the official one under OFFICIAL_NAME (_retire waits): not twice
         flag = {"official": True} if official else {"builtin": True}
+        ref = ref_of(name)
+        _stray(state_dir, name, url)
         try:
-            got = marketplace.fetch(state_dir, url, name=name, official=official)
+            got = marketplace.fetch(state_dir, url, ref, name=name, official=official)
         except (RuntimeError, OSError) as e:
-            _record(cfg_path, name, url, {"source": url, **flag, "pending": str(e)[:400], "tried": now}, create=True)
+            _record(cfg_path, name, url, {"source": url, **({"ref": ref} if ref else {}), **flag,
+                                          "pending": str(e)[:400], "tried": now}, create=True)
             lines.append(i18n.t("core.marketplaces.official_failed" if official else "core.marketplaces.builtin_failed",
                                 name=name, error=e))
             ok = False
             continue
-        _record(cfg_path, name, url, {"source": url, **flag, "commit": got["commit"], "updated": now}, create=True)
+        _record(cfg_path, name, url, {"source": url, **({"ref": ref} if ref else {}), **flag, "commit": got["commit"],
+                                      "updated": now}, create=True)
         lines.append(i18n.t("core.marketplaces.official_added" if official else "core.marketplaces.builtin_added",
                             name=name, commit=got["commit"][:12], summary=_summary(got["catalog"])))
+        if official:
+            lines += ["  " + x for x in _revoke(state_dir, cfg_path, name, **hooks)]
     return lines, ok
+
+
+def _stray(state_dir, name, url):
+    """A clone left under a built-in name by another source (the team's catalog was the official one under that name,
+    and its removal was cut off after hub.json was written — _retire) goes before that name is connected."""
+    repo = marketplace._repo(state_dir, name)
+    if os.path.isfile(os.path.join(repo, "HEAD")) and not same(marketplace._origin(repo), url):
+        with marketplace._busy(state_dir):
+            codestore.remove(marketplace.catalog_dir(state_dir, name))
+
+
+def _revoke(state_dir, cfg_path, name, **hooks):
+    """An official catalog's revocations over what is installed from it now -> lines (none — nothing changed)."""
+    from core import mpinstall
+    cfg = catalog.read_settings(cfg_path)
+    m = _catalogs(cfg).get(name) or {}
+    cat, _ = _read(state_dir, name, m)
+    if cat is None or not (m.get("official") and is_official(m.get("source"))):
+        return []
+    return mpinstall.revoke(cfg_path, name, installed(cfg, name, m["source"], m["commit"], cat), **hooks)
+
+
+def _entry_of(rows, what, key):
+    """The entry of rows (installed()) the record of this kind and key matches, or None."""
+    return next((e for e, w, k, _ in rows if w == what and k == key), None)
+
+
+def _unretired(m):
+    """A hub.json record under OFFICIAL_NAME that is the team's catalog from before Embed API 1.2 (its source, whatever
+    its ref): _retire has not taken it yet."""
+    return bool(TEAM) and isinstance(m, dict) and same(m.get("source"), team_url())
+
+
+def _carry_removed(raw):
+    """The owner removed the official catalog while it was the team's: the team's name stays away too (in raw, under
+    the hub.json lock)."""
+    gone = _section(raw, "marketplaces_removed", list)
+    if OFFICIAL_NAME in gone and TEAM[0] not in gone and TEAM[0] not in _section(raw):
+        raw["marketplaces_removed"] = gone + [TEAM[0]]
+
+
+def _records(raw):
+    """[(kind, key, record)] of what is installed: plugins, skill sets, modules (installed() calls them the same)."""
+    exts = raw.get("extensions") if isinstance(raw.get("extensions"), dict) else {}
+    sets = raw.get("sets") if isinstance(raw.get("sets"), list) else []
+    mods = raw.get("modules") if isinstance(raw.get("modules"), dict) else {}
+    sources = mods.get("sources") if isinstance(mods.get("sources"), list) else []
+    return [("plugin", k, x) for k, x in exts.items() if isinstance(x, dict)] + \
+        [("skillset", set_key(x), x) for x in sets if isinstance(x, dict)] + \
+        [("module", x.get("git"), x) for x in sources if isinstance(x, dict)]
+
+
+def _retire(state_dir, cfg_path, now, **hooks):
+    """Embed API 1.2 on a team's hub: the team's catalog, until now the official one under OFFICIAL_NAME (its "repo"
+    replaced the open catalog), becomes the second official one under its own name (TEAM) and OFFICIAL_NAME is the
+    open catalog again. Once, while hub.json still has OFFICIAL_NAME from the team's source, and only when both the old
+    record's commit and the team's catalog under its new name (its branch) read — otherwise nothing changes, the hub stays
+    on the old one and the next due pass tries again:
+    - what was installed from the old one without `market` (before catalogs) is bound to its entry by the same source and
+      subdir, as _plugin_entry matches it (R0), and marked `bound`: such a plugin may stand on its author's head, newer
+      than the catalog, and _newer offers it no rollback;
+    - the old record goes, not into `marketplaces_removed`, and the team's is written with its commit (R1); what was
+      installed from the old one and whose name the team's list has (of its kind: a module is a module) is the team's
+      now; the rest stays under OFFICIAL_NAME, where adopt() then connects the open catalog — its copies of those
+      plugins update them in place, so its revocations apply to them, never to the team's;
+    - the owner had removed the official one: the team's name goes into `marketplaces_removed` too — nothing they removed
+      comes back by itself.
+    One write of hub.json under its lock: cut off, it is all old or all new; the old clone goes after it (_stray finishes
+    a removal cut off in between). -> lines."""
+    if not TEAM or not OFFICIAL:
+        return []
+    cfg = catalog.read_settings(cfg_path)
+    try:
+        mps = _catalogs(cfg)
+    except RuntimeError:
+        return []
+    old = mps.get(OFFICIAL_NAME)
+    if old is None:   # removed before (TEAM[0] is in hub.json once adopted, so a later removal of the open one is not this)
+        if OFFICIAL_NAME in _section(cfg, "marketplaces_removed", list) and TEAM[0] not in mps and \
+                TEAM[0] not in _section(cfg, "marketplaces_removed", list):
+            with catalog.edit_settings(cfg_path) as raw:
+                _carry_removed(raw)
+        return []
+    if not _unretired(old) or TEAM[0] in mps:
+        return []
+    cat, _ = _read(state_dir, OFFICIAL_NAME, old)
+    if cat is None:
+        return []
+    url, ref = team_url(), TEAM[2]
+    try:   # the team's catalog under its new name, before anything moves to it
+        got = marketplace.fetch(state_dir, url, ref, name=TEAM[0], official=True)
+    except (RuntimeError, OSError):
+        return []
+    rows = installed(cfg, OFFICIAL_NAME, old["source"], old["commit"], cat)
+    with catalog.edit_settings(cfg_path) as raw:
+        mps = _section(raw)
+        if not _unretired(mps.get(OFFICIAL_NAME)) or TEAM[0] in mps:
+            return []
+        team = {(e["name"], e["type"] == "module") for e in got["catalog"]["entries"]}
+        for what, key, x in _records(raw):
+            e = _entry_of(rows, what, key) if what != "module" and not x.get("market") else None
+            if e is not None:
+                x.update(market=OFFICIAL_NAME, entry=e["name"], bound=True)
+            if x.get("market") == OFFICIAL_NAME and isinstance(x.get("entry"), str) and \
+                    (x["entry"], what == "module") in team:
+                x["market"] = TEAM[0]
+        mps.pop(OFFICIAL_NAME)
+        mps[TEAM[0]] = {"source": url, **({"ref": ref} if ref else {}), "official": True, "commit": got["commit"],
+                        "updated": now}
+        raw["marketplaces"] = mps
+        _carry_removed(raw)
+    with marketplace._busy(state_dir):
+        codestore.remove(marketplace.catalog_dir(state_dir, OFFICIAL_NAME))
+    return [i18n.t("core.marketplaces.official_added", name=TEAM[0], commit=got["commit"][:12],
+                   summary=_summary(got["catalog"]))] + ["  " + x for x in _revoke(state_dir, cfg_path, TEAM[0], **hooks)]
+
+
+def _follow(state_dir, cfg_path, **hooks):
+    """Two official catalogs (OFFICIAL_NAME and TEAM): a record installed from one whose entry it no longer has, while
+    the other has an entry of that name, kind and the record's own source (and subdir), is the other's now (`market`);
+    its key, settings and on/off stay. The same source: a same-named entry of other code never takes a record over.
+    Only when both read fine (a commit, no error or pending — a catalog only moves forward, so an entry missing from its
+    last good commit went after the install); an entry in both or in neither stays where it is. A skill set entry's
+    plugins (`plugin`) stay with their entry. Then the catalog it moved to revokes what it revokes. -> lines."""
+    if not TEAM or not OFFICIAL:
+        return []
+    cfg = catalog.read_settings(cfg_path)
+    pair = {OFFICIAL_NAME: TEAM[0], TEAM[0]: OFFICIAL_NAME}
+    if not any(isinstance(x.get("market"), str) and x["market"] in pair and isinstance(x.get("entry"), str)
+               and not x.get("plugin") for _, _, x in _records(cfg)):
+        return []   # nothing installed from either: no catalog is read
+    try:
+        mps = _catalogs(cfg)
+    except RuntimeError:
+        return []
+    have = {}
+    for n in pair:
+        m = mps.get(n) or {}
+        if not (m.get("official") and is_official(m.get("source"))) or m.get("error") or m.get("pending"):
+            return []
+        cat, _ = _read(state_dir, n, m)
+        if cat is None:
+            return []
+        have[n] = {(e["name"], e["type"] == "module"): e for e in cat["entries"]}
+        have[n]["@"] = (m["source"], m["commit"])
+
+    def target(what, x):
+        n = x.get("market")
+        if not isinstance(n, str) or n not in pair or not isinstance(x.get("entry"), str) or x.get("plugin"):
+            return None
+        k = (x["entry"], what == "module")
+        e = have[pair[n]].get(k)
+        if k in have[n] or e is None:
+            return None
+        src = marketplace.source_of(*have[pair[n]]["@"], e)
+        mine = x.get("git") if what == "module" else _installed_url(x.get("source"))
+        return pair[n] if same(mine, src["url"]) and (x.get("subdir") or None) == src.get("subdir") else None
+
+    if not any(target(w, x) for w, _, x in _records(cfg)):
+        return []
+    moved = set()
+    with catalog.edit_settings(cfg_path) as raw:
+        for what, _, x in _records(raw):
+            to = target(what, x)
+            if to:
+                x["market"] = to
+                moved.add(to)
+    lines = []
+    for n in sorted(moved):
+        lines += _revoke(state_dir, cfg_path, n, **hooks)
+    return lines
 
 
 def due(cfg, now):
@@ -411,8 +640,9 @@ def due(cfg, now):
         mps, gone = _catalogs(cfg), _section(cfg, "marketplaces_removed", list)
     except RuntimeError:
         return False
-    if any(n not in mps and n not in gone for n, _, _ in builtins()):
-        return True
+    if any(n not in mps and n not in gone and not (TEAM and n == TEAM[0] and _unretired(mps.get(OFFICIAL_NAME)))
+           for n, _, _ in builtins()):
+        return True   # (the team's name while the old official waits for _retire: its own period brings the retry)
     period = refresh_of(cfg)
     return any(_stale(m, now, period) for m in mps.values())
 
@@ -440,6 +670,8 @@ def _refresh(state_dir, cfg_path, n, m, now, ref=None, restart=None, notify=None
     if not m.get("source"):
         return [i18n.t("core.marketplaces.refresh_no_source", name=n)], False
     official = bool(m.get("official")) and is_official(m["source"])
+    if ref is None and TEAM and n == TEAM[0] and same(m["source"], team_url()) and m.get("ref") != TEAM[2]:
+        ref = TEAM[2]   # the build moved its catalog to another branch: written only with the commit read from it
     try:
         got = marketplace.fetch(state_dir, m["source"], ref or m.get("ref"), name=n, official=official)
     except (RuntimeError, OSError) as e:
@@ -494,7 +726,10 @@ def update(state_dir, cfg_path, name=None, now=None, auto=False, **hooks):
 
 
 def _update(state_dir, cfg_path, name, now, auto, hooks):
-    lines, ok = adopt(state_dir, cfg_path, now) if auto else ([], True)
+    lines, ok = (_retire(state_dir, cfg_path, now, **hooks), True) if auto else ([], True)
+    if auto:
+        more, ok = adopt(state_dir, cfg_path, now, **hooks)
+        lines += more
     cfg = catalog.read_settings(cfg_path)
     mps, period = _catalogs(cfg), refresh_of(cfg)
     if name is not None and name not in mps:
@@ -504,6 +739,7 @@ def _update(state_dir, cfg_path, name, now, auto, hooks):
         more, good = _refresh(state_dir, cfg_path, n, mps[n], now, **hooks)
         lines += more
         ok = ok and good
+    lines += ["  " + x for x in _follow(state_dir, cfg_path, **hooks)]
     if not lines:
         lines.append(i18n.t("core.marketplaces.nothing_to_update" if auto else "core.marketplaces.no_catalogs"))
     return lines, ok
@@ -659,6 +895,8 @@ def page(state_dir, cfg_path):
         cat, why = (read[n], None) if n in read else _read(state_dir, n, m)
         cats.append({"name": n, "source": codestore.shown(m.get("source") or ""), "commit": m.get("commit") or "",
                      "official": bool(m.get("official")) and is_official(m.get("source")), "updated": m.get("updated"),
+                     # an engine's own catalog (Claude Code, Codex): the page lists what was installed from it apart
+                     "builtin": bool(m.get("builtin")) or n in BUILTIN_SOURCES,
                      "error": m.get("error"), "problem": why, "description": (cat or {}).get("description"),
                      "entries": len(cat["entries"]) if cat else 0, "skipped": len(cat["skipped"]) if cat else 0})
         if cat is None:

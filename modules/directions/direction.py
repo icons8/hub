@@ -141,6 +141,16 @@ def has_commit(repo):
     return worktree.folder(repo)[0] == "ok"
 
 
+def repo_of(sess):
+    """The git repo (with a commit) a session works in — the repo of its working copy, else its folder — for a direction
+    it will lead; None: the direction gets a git folder of its own (own_repo). A session in a core copy gives the repo
+    of its copy, not the copy the core removes later."""
+    from hosts import worktree
+    copy = (sess or {}).get("worktree")
+    path = copy.get("repo") if isinstance(copy, dict) and copy.get("repo") else (sess or {}).get("cwd")
+    return path if isinstance(path, str) and path and worktree.folder(path)[0] == "ok" else None
+
+
 REPOS = "direction-repos"   # in the hub state folder: no session works there (workspaces/<name> is a session's own)
 
 

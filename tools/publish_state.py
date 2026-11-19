@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """What tools/publish.sh leaves in the state folder of the publishing hub: published.json (what last went to main — the
-"Updates" page compares against it, and tools/release.py puts the tag on this snapshot). It describes ONE address — the
+"Updates" page compares against it, and tools/release.py puts the tag on this snapshot; tools/publish_pair.py adds
+embed_url and embed_pub, the embed's snapshot of the same commit). It describes ONE address — the
 hub's own. A publication to another one (a rehearsal, a second repo) does not rewrite it, otherwise the page and the
 release tag would count from the wrong snapshot.
 
@@ -25,9 +26,10 @@ def state_dir():
     return release.state_dir()
 
 
-def address(state):
-    """The address the state belongs to, or "" if nobody has taken it yet."""
-    got = subprocess.run(["git", "config", "hub.release-url"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+def address(state, repo=ROOT):
+    """The address the state belongs to, or "" if nobody has taken it yet (repo — the working repository whose
+    hub.release-url is asked)."""
+    got = subprocess.run(["git", "config", "hub.release-url"], cwd=repo, capture_output=True, text=True).stdout.strip()
     if got:
         return got
     try:

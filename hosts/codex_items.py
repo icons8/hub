@@ -230,7 +230,8 @@ def _cmd_title(item):
 
 def _tasks(proc, work):
     """The session's background as the core keeps it (session.background tasks): running subagents, then commands."""
-    agents = [{"id": _agent_id(t), "kind": "agent", "title": redact.mask_head(work.title.get(t) or str(t), 120)}
+    agents = [{"id": _agent_id(t), "kind": "agent", "title": redact.mask_head(work.title.get(t) or str(t), 120),
+               **({"model": str(work.model[t])[:80]} if work.model.get(t) else {})}
               for t in work.running if _agent_id(t) in work.bg]
     cmds = [{"id": _cmd_id(t, i, proc), "kind": "bash", "title": c["title"]}
             for (t, i), c in work.cmds.items() if _cmd_id(t, i, proc) in work.bg]

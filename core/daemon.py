@@ -1252,14 +1252,16 @@ class Hub:
 
     def invite_owner(self):
         """A new hub greets its owner first (owner 2026-11-09: a new hub wrote nothing until its owner did): once the
-        hub session has come up and nobody has written, the fact owner.invited; the fold gives the hub session the one
-        message to introduce itself by ONBOARDING.md. The language is the hub's (hub.json, the owner's words), else the
-        system's: a hub nobody has opened yet knows no other. The fold writes it once for the journal."""
+        hub session has come up, the owner has come (owner.came: their page opened) and nobody has written, the fact
+        owner.invited; the fold gives the hub session the one message to introduce itself by ONBOARDING.md. The language
+        is the hub's (hub.json, the owner's words), else the one their page said: the machine's own may be another
+        (owner 2026-11-19: a Russian browser on an English system was greeted in English). The fold writes it once for
+        the journal."""
         if system.invite_off() or not self.settings_known or not (self.config.get("hub") or {}).get("enabled") \
                 or getattr(self, "invite_tried", False) or not system.invite_due(self.state):
             return
         self.invite_tried = True   # the fold writes it once; had it taken no effect, once a start is enough
-        lang = i18n.human(self.config, self.state, default=i18n.system_language())
+        lang = i18n.human(self.config, self.state, default=(self.state["owner"].get("came") or {}).get("lang"))
         self.record("owner.invited", None, {"lang": lang, "channel": "core"})
 
     def ensure_jobs(self):
@@ -3021,9 +3023,9 @@ def make_host(state_dir):
     on a codex/… model go to Codex, the others to claude."""
     cfg = catalog.config_or_last(state_dir)
     if cfg.get("host") == "codex":
-        from hosts.codex import CodexHost, codex_bin
+        from hosts.codex import CodexHost
         own = cfg.get("codex") if isinstance(cfg.get("codex"), dict) else {}
-        return CodexHost(state_dir, codex=(codex_bin(state_dir),), all_sessions=True, default_model=own.get("model"),
+        return CodexHost(state_dir, all_sessions=True, default_model=own.get("model"),
                          default_effort=own.get("effort"))
     kind = os.environ.get("HUB_HOST", "stream")
     if kind == "tmux":
@@ -3035,9 +3037,9 @@ def make_host(state_dir):
         from hosts.streamjson import StreamHost
         host = StreamHost(state_dir, claude=claude_command())
         if os.environ.get("HUB_CODEX") == "1":
-            from hosts.codex import CodexHost, MuxHost, codex_bin
+            from hosts.codex import CodexHost, MuxHost
             host.claude_from = claude_command
-            return MuxHost(host, CodexHost(state_dir, codex=(codex_bin(state_dir),)))
+            return MuxHost(host, CodexHost(state_dir))   # codex_bin at every use: installed later — found
     host.claude_from = claude_command   # the core takes the program anew while it is missing (Hub.claude_program)
     return host
 

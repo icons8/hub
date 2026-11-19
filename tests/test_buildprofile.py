@@ -5,11 +5,13 @@ import tests  # noqa: F401 — hide the machine's settings
 import importlib.util
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import platforms
 from core import embed
@@ -169,8 +171,8 @@ class Compose(Trees):
         self.assertEqual(self.compose.plain("/srv/a/b.git"), "/srv/a/b.git")
 
 
-class Layer(Trees):
-    """The layer of a profile's tree: what its MANIFEST says it is made of, and the checks every profile passes."""
+class LayerTrees(Trees):
+    """The trees of Trees with the core's own Embed API in the core, and their layers."""
 
     def setUp(self):
         super().setUp()
@@ -186,6 +188,10 @@ class Layer(Trees):
     def built(self, out, **kw):
         return self.layer.build(out, "HEAD", os.path.join(self.tmp, "layer"), sys.executable, version="1.0.0",
                                 keep=os.path.join(self.tmp, "seed"), **kw)
+
+
+class Layer(LayerTrees):
+    """The layer of a profile's tree: what its MANIFEST says it is made of, and the checks every profile passes."""
 
     def test_the_manifest_names_the_profile_the_core_and_each_embed(self):
         out = os.path.join(self.tmp, "out")
@@ -232,6 +238,181 @@ class Layer(Trees):
             self.built(out, profile="acme", wanted=["acme"], check=True)
         self.assertIn("stats: no settings", str(e.exception))
         self.assertFalse(os.listdir(os.path.join(self.tmp, "layer")))   # nothing is left
+
+
+def read_json(*path):
+    with open(os.path.join(*path), encoding="utf-8") as f:
+        return json.load(f)
+
+
+class TeamRelease(LayerTrees):
+    """tools/package/team.py: the team's release of the open core's tag and its embed's repository at the release's
+    tag — the composed tree, tagged, built by the factory with a copy of the profile naming that repository; its payload
+    is the payload the working repository (the core with the embed's folder) gives of the same files. The repositories
+    are addresses (the MANIFEST names them to every hub): here they stand for the two local ones."""
+    CORE = "https://git.example.test/acme/hub.git"
+    EMBED = "git@git.example.test:acme/hub-embed.git"
+
+    def setUp(self):
+        super().setUp()
+        self.team = load("team")
+        git(self.acme, "tag", "v1.0.0")
+        self.mine = self.profile({"profile": 1, "name": "acme", "embeds": [{"name": "acme", "repo": "."}],
+                                  "issues": "acme/hub-issues"})
+        self.calls = []
+        real, where = self.team.compose.fetch, {self.CORE: self.core, self.EMBED: self.acme}
+        p = mock.patch.object(self.team.compose, "fetch", lambda repo, ref, work: real(where.get(repo, repo), ref, work))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def run_team(self, *extra, out=None):
+        out = out or os.path.join(self.tmp, "rel")
+        with mock.patch.object(self.team.factory, "main", side_effect=self.calls.append):
+            self.team.main(["v1.0.0", "--core", self.CORE, "--embed", self.EMBED, "--profile", self.mine, "--out", out,
+                            *extra])
+        return out
+
+    def test_the_release_composes_the_tags_and_hands_the_factory_the_profiles_copy(self):
+        out = self.run_team("--", "--cache", "/c", "--platforms", "linux-x64")
+        prof = read_json(out, "profile.json")
+        self.assertEqual(prof["embeds"], [{"name": "acme", "repo": self.EMBED, "ref": "v1.0.0"}])
+        self.assertEqual(prof["issues"], "acme/hub-issues")
+        self.assertEqual(read_json(self.mine)["embeds"], [{"name": "acme", "repo": "."}])   # the file in git stays
+        tree = os.path.join(out, "tree")
+        self.assertEqual(git(tree, "rev-parse", "v1.0.0^{commit}"), git(tree, "rev-parse", "HEAD"))
+        made = read_json(tree, "EMBED.json")
+        self.assertEqual((made["core"], made["embeds"][0]["repo"], made["embeds"][0]["commit"]),
+                         ({"repo": self.CORE, "ref": "v1.0.0", "commit": self.core_commit}, self.compose.plain(self.EMBED),
+                          git(self.acme, "rev-parse", "v1.0.0^{commit}")))
+        self.assertEqual(self.calls, [["v1.0.0", "--out", os.path.join(out, "build"), "--repo", tree, "--profile",
+                                       os.path.join(out, "profile.json"), "--cache", "/c", "--platforms", "linux-x64"]])
+
+    def test_a_release_of_the_embed_alone_names_an_older_core(self):
+        old = self.core_commit
+        write(self.core, "core/x.py", "X = 2\n")
+        git(self.core, "commit", "-qam", "later")
+        out = self.run_team("--core-ref", "v1.0.0")
+        self.assertEqual(read_json(out, "tree", "EMBED.json")["core"]["commit"], old)
+
+    def test_the_layer_names_the_open_core_a_working_copy_clones(self):
+        out = self.run_team()
+        self.layer.build(os.path.join(out, "tree"), "v1.0.0", os.path.join(self.tmp, "l"), sys.executable,
+                         keep=os.path.join(self.tmp, "s"), profile="acme")
+        man = read_json(self.tmp, "s", "MANIFEST.json")
+        self.assertEqual((man["core"]["repo"], man["core"]["commit"]), (self.CORE, self.core_commit))   # ownsrc._source
+        self.assertNotIn("source", man)                                   # the tree's own commit is on no repository
+
+    def test_the_payload_is_the_working_repositorys(self):
+        out = self.run_team()
+        composed = os.path.join(self.tmp, "seed-composed")
+        self.layer.build(os.path.join(out, "tree"), "v1.0.0", os.path.join(self.tmp, "l1"), sys.executable,
+                         keep=composed, profile="acme")
+        work = os.path.join(self.tmp, "work")   # the working repository: the core with the embed's folder in it
+        shutil.copytree(self.core, work)
+        for rel in git(self.acme, "ls-files").splitlines():
+            if self.team.compose.embedded(rel):
+                with open(os.path.join(self.acme, *rel.split("/")), encoding="utf-8") as f:
+                    write(work, f"embed/acme/{rel}", f.read())
+        git(work, "add", "-A")
+        git(work, "commit", "-qm", "with the embed")
+        own = os.path.join(self.tmp, "seed-own")
+        self.layer.build(work, "HEAD", os.path.join(self.tmp, "l2"), sys.executable, version="1.0.0", keep=own,
+                         profile="acme")
+        a, b = read_json(composed, "MANIFEST.json"), read_json(own, "MANIFEST.json")
+        self.assertGreater(len(a["files"]), 5)
+        self.assertEqual(a["files"], b["files"])                       # file for file, sum for sum
+        differ = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+        # the two trees are two commits: their time ("mtime", "built") is the same only within one second
+        self.assertTrue(set(differ) <= {"commit", "core", "embeds", "source", "made", "channel", "sum", "mtime", "built"},
+                        differ)
+
+    def test_the_embeds_launcher_takes_its_place_on_both_paths(self):
+        # Embed API 1.2: the company's signed Mac launcher is the embed's (deploy/ of it), laid at its place in the team
+        # layer — byte for byte, its program bit kept — whether the layer is built from the composed tree (the open
+        # core's tree has the open flavor's launcher at that place: it goes) or from the working repository (where the
+        # open one lies aside, deploy/mac/open/). The embed's own copy stays in it (a build from its files takes it)
+        exe, plist = b"\xcf\xfa\xed\xfe signed launcher\x00\x01", b"<plist>team</plist>\n"
+        team = "deploy/mac/Agents Hub.app/Contents"
+        for rel, data in ((f"{team}/MacOS/Agents Hub", exe), (f"{team}/Info.plist", plist)):
+            path = os.path.join(self.acme, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        git(self.acme, "add", "-A")
+        git(self.acme, "update-index", "--chmod=+x", f"{team}/MacOS/Agents Hub")
+        git(self.acme, "commit", "-qm", "the signed launcher")
+        git(self.acme, "tag", "-f", "v1.0.0")
+        write(self.core, "deploy/mac/Hub by Icons8.app/Contents/Info.plist", "<plist>open</plist>\n")   # the open tree's
+        git(self.core, "add", "-A")
+        git(self.core, "commit", "-qm", "the open launcher in place")
+        git(self.core, "tag", "-f", "v1.0.0")
+        out = self.run_team()
+        composed = os.path.join(self.tmp, "seed-composed")
+        self.layer.build(os.path.join(out, "tree"), "v1.0.0", os.path.join(self.tmp, "l1"), sys.executable,
+                         keep=composed, profile="acme")
+        work = os.path.join(self.tmp, "work")   # the working repository: the open launcher aside, the embed's folder in it
+        shutil.copytree(self.core, work)
+        shutil.move(os.path.join(work, "deploy", "mac", "Hub by Icons8.app"),
+                    os.path.join(work, "deploy", "mac", "open", "Hub by Icons8.app"))
+        for rel in git(self.acme, "ls-files").splitlines():
+            if self.team.compose.embedded(rel):
+                dest = os.path.join(work, "embed", "acme", *rel.split("/"))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                shutil.copyfile(os.path.join(self.acme, *rel.split("/")), dest)
+        git(work, "add", "-A")
+        git(work, "update-index", "--chmod=+x", f"embed/acme/{team}/MacOS/Agents Hub")
+        git(work, "commit", "-qm", "with the embed")
+        own = os.path.join(self.tmp, "seed-own")
+        self.layer.build(work, "HEAD", os.path.join(self.tmp, "l2"), sys.executable, version="1.0.0", keep=own,
+                         profile="acme")
+        a, b = read_json(composed, "MANIFEST.json"), read_json(own, "MANIFEST.json")
+        self.assertEqual(a["files"], b["files"])
+        for seed in (composed, own):
+            with open(os.path.join(seed, *f"{team}/MacOS/Agents Hub".split("/")), "rb") as f:
+                self.assertEqual(f.read(), exe)
+            with open(os.path.join(seed, *f"{team}/Info.plist".split("/")), "rb") as f:
+                self.assertEqual(f.read(), plist)
+        files = a["files"]
+        self.assertTrue(files[f"{team}/MacOS/Agents Hub"].get("x"), files[f"{team}/MacOS/Agents Hub"])
+        self.assertFalse(files[f"{team}/Info.plist"].get("x"))
+        self.assertIn(f"embed/acme/{team}/MacOS/Agents Hub", files)
+        self.assertFalse([f for f in files if "Hub by Icons8.app" in f], sorted(files))   # the open one: not in a team layer
+
+    def test_what_is_refused_leaves_nothing(self):
+        bad = self.profile({"profile": 1, "name": "acme", "embeds": [{"name": "acme", "repo": self.acme, "ref": "v3"}]})
+        broken = write(self.tmp, "broken.json", "{not json")
+        for args, said in (
+                (["--profile", bad], "one is expected"),
+                (["--profile", broken], "not readable"),
+                (["--profile", self.mine, "--", "--repo", "."], "--repo"),
+                (["--profile", self.mine, "--core-ref", "v9.9.9"], "rev-parse")):   # no such tag of the core
+            out = os.path.join(self.tmp, "x")
+            with self.assertRaises(SystemExit) as e:
+                self.team.main(["v1.0.0", "--core", self.CORE, "--embed", self.EMBED, "--out", out, *args])
+            self.assertIn(said, str(e.exception))
+            self.assertFalse(os.path.exists(out), args)                 # the same command runs again once fixed
+        for core, embed_ in ((self.core, self.EMBED),   # a folder: in no MANIFEST, as a path or a file: address
+                             (pathlib.Path(self.core).as_uri(), self.EMBED),
+                             ("git@git.example.test:acme/hub.git", self.EMBED),   # every hub clones the core
+                             (self.CORE, "https://u:token@git.example.test/acme/hub-embed.git"), (self.CORE, self.acme)):
+            with self.assertRaises(SystemExit) as e:
+                self.team.main(["v1.0.0", "--core", core, "--embed", embed_, "--profile", self.mine, "--out",
+                                os.path.join(self.tmp, "y")])
+            self.assertIn("--core" if core != self.CORE else "--embed", str(e.exception))
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "y")))
+        for flag in ("--rep", "--prof=x.json", "--ou", "--flavor=open"):   # argparse takes a prefix
+            with self.assertRaises(SystemExit) as e:
+                self.run_team("--", flag, ".", out=os.path.join(self.tmp, "w"))
+            self.assertIn("after --", str(e.exception))
+
+    def test_a_refusal_of_the_factory_leaves_nothing(self):
+        out = os.path.join(self.tmp, "rel")
+        with mock.patch.object(self.team.factory, "main", side_effect=SystemExit("factory.py: no mac parts")), \
+                self.assertRaises(SystemExit):
+            self.team.main(["v1.0.0", "--core", self.CORE, "--embed", self.EMBED, "--profile", self.mine, "--out", out])
+        self.assertFalse(os.path.exists(out))
+        with self.assertRaises(SystemExit):
+            self.team.main(["1.0", "--core", self.CORE, "--embed", self.EMBED, "--out", os.path.join(self.tmp, "z")])
 
 
 class ThisTree(unittest.TestCase):

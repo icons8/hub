@@ -52,6 +52,7 @@ the next turn/start carries them all as additionalContext ({source: {"kind": "ap
 schema's AdditionalContextEntry). A good answer to that turn/start clears what it carried (a key rewritten meanwhile
 stays), a refusal keeps it for the retry (_again); turn/steer does not carry it.
 """
+import functools
 import json
 import os
 import re
@@ -113,6 +114,10 @@ def codex_bin(state_dir=None):
     found = os.environ.get("HUB_CODEX_BIN") or (own if own and os.path.isfile(own) else None) or shutil.which("codex")
     # which() in the folder, not the bare name: Windows' is codex.exe there, as PATHEXT names it
     return found or shutil.which("codex", path=os.path.expanduser(os.path.join("~", ".local", "bin"))) or "codex"
+
+
+def _found_codex(state_dir):
+    return [codex_bin(state_dir)]
 
 
 def is_codex(model):
@@ -250,10 +255,10 @@ class CodexHost(StreamHost):
     codex_models = True   # codex/… models are known to the fold (core/daemon.codex_tick -> codex.host)
     liaison_settings = codex_liaison.SETTINGS   # the liaison is raised on Codex too (daemon.ensure_dev checks it is callable)
 
-    def __init__(self, state_dir, codex=("codex",), env=None, all_sessions=False, default_model=None,
+    def __init__(self, state_dir, codex=None, env=None, all_sessions=False, default_model=None,
                  default_effort=None):
         super().__init__(state_dir, env=env)
-        self.codex = list(codex)
+        self.codex = codex   # None: codex_bin at every use (the property below)
         self._fresh = True   # we assemble the suffix ourselves (command), `claude --help` is not needed
         self.all_sessions = all_sessions        # the hub entirely on Codex: sessions without a codex/… model too
         self.default_model = default_model      # the hub's model for them (empty — Codex's default model)
@@ -261,12 +266,28 @@ class CodexHost(StreamHost):
         self.home = os.path.join(state_dir, "codex-home")
         write_config(self.home)
         codex_rules.prepare_home(self.home, codex=self.codex,
-                                 env={**codex_env({**os.environ, **self.env}), "CODEX_HOME": self.home})
+                                 env={**codex_env({**os.environ, **self.env}), "CODEX_HOME": self.home},
+                                 find=self.finder())
         self.trusted_homes = {os.path.abspath(self.home)}   # the Codex pool's account folders whose hook trust is written
         self.readying = set()            # account folders being prepared in the background (prepare_codex)
         self.prepare_failed = {}         # a folder whose preparation failed -> (when, why)
         self.readying_lock = threading.Lock()
         self.prepare_lock = threading.Lock()   # one preparation at a time: its app-servers share the hub folder's store
+
+    @property
+    def codex(self):
+        """The codex command: the one given, or codex_bin at every use — a hub switched to Codex on the band comes up
+        before Codex CLI is in place (or the person installs it later): a name taken once at the start would stay a
+        name to nothing, the hook's trust would never be written and every spawn refused (2026-11-19)."""
+        return list(self._codex) if self._codex is not None else _found_codex(self.state_dir)
+
+    @codex.setter
+    def codex(self, value):
+        self._codex = None if value is None else list(value)   # an empty one: no codex (no trust check, no sandbox)
+
+    def finder(self):
+        """codex_rules' search of the command anew (its trust retries): codex_bin of this hub's folder, not the host."""
+        return None if self._codex is not None else functools.partial(_found_codex, self.state_dir)
 
     def prepare_codex(self, home):
         """An account folder of the Codex pool for sessions -> (ready, why). Not fit (codexslot.fit, its links:
@@ -302,7 +323,7 @@ class CodexHost(StreamHost):
             with self.prepare_lock:
                 codex_rules.prepare_home(home, codex=self.codex,
                                          env={**codex_env({**os.environ, **self.env}), "CODEX_HOME": home},
-                                         args=codexcli.args(self.state_dir, home))
+                                         args=codexcli.args(self.state_dir, home), find=self.finder())
             why = None
         except Exception as e:  # noqa: BLE001 — the background is not silent: the spawns get the reason, a retry later
             why = f"the folder's preparation failed: {type(e).__name__}: {e}"[:300]

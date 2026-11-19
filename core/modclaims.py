@@ -32,7 +32,7 @@ CORE_PATHS = frozenset("/api/" + p for p in (
     "session/parallel", "session/reload", "session/remove", "session/resume", "session/solo", "session/spec", "session/stop", "session/train", "settings/set", "spec",
     "setup", "setup/bundle", "setup/cancel", "setup/host", "setup/input", "setup/run",
     "settings/title", "snapshot", "stats", "stream", "subagent", "themes", "themes/art", "themes/file", "timeline",
-    "tools", "update/check", "update/fix", "update/install", "update/local-edits", "update/rollback", "upload", "upload/raw", "usage", "voice", "voice/failed", "voice/local", "voice/raw"))
+    "tools", "tools/grant", "update/check", "update/fix", "update/install", "update/local-edits", "update/rollback", "upload", "upload/raw", "usage", "voice", "voice/failed", "voice/local", "voice/raw"))
 # the page compares these by string prefix: /api/flowers, /api/schedule/x are also its own
 CORE_PREFIXES = ("/api/flow", "/api/plugins/updates", "/api/plugins/search", "/api/schedule/", "/api/mod/", "/api/secrets/")
 # Core snapshot keys (core/views.py, Web.with_clock) — including those that are not always present; `_gone`, `_delta`

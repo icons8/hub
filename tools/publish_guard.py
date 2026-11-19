@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """tools/publish.sh pushes the whole tree into a repository of the publishing hub; the open repositories get only the open
-snapshot, and only from tools/oss_open.py (its list OPEN_TARGETS). Exit 0 — the address is not one of them, 17 — it is one
+snapshot, and only from tools/oss_open.py (its list OPEN_TARGETS) and tools/publish_pair.py, which also never puts
+the embed there. Exit 0 — the address is not one of them, 17 — it is one
 of them (the name is printed); any other code is a failure of the check itself.
 
   publish_guard.py <git-url>
@@ -33,8 +34,9 @@ def slug_of(url):
 
 
 def open_targets():
-    sys.path[:0] = [ROOT, os.path.join(ROOT, "tools", "package")]
-    import oss_open
+    if ROOT not in sys.path:   # tools/ as a package: the module of a caller that imported it already, no second copy
+        sys.path.insert(0, ROOT)
+    from tools import oss_open
     return tuple(t.lower() for t in oss_open.OPEN_TARGETS)
 
 

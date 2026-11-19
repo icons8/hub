@@ -452,7 +452,7 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
   padding: var(--space-3) var(--space-4); }
 .plugin-row + .plugin-row { border-top: 1px solid var(--border); }
 .plugin-row.off .plugin-icon, .plugin-row.off .plugin-what { opacity: 0.55; }
-.plugin-row[hidden], .plugin-group[hidden] { display: none; }
+.plugin-row[hidden], .plugin-group[hidden], .plugin-engines[hidden] { display: none; }
 .plugin-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .plugin-filters:empty { display: none; }
 .plugin-catalog { display: grid; gap: var(--space-3); }
@@ -485,14 +485,18 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
 .plugin-review.warn b { color: var(--warning); }
 .plugin-review.bad b { color: var(--destructive); }
 .plugin-row .plugin-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1); max-width: 320px; }
-.plugin-entry .plugin-actions { flex-direction: column; align-items: flex-end; }   /* the column width follows the widest button */
+.plugin-entry .plugin-actions, .plugin-engine .plugin-actions { flex-direction: column; align-items: flex-end; }   /* the column width follows the widest button */
+/* "Give to a session…" of a Claude or Codex plugin: the session, "Give", "Cancel" in one line under the row's text */
+.plugin-give { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.plugin-give-pick { max-width: 100%; height: 26px; box-sizing: border-box; }   /* the height of the small buttons beside it */
+.plugin-part { cursor: pointer; }   /* a tap opens the whole list */
 .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .clamp-1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plugin-foot { margin-top: var(--space-4); }
 @media (max-width: 640px) {
   .plugin-row { grid-template-columns: 40px 1fr; }
   .plugin-row .plugin-actions { grid-column: 1 / -1; justify-content: flex-start; max-width: none; }
-  .plugin-entry .plugin-actions { flex-direction: row; align-items: center; }
+  .plugin-entry .plugin-actions, .plugin-engine .plugin-actions { flex-direction: row; align-items: center; }
 }
 .chip.ok { color: var(--success); }
 .about-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px var(--space-4); max-width: 860px; }

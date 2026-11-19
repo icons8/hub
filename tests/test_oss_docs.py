@@ -427,7 +427,8 @@ class Docs(unittest.TestCase):
                      "`hub.groupFold(", "`news: true` on a feed row `out` (API 1.32)", "`--jump-shadow`",
                      "`send.tasks` in `features`", "`p.hint.feed-loading`", "`session.header.start`",
                      "`files:state`", "`files:do`", "`chrome=hub`", "`hub.messageAt(node)`", "`POST /api/session/resume`",
-                     "`session.resume` in `features`", "`hub.capabilities.themeOptions === 1`"):
+                     "`session.resume` in `features`", "`hub.capabilities.themeOptions === 1`",
+                     "A session's helper agents (API 1.38)"):
             self.assertIn(name, text, f"EXTENDING.md: no {name} (Plugin API {version.PLUGIN_API})")
         for name in ("modules.model", "profile.use", "speech.say", "account.limits", '"stdin": true', '"bus.transport"',
                      "bus.offered", "codex.decide", "OPTIONAL_POINTS"):

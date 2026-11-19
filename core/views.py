@@ -1442,7 +1442,10 @@ def show(reader, name, n=20, tz=None, earlier=(), full=False):
     tz = tz or (reader.state.get("owner") or {}).get("tz")
     out = [f"{name} — {sess['label']} · {sess.get('cwd') or ''}"]
     out += modprompt.lines(reader.state["sessions"].get(name))   # what modules changed in its prompt (Module API)
-    out += [i18n.t("core.views.line.bg_agent" if b.get("kind") == "agent" else "core.views.line.bg_command",
+    # a helper agent with the model its call named (the page's row says "3 helpers · <model>")
+    out += [i18n.t("core.views.line.bg_agent_model", title=b.get("title") or b["id"], model=b["model"])
+            if b.get("kind") == "agent" and b.get("model") else
+            i18n.t("core.views.line.bg_agent" if b.get("kind") == "agent" else "core.views.line.bg_command",
                    title=b.get("title") or b["id"]) for b in sess.get("background") or []]
     out += [f"{_clock(it['ts'], tz)}  {_item_line(it, full)}" for it in [*earlier, *reader.timelines.get(name, [])][-n:]]
     return out

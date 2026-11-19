@@ -33,7 +33,8 @@ OLD_STORE = "market"   # the earlier plugin storage (modules/market): <state>/ma
 # record keys written by an installation (the rest of the record is the owner's settings, they survive an update)
 FROM_MANIFEST = ("web", "run", "themes", "css", "hub", "version")
 # THIRD_PARTY - the warning about a third-party catalog: read through __getattr__ below, in the language of the moment
-MANAGED = {"path", "source", "subdir", "commit", "market", "entry", "approved", "revoked", "disabled", *FROM_MANIFEST}
+MANAGED = {"path", "source", "subdir", "commit", "market", "entry", "approved", "revoked", "disabled", "bound",
+           *FROM_MANIFEST}   # bound: bound to its entry after it was installed (core/marketplaces._retire)
 
 
 def __getattr__(name):

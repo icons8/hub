@@ -166,13 +166,15 @@ def invite_off():
 
 def invite_due(st):
     """The hub's first start (owner 2026-11-09: a new hub wrote nothing until the owner did): the hub session has come up
-    once and has not had a turn yet, and the owner has neither written nor been invited. The fact owner.invited makes
-    the fold give it one message. The session is the one the fold would write to (reducer._hub), not one by a name."""
+    once and has not had a turn yet, the owner has come (owner.came: their page opened — the greeting is in their
+    language, not the machine's; owner 2026-11-19) and has neither written nor been invited. The fact owner.invited
+    makes the fold give it one message. The session is the one the fold would write to (reducer._hub), not one by a
+    name."""
     from core import reducer
     name = reducer._hub(st)
     sess = st["sessions"].get(name or "") or {}
-    return bool(name and sess.get("ever_started") and not sess.get("turn_seq")
-                and not st["owner"].get("invited") and reducer.first_word(st))
+    return bool(name and sess.get("ever_started") and not sess.get("turn_seq") and st["owner"].get("came")
+                and reducer.invite_open(st))
 
 
 def rules_review(st, rules, trainer):

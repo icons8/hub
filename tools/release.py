@@ -2,7 +2,7 @@
 """A release: an annotated tag vX.Y.Z on the snapshot already published to main — the mark of a packaged release (hubs
 from git follow main itself; owner 2026-11-18). Called by tools/publish.sh --tag vX.Y.Z | --release; on its own:
 
-    tools/release.py <git-url> (--tag vX.Y.Z | --release) [--check] [--skip-compat] [--overwrite-remote]
+    tools/release.py <git-url> (--tag vX.Y.Z | --release) [--embed <git-url>] [--check] [--skip-compat] [--overwrite-remote]
 
 Steps: the latest snapshot of main (published.json in the state folder) must have the same address and the HEAD of this
 copy, otherwise refuse (publish.sh --nightly first); in the remote's main after the snapshot — only snapshots
@@ -11,6 +11,11 @@ copy, otherwise refuse (publish.sh --nightly first); in the remote's main after 
 tools/compat.py (the snapshot's MIN_CLAUDE — the Claude Code publish.sh pinned into it, on this machine and Windows) and own checks (tools/publish_checks.py); a tag with the CHANGES.md entries since
 the previous release — on the snapshot's Sync commit; the tag is pushed without force; published-stable.json.
 --check — everything up to the stands, without sending.
+A pair (tools/publish_pair.py: published.json names the embed's repository and snapshot too; --embed names the one
+expected): one number newer than the last release of both repositories, a tag in each — the embed's first; the core's
+snapshot released already and the embed's not — the tag goes to the embed alone (a fix of the embed, the open core
+keeps its release); a release stopped between the two pushes (release-pending.json in the state folder) goes on with
+the core's tag under the same number.
 
 Number (--release): the first release is v1.0.0; the first of the day is a minor (v1.4.0 → v1.5.0); another one the same
 day is a patch (v1.5.0 → v1.5.1): fixes go out during the day. A major number only explicitly (--tag v2.0.0), when
@@ -216,24 +221,70 @@ def private(pub, snap):
     print(text)
 
 
-def release(url, tag, check=False, skip_compat=False, name="", mail="", overwrite=False):
+def paired(state, url, embed=None):
+    """(the embed's address, its snapshot) when the last publication of url was a pair (tools/publish_pair.py), else
+    None; embed — the address the caller names: another one recorded, or none, is refused."""
+    try:
+        with open(os.path.join(state, "published.json"), encoding="utf-8") as f:
+            pub = json.load(f)
+    except (OSError, ValueError):
+        pub = {}
+    got = None
+    if isinstance(pub, dict) and pub.get("url") == url and pub.get("embed_url") and pub.get("embed_pub"):
+        got = (pub["embed_url"], pub["embed_pub"])
+    if embed and (not got or got[0] != embed):
+        raise Refused(f"the last publication of {url} carries " + (f"the embed of {got[0]}" if got else "no embed")
+                      + f", not {embed}: publish the pair first (tools/publish_pair.py)")
+    return got
+
+
+PENDING = "release-pending.json"   # a pair's release between its two pushes (the state folder)
+
+
+def pending(state, url, snap, pair):
+    """The tag of a pair's release recorded before its pushes, for these same snapshots, or None."""
+    try:
+        with open(os.path.join(state, PENDING), encoding="utf-8") as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if isinstance(got, dict) and pair and number(got.get("tag")) and \
+            (got.get("url"), got.get("pub"), got.get("embed_url"), got.get("embed_pub")) == (url, snap, *pair):
+        return got["tag"]
+    return None
+
+
+def release(url, tag, check=False, skip_compat=False, name="", mail="", overwrite=False, embed=None):
+    """embed — the embed's repository the pair went to (default: whatever published.json records for url). A pair is
+    released under one number newer than the last release of both repositories, the embed's tag first; when the core's
+    snapshot is released already and the embed's is not, the embed alone gets the tag (a fix of the embed). A pair's
+    release that stopped after the embed's tag goes on with the core's (the same number, the embed's tag stays)."""
     if not (name and mail):   # before the benches: without an author the tag cannot be set and snapshots in main cannot be recognised, and the benches take minutes
         raise Refused("PUBLISH_NAME and PUBLISH_EMAIL — the author of the tag and snapshots", 2)
     head = git(ROOT, "rev-parse", "HEAD")
     state = state_dir()
     snap = published(state, url, head)
+    pair = paired(state, url, embed)
     tmp = tempfile.mkdtemp(prefix="hub-release-")
     try:
         pub = os.path.join(tmp, "pub.git")
         git(tmp, "clone", "-q", "--bare", url, pub)
-        if not ancestor(pub, snap, "refs/heads/main"):
-            raise Refused(f"snapshot {snap[:7]} is not in main at {url} — not releasing")
+        repos = [(pub, url, snap)]
+        if pair:   # the embed's repository first: its tag goes first
+            epub = os.path.join(tmp, "embed.git")
+            git(tmp, "clone", "-q", "--bare", pair[0], epub)
+            repos.insert(0, (epub, pair[0], pair[1]))
         sys.path.insert(0, os.path.join(ROOT, "tools"))
         import publish_remote
-        try:   # foreign commits in main after the snapshot: the check runs to the end and does not pass
-            later = publish_remote.problem(pub, "refs/heads/main", url, snap, name, mail)
-        except (publish_remote.Failed, OSError, subprocess.TimeoutExpired) as e:
-            raise Refused(f"the comparison with the remote main failed: {e}", 3)
+        later = []
+        for repo, where, commit in repos:
+            if not ancestor(repo, commit, "refs/heads/main"):
+                raise Refused(f"snapshot {commit[:7]} is not in main at {where} — not releasing")
+            try:   # foreign commits in main after the snapshot: the check runs to the end and does not pass
+                later.append(publish_remote.problem(repo, "refs/heads/main", where, commit, name, mail))
+            except (publish_remote.Failed, OSError, subprocess.TimeoutExpired) as e:
+                raise Refused(f"the comparison with the remote main failed: {e}", 3)
+        later = "\n".join(x for x in later if x)
         if later and not (overwrite or check):
             raise Refused(later, 6)
         if later:
@@ -241,26 +292,49 @@ def release(url, tag, check=False, skip_compat=False, name="", mail="", overwrit
         if later and overwrite:
             print("WARNING: releasing anyway (--overwrite-remote)", file=sys.stderr)
             later = ""
-        found = releases(pub)
+        found = {repo: releases(repo) for repo, _, _ in repos}
+        every = sorted(x for got in found.values() for x in got)   # one number over both repositories
+        half = pending(state, url, snap, pair)
+        if pair and not half and os.path.exists(os.path.join(state, PENDING)):
+            print(f"WARNING: {os.path.join(state, PENDING)} names an earlier release that may have stopped after the embed's "
+                  "tag (another snapshot): that tag stays on the embed alone", file=sys.stderr)
+        if half and not (git(repos[0][0], "rev-parse", "-q", "--verify", f"refs/tags/{half}^{{commit}}", check=False) == pair[1]
+                         and not git(pub, "rev-parse", "-q", "--verify", f"refs/tags/{half}", check=False)):
+            half = None   # not stopped between the two: nothing pushed, or both
+        if half:
+            if tag not in (None, half):
+                raise Refused(f"the release {half} stopped after the embed's tag: finish it first (--tag {half} or --release)")
+            tag = half
+            every = [x for x in every if x[1] != half]
+            print(f"{half}: the embed has its tag, the core not yet — the release goes on with the core's")
         if tag is None:
-            tag = next_number(found, datetime.date.today().isoformat())
+            tag = next_number(every, datetime.date.today().isoformat())
         if not number(tag):
             raise Refused(f"{tag}: not a release number vX.Y.Z")
-        if any(n == tag for _, n, _ in found):
+        if any(n == tag for _, n, _ in every):
             raise Refused(f"{tag} is already released")
-        if git(pub, "rev-parse", "-q", "--verify", f"refs/tags/{tag}", check=False):
-            raise Refused(f"{tag}: the name is taken by a tag not on main — pick a number (--tag vX.Y.Z)")
-        if found and number(tag) <= found[-1][0]:
-            raise Refused(f"{tag} is not newer than the last release {found[-1][1]}")
-        if found and not ancestor(pub, f"refs/tags/{found[-1][1]}^{{commit}}", snap):
-            raise Refused(f"snapshot {snap[:7]} does not continue {found[-1][1]} (is published.json stale?) — not releasing")
-        on = [n for _, n, _ in found if git(pub, "rev-parse", f"refs/tags/{n}^{{commit}}") == snap]
-        if on:
-            raise Refused(f"this snapshot is already released as {on[-1]}; new things go to main first (--nightly)")
-        prev = found[-1][1] if found else None
-        text = notes(git(pub, "show", f"{snap}:CHANGES.md", check=False),
-                     git(pub, "show", f"refs/tags/{prev}:CHANGES.md", check=False) if prev else "")
-        print(f"release {tag} — snapshot {snap[:7]}" + (f", after {prev}" if prev else "") + f"\n\n{text}\n")
+        if every and number(tag) <= every[-1][0]:
+            raise Refused(f"{tag} is not newer than the last release {every[-1][1]}")
+        on = {}
+        for repo, where, commit in repos:
+            if not (half and repo != pub) and git(repo, "rev-parse", "-q", "--verify", f"refs/tags/{tag}", check=False):
+                raise Refused(f"{tag}: the name is taken by a tag not on main of {where} — pick a number (--tag vX.Y.Z)")
+            last = found[repo][-1][1] if found[repo] else None
+            if last and not ancestor(repo, f"refs/tags/{last}^{{commit}}", commit):
+                raise Refused(f"snapshot {commit[:7]} does not continue {last} of {where} (is published.json stale?) — not releasing")
+            on[repo] = [n for _, n, _ in found[repo] if git(repo, "rev-parse", f"refs/tags/{n}^{{commit}}") == commit]
+        alone = bool(pair and on[pub] and not on[repos[0][0]])   # the embed's fix: the open core keeps its release
+        if on[pub] and not alone:
+            raise Refused(f"this snapshot is already released as {on[pub][-1]}; new things go to main first (--nightly)")
+        if alone:
+            text = f"The embed alone, on the open core's {on[pub][-1]}."
+            print(f"release {tag} of the embed alone — snapshot {pair[1][:7]}, the core's {on[pub][-1]}\n\n{text}\n")
+        else:
+            prev = found[pub][-1][1] if found[pub] else None
+            text = notes(git(pub, "show", f"{snap}:CHANGES.md", check=False),
+                         git(pub, "show", f"refs/tags/{prev}:CHANGES.md", check=False) if prev else "")
+            print(f"release {tag} — snapshot {snap[:7]}" + (f" and the embed's {pair[1][:7]}" if pair else "")
+                  + (f", after {prev}" if prev else "") + f"\n\n{text}\n")
         private(pub, snap)
         if check:
             if later:
@@ -272,13 +346,34 @@ def release(url, tag, check=False, skip_compat=False, name="", mail="", overwrit
         message = os.path.join(tmp, "tag-message")
         with open(message, "w", encoding="utf-8", newline="") as f:   # no \r\n on Windows: --cleanup=verbatim would keep them
             f.write(f"{tag}\n\n{text}")
-        git(pub, "-c", f"user.name={name}", "-c", f"user.email={mail}", "tag", "-a", "--cleanup=verbatim", tag, "-F", message, snap)
-        git(pub, "push", "-q", "origin", f"refs/tags/{tag}")   # no force: such a tag already exists — the remote refuses
+        record = os.path.join(state, PENDING)
+        if pair and not alone:   # a stop between the two pushes goes on from here (pending)
+            with open(record + ".tmp", "w", encoding="utf-8") as f:
+                json.dump({"tag": tag, "url": url, "pub": snap, "embed_url": pair[0], "embed_pub": pair[1]}, f)
+            os.replace(record + ".tmp", record)
+        went = bool(half)
+        try:
+            for repo, where, commit in repos[:1] if alone else repos:
+                if half and repo != pub:
+                    continue
+                git(repo, "-c", f"user.name={name}", "-c", f"user.email={mail}", "tag", "-a", "--cleanup=verbatim", tag,
+                    "-F", message, commit)
+                git(repo, "push", "-q", "origin", f"refs/tags/{tag}")   # no force: such a tag already exists — the remote refuses
+                went = True
+        except BaseException:
+            if not went and os.path.exists(record):   # nothing went: nothing to go on with
+                os.unlink(record)
+            raise
+        if pair and not alone:
+            os.unlink(record)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    print(f"released: {tag} ({url})")
+    print(f"released: {tag} ({pair[0] if alone else url})")
+    got = {"tag": tag, "sha": head, "pub": snap, "at": int(time.time()), "url": url}
+    if pair:   # the team's build of this release: the open core at core_tag, the embed at tag (tools/package/team.py --core-ref)
+        got.update(embed_url=pair[0], embed_pub=pair[1], core_tag=on[pub][-1] if alone else tag)
     with open(os.path.join(state, "published-stable.json"), "w") as f:
-        json.dump({"tag": tag, "sha": head, "pub": snap, "at": int(time.time()), "url": url}, f)
+        json.dump(got, f)
         f.write("\n")
     return tag
 
@@ -289,13 +384,14 @@ def main(argv):
     what = p.add_mutually_exclusive_group(required=True)
     what.add_argument("--tag")
     what.add_argument("--release", action="store_true")
+    p.add_argument("--embed", help="the embed's repository of the pair (default: the one published.json records)")
     p.add_argument("--check", action="store_true")
     p.add_argument("--skip-compat", action="store_true")
     p.add_argument("--overwrite-remote", action="store_true")
     a = p.parse_args(argv)
     try:
         release(a.url, a.tag, a.check, a.skip_compat, os.environ.get("PUBLISH_NAME", ""),
-                os.environ.get("PUBLISH_EMAIL", ""), a.overwrite_remote)
+                os.environ.get("PUBLISH_EMAIL", ""), a.overwrite_remote, a.embed)
     except Refused as e:
         print(str(e), file=sys.stderr)
         return e.code

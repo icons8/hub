@@ -26,6 +26,7 @@ if REPO not in sys.path:
 
 import platforms  # noqa: E402
 from core import catalog  # noqa: E402
+from modules.setup import job  # noqa: E402
 
 TICK = 2.0
 WAIT = 30          # s: the first pause before a step that failed for the network starts again
@@ -55,7 +56,14 @@ class Auto:
         self.started.add(step)
         self.waits.pop(step, None)
         print(f"setup: {step}", flush=True)
-        self.setup.run(step)
+        self.setup.run(step, self.lang())
+
+    def lang(self):
+        """The language of the steps' words on the band: the hub's, else the one the owner's page said when they came
+        (reducer owner.came) — a fresh hub's person may read another than the machine's (owner 2026-11-19)."""
+        from core import i18n
+        facts = i18n.saved_state(self.state)
+        return i18n.human(self.setup.cfg(), facts, default=((facts or {}).get("owner") or {}).get("came"))
 
     def due(self, step, item):
         """Start the step now: never started in this run; or it failed for the network and its pause is over."""
@@ -86,7 +94,7 @@ class Auto:
         if "codex" in items:   # a hub on Codex (the person chose it on the band): Codex CLI, then its sign-in
             program, login, sign_in = "codex", "codex_login", self.setup.codex_sign_in
         else:
-            program, login, sign_in = "claude", "login", lambda: self.setup.run("login")
+            program, login, sign_in = "claude", "login", lambda: self.setup.run("login", self.lang())
         p = items.get(program) or {}
         # Claude Code: the release's own copy is the hub's to download whatever else is there (pending: the hub runs
         # another claude until then); doctor waits for it. Codex CLI: none at all, or the hub's ~/.local/bin copy that is
@@ -94,13 +102,19 @@ class Auto:
         if program == "claude":   # nothing else is installed: a code that names no version runs what PATH has
             mine = p.get("pending") and p.get("state") != "running"
         else:
-            mine = p.get("state") in ("todo", "failed") and (not p.get("version") and not p.get("found") or p.get("own"))
+            mine = p.get("state") in ("todo", "failed") and job.hub_installs_codex(p)
         if mine and self.due(program, p):
             self.start(program)
         busy = p.get("state") == "running" or (p.get("job") or {}).get("state") == "running" or program in self.waits \
             or program in self.just
         lg = items.get(login) or {}
-        if p.get("state") == "ok" and lg.get("state") in ("todo", "failed") and login not in self.started:
+        # the band chose Codex: the restart onto it waits for Codex CLI (job.CODEX_RESTART) — the sign-in is the run's
+        # after it; Codex CLI put in place some other way (by hand, after a failed install) asks that restart here
+        mark = job.codex_restart(self.state) if program == "codex" else None
+        if mark == "" and p.get("state") == "ok" and (p.get("job") or {}).get("state") != "running":
+            job.restart_onto_codex(self.state)
+        later = mark is not None
+        if p.get("state") == "ok" and lg.get("state") in ("todo", "failed") and login not in self.started and not later:
             self.started.add(login)
             self.just.add(login)
             print(f"setup: {login}", flush=True)
@@ -113,14 +127,18 @@ class Auto:
 
     def chrome_and_doctor(self, items, busy):
         """Chrome for the agents while the rest goes on; `hub doctor` once nothing else is under way and the last check is
-        old — and once more when the hub has just turned ready (the first one saw it before its sign-in)."""
+        old — and once more when the hub has just turned ready (the first one saw it before its sign-in). A check that
+        found trouble before this start is done again in it: what it found may be gone (a sign-in key in the
+        environment of this start; owner 2026-11-19, a red sign-in band after a restart that brought the key)."""
         ch = items.get("chrome") or {}
         wanted = ch.get("state") in ("todo", "failed") and ch.get("available") and "sandbox" not in ch
         if wanted and self.due("chrome", ch):
             self.start("chrome")
         busy |= ch.get("state") == "running" or "chrome" in self.waits or "chrome" in self.just
         doc = items.get("doctor") or {}
-        if not busy and doc.get("state") != "running" and (self.redo or doc.get("stale") and "doctor" not in self.started):
+        before = doc.get("state") in ("fail", "warn") and ((doc.get("job") or {}).get("ts") or 0) < self.began
+        if not busy and doc.get("state") != "running" and (self.redo or (doc.get("stale") or before)
+                                                            and "doctor" not in self.started):
             self.redo = False
             self.start("doctor")
             busy = True

@@ -429,7 +429,7 @@ def view(cfg, watch, lang=None, admit_now=None, agents=(), codex_models=None):
         work = key.split(".")
         if len(work) == 3 and work[0] == "executors" and work[1] in ("normal", "risky"):
             # the default is computed from the environment now (own endpoint — empty), not at module import
-            default = modelrule.DEFAULTS(cfg)[work[1]][work[2] == "effort"]
+            default = modelrule.DEFAULTS(cfg, codex_models or [])[work[1]][work[2] == "effort"]
         if key in ("executors.economy.model", "executors.economy.effort") and modelrule.codex_only(cfg):
             default = modelrule.ECONOMY(cfg)[key.endswith("effort")]
         if key == "title":

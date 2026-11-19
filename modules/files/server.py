@@ -642,7 +642,8 @@ class Files:
         snapshot lags by tens of thousands of events, and folding them from it took 34 s."""
         try:
             snap = journal.read_state_file(self.state_dir)
-            if snap["first"] != journal._first_seq(path):
+            if snap["first"] != journal._first_seq(path) or (
+                    hasattr(journal, "of_this_journal") and not journal.of_this_journal(snap, path)):
                 return None
             return snap["seq"], snap["offset"], snap["state"]
         except (OSError, ValueError, KeyError, TypeError):

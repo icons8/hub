@@ -21,7 +21,7 @@ from tests.test_app_update import HOUR, Stand, git, write
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-class Apply(Stand):
+class Base(Stand):
     def setUp(self):
         self.reported = []
         super().setUp()
@@ -71,6 +71,8 @@ class Apply(Stand):
         self.assertEqual(result, "applied")
         return copy, sha, got
 
+
+class Apply(Base):
     # --- the build
 
     def test_the_build_is_the_release_plus_the_edits_by_the_releases_own_factory(self):
@@ -448,6 +450,155 @@ class Shown(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"1.9.0 · {release} + your edits of the core (3), the build {'b' * 40}", r.stdout)
         self.assertIn("https://github.com/acme/hub-issues/issues/new", r.stdout)
+
+
+class OpenCore(Base):
+    """A release composed of an open core and the company's embeds (tools/package/compose.py: EMBED.json names the open
+    core's commit): the working copy is a clone of the open core at that commit and no commit of it carries embed/ (a PR
+    from it goes to a public repository); the own build takes the embeds from the release; a copy made before, of a tree
+    with the embeds, is set aside with the person's edits and no origin."""
+    EMBED = {"embed/acme/embed.json": '{"embed": 1, "api": "1.0"}\n', "embed/acme/modules/acme_tools/__init__.py": "",
+             "embed/acme/modules/acme_tools/tools.py": "S = 1\n"}
+
+    def files(self, tag):
+        """The tree Stand.release writes for tag (on top of the earlier ones), without the embeds."""
+        own = {}
+        for rel in ("tools/package/layer.py", "core/appcode.py", "core/embed.py"):
+            with open(os.path.join(REPO, *rel.split("/")), encoding="utf-8") as f:
+                own[rel] = f.read()
+        from tests.test_app_update import TREE
+        return {**TREE, "core/x.py": f"X = {tag!r}\n", **own}
+
+    def composed(self, tag):
+        """The open core's repository at the release's tree without the embeds, then the release of that tree with the
+        embeds and EMBED.json, installed on the hub -> the open core's commit."""
+        self.open = os.path.join(self.root, "open")
+        if not os.path.isdir(self.open):
+            git(self.root, "init", "-q", "-b", "main", self.open)
+        for rel, text in self.files(tag).items():
+            write(os.path.join(self.open, *rel.split("/")), text)
+        git(self.open, "add", "-A")
+        git(self.open, "commit", "-qm", tag, "--allow-empty")
+        core = git(self.open, "rev-parse", "HEAD")
+        self.release(tag, {**self.files(tag), **self.EMBED, "EMBED.json": json.dumps(
+            {"profile": "acme", "core": {"repo": "https://example.test/acme/hub.git", "ref": tag, "commit": core}})})
+        self.publish(tag)
+        self.assertEqual(self.updater().check(apply=True), "applied")
+        appcode.take_next(self.state)
+        return core
+
+    def no_embeds(self, copy):
+        self.assertEqual(git(copy, "log", "--all", "--format=%H", "--", "embed", "EMBED.json"), "")
+
+    def test_the_copy_is_the_open_core_and_the_own_build_carries_the_releases_embeds(self):
+        core = self.composed("v1.3.0")
+        man = appcode.load(self.code())
+        self.assertEqual(man["core"]["commit"], core)
+        self.assertNotEqual(man["commit"], core)                       # the composed tree's commit: no repository has it
+        copy = self.copy(url=self.open)
+        self.assertEqual((ownsrc.status(self.state)["kind"], git(copy, "rev-parse", "release")), ("clone", core))
+        self.no_embeds(copy)
+        self.assertEqual(sorted(git(copy, "for-each-ref", "--format=%(refname:short)", "refs/heads").split()),
+                         ["local", "release"])                          # the clone's own default branch is gone
+        sha = self.edit(copy)
+        got = self.build()
+        built = appcode.load(os.path.join(got["stage"], got["name"]))
+        self.assertIn("embed/acme/modules/acme_tools/tools.py", built["files"])      # the pool and the rest stay
+        self.assertEqual((built["commit"], built["core"]["commit"], built["own"]["release"]), (sha, core, "1.3.0"))
+        self.assertEqual([e["name"] for e in built["embeds"]], ["acme"])
+        with open(os.path.join(got["stage"], got["name"], "core", "x.py")) as f:
+            self.assertEqual(f.read(), "X = 'mine'\n")
+        self.no_embeds(copy)
+
+    def test_a_copy_of_files_of_such_a_release_has_no_embed(self):
+        self.composed("v1.3.0")
+        copy = self.copy(url="")
+        self.assertEqual(ownsrc.status(self.state)["kind"], "archive")
+        self.assertFalse(os.path.exists(os.path.join(copy, "embed")))
+        self.no_embeds(copy)
+        sha = self.edit(copy)
+        built = appcode.load(os.path.join(self.build()["stage"], f"1.3.0+local.{sha[:9]}-team"))
+        self.assertIn("embed/acme/modules/acme_tools/tools.py", built["files"])
+
+    def test_a_copy_of_a_tree_with_the_embeds_is_set_aside_with_its_edits(self):
+        self.release("v1.2.4", self.EMBED)                               # a team's tree with its embeds, as before
+        self.publish("v1.2.4")
+        self.assertEqual(self.updater().check(apply=True), "applied")
+        appcode.take_next(self.state)
+        old = self.copy()
+        mine = self.edit(old, "MINE = 1\n", "core/mine.py")
+        git(old, "remote", "add", "fork", "https://example.test/someone/hub.git")   # the usual remote of a PR
+        self.assertNotEqual(git(old, "log", "--all", "--format=%H", "--", "embed"), "")
+        core = self.composed("v1.3.0")
+        said = []
+        got = ownsrc.make(self.state, self.code(), url=self.open, say=said.append)
+        aside = os.path.join(self.state, "own", "core.before-1.2.4")
+        self.assertEqual(git(aside, "rev-parse", "local"), mine)                 # the edits are there
+        self.assertEqual(git(aside, "remote"), "")                               # nothing of it is pushed by mistake
+        self.assertEqual((got["kind"], git(got["path"], "rev-parse", "release")), ("clone", core))
+        self.no_embeds(got["path"])
+        self.assertTrue(any(aside in line and "release...local" in line and "git apply" in line for line in said), said)
+        again = ownsrc.make(self.state, self.code(), url=self.open, say=said.append)
+        self.assertEqual(again["path"], got["path"])                             # once: the new copy stays
+        self.assertFalse(os.path.exists(aside + ".2"))
+
+    def test_a_copy_with_working_trees_of_its_own_is_not_moved(self):
+        self.release("v1.2.4", self.EMBED)
+        self.publish("v1.2.4")
+        self.assertEqual(self.updater().check(apply=True), "applied")
+        appcode.take_next(self.state)
+        old = self.copy()
+        wt = os.path.join(self.root, "wt")
+        git(old, "worktree", "add", "-q", "-b", "side", wt)
+        self.composed("v1.3.0")
+        with self.assertRaises(ownsrc.Refused) as e:
+            ownsrc.make(self.state, self.code(), url=self.open, say=lambda line: None)
+        self.assertIn("git worktree remove", str(e.exception))
+        self.assertEqual(ownsrc.path(self.state), old)
+        self.assertTrue(os.path.isdir(os.path.join(old, ".git")))
+
+    def test_the_copy_clones_the_open_core_by_default(self):
+        self.composed("v1.3.0")
+        with mock.patch.object(ownsrc.codestore, "git", wraps=ownsrc.codestore.git) as g:
+            ownsrc.make(self.state, self.code(), say=lambda line: None)
+        clone = [c for c in g.call_args_list if c.args[:1] == ("clone",)]
+        self.assertEqual(clone[0].kwargs.get("remote"), "https://example.test/acme/hub.git")   # MANIFEST core repo
+
+    def test_embed_in_the_persons_own_commit_is_refused_not_moved(self):
+        self.composed("v1.3.0")
+        copy = self.copy(url=self.open)
+        self.edit(copy, "E = 1\n", "embed/acme/modules/acme_tools/mine.py")
+        with self.assertRaises(ownsrc.Refused) as e:
+            ownsrc.make(self.state, self.code(), url=self.open, say=lambda line: None)
+        self.assertIn("embed/", str(e.exception))
+        self.assertEqual(ownsrc.path(self.state), copy)
+        self.assertFalse([n for n in os.listdir(os.path.join(self.state, "own")) if n.startswith("core.before")])
+
+    def test_a_git_that_cannot_tell_moves_no_copy(self):
+        self.composed("v1.3.0")
+        copy = self.copy(url=self.open)
+        meta = os.path.join(copy, ".git", ownsrc.META)   # a copy of before: no mark of an open core's copy
+        with open(meta) as f:
+            data = {k: v for k, v in json.load(f).items() if k != "open"}
+        with open(meta, "w") as f:
+            json.dump(data, f)
+        real = ownsrc._run
+
+        def broken(repo, *args, **kw):
+            if args[:1] == ("log",):
+                return subprocess.CompletedProcess(args, 128, "", "fatal: detected dubious ownership")
+            return real(repo, *args, **kw)
+        with mock.patch.object(ownsrc, "_run", broken), self.assertRaises(ownsrc.Refused):
+            ownsrc.make(self.state, self.code(), url=self.open, say=lambda line: None)
+        self.assertTrue(os.path.isdir(os.path.join(copy, ".git")))
+        self.assertFalse([n for n in os.listdir(os.path.join(self.state, "own")) if n.startswith("core.before")])
+
+    def test_a_tree_with_an_embed_of_its_own_is_refused_its_release_embeds(self):
+        self.composed("v1.3.0")
+        tree = os.path.join(self.root, "t")
+        os.makedirs(os.path.join(tree, "embed"))
+        with self.assertRaises(self.layer.Refused):
+            self.layer.embeds_of(self.code(), tree)
 
 
 if __name__ == "__main__":

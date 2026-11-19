@@ -727,6 +727,7 @@ class MacLauncher(Repo):
         for rel in (self.TEAM, self.OWN):   # programs: 0755 in git
             os.chmod(os.path.join(self.work, *rel.split("/")), 0o755)
         self.g("add", "-A")
+        self.g("update-index", "--chmod=+x", self.TEAM, self.OWN)   # a disk without the bit (Windows) gives git none
         self.g("commit", "-qm", "bundles")
 
     def read(self, root, rel):
@@ -831,7 +832,8 @@ class Lists(unittest.TestCase):
 
     def test_the_open_cut_is_the_embeds(self):
         # ...and the team's Mac launcher, signed with the company's Developer ID: the open one takes its place (OPEN_SWAP)
-        self.assertEqual(appcode.OPEN_CUT, ("embed/*", "EMBED.json", *embed.SHIMS, "deploy/mac/Agents Hub.app/*"))
+        # ...and deliver/, the team build's delivery server (the open build is given out by pages)
+        self.assertEqual(appcode.OPEN_CUT, ("embed/*", "EMBED.json", *embed.SHIMS, "deploy/mac/Agents Hub.app/*", "deliver/*"))
         self.assertEqual(appcode.OPEN_SWAP, (("deploy/mac/open/Hub by Icons8.app", "deploy/mac/Hub by Icons8.app"),))
 
     def test_the_core_does_not_name_the_report_server(self):

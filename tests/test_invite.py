@@ -1,8 +1,9 @@
 """A new hub greets its owner first (owner 2026-11-09: on a fresh hub with Codex the hub session said nothing until the
 owner wrote «hi»; the introduction by hub-home/ONBOARDING.md waited for their first word). Once the hub session has
-come up and nobody has written, the core records owner.invited and the fold gives the hub session one message to
-introduce itself, in the owner's language; once for the whole journal, the first word after it is no second tour, on
-Claude and on Codex alike."""
+come up, the owner has come (their page opened: owner.came) and nobody has written, the core records owner.invited
+and the fold gives the hub session one message to introduce itself, in the owner's language — the one their page
+said, not the machine's (owner 2026-11-19: a Russian browser on an English system was greeted in English); once for the
+whole journal, the first word after it is no second tour, on Claude and on Codex alike."""
 import tests  # noqa: F401 — hide the machine's settings
 import json
 import os
@@ -14,10 +15,11 @@ from unittest import mock
 
 import platforms
 
-from core import i18n, journal, reducer, spool, system
+from core import journal, reducer, spool, system
 from core.daemon import Hub
 from hosts.codex import CodexHost
 from hosts.streamjson import StreamHost
+from tests import test_web
 
 OWNER = {"channel": "web", "owner": True}
 HERE = os.path.dirname(__file__)
@@ -43,13 +45,63 @@ class Fold(unittest.TestCase):
     def invite(self, lang="ru"):
         return self.ev("owner.invited", None, lang=lang, channel="core")
 
+    def came(self, lang="ru", **who):
+        return self.ev("owner.came", None, lang=lang, **(who or OWNER))
+
     def test_not_before_the_hub_session_has_come_up(self):
+        self.came()
         self.assertFalse(system.invite_due(self.st))
         self.ev("session.started", "hub")
         self.assertTrue(system.invite_due(self.st))
 
+    def test_not_before_the_owner_has_come(self):
+        # the machine's language is not theirs: the hub waits for their page, however long
+        self.ev("session.started", "hub")
+        self.assertFalse(system.invite_due(self.st))
+        self.assertIsNone(self.came("ru"))
+        self.assertEqual(self.st["owner"]["came"], {"ts": self.st["owner"]["came"]["ts"], "lang": "ru", "via": "web"})
+        self.assertTrue(system.invite_due(self.st))
+
+    def test_the_first_coming_is_kept_once_and_only_the_owners(self):
+        self.ev("session.started", "hub")
+        self.assertIsNotNone(self.came("de", channel="session", sender="hub"))
+        self.assertNotIn("came", self.st["owner"])
+        self.came("de")
+        self.came("ru")   # a second page, another browser
+        self.assertEqual(self.st["owner"]["came"]["lang"], "de")
+        self.came("tlh")
+        self.assertEqual(self.st["owner"]["came"]["lang"], "de")
+
+    def test_a_language_of_no_catalog_is_no_language(self):
+        self.ev("session.started", "hub")
+        self.came("tlh")
+        self.assertIsNone(self.st["owner"]["came"]["lang"])
+        self.assertTrue(system.invite_due(self.st))   # they came all the same: the hub greets them in the hub's language
+
+    def test_a_hub_in_use_keeps_no_coming(self):
+        self.ev("session.started", "hub")
+        self.st["owner"]["seen"] = {"hub": 5}   # the owner read the hub before this version
+        self.came()
+        self.assertNotIn("came", self.st["owner"])
+        self.assertFalse(system.invite_due(self.st))
+        self.st["owner"].pop("seen")
+        self.st["owner"]["greeted"] = True   # or wrote to it
+        self.came()
+        self.assertNotIn("came", self.st["owner"])
+
+    def test_the_page_that_shows_the_hub_after_coming_does_not_cancel_the_greeting(self):
+        # the page opens on the hub's chat and marks it read at once: that is no word of theirs
+        self.ev("session.started", "hub")
+        self.came()
+        self.ev("owner.seen", "hub", seq=3, **OWNER)
+        self.assertTrue(system.invite_due(self.st))
+        self.assertIsNone(self.invite())
+        self.assertEqual(len(self.msgs()), 1)
+        self.assertFalse(system.invite_due(self.st))
+
     def test_the_invitation_is_one_core_message_to_the_hub_in_the_owners_language(self):
         self.ev("session.started", "hub")
+        self.came()
         self.assertIsNone(self.invite())
         (msg,) = self.msgs()
         self.assertEqual(msg["from"], {"kind": "core"})
@@ -69,10 +121,20 @@ class Fold(unittest.TestCase):
 
     def test_the_owner_who_wrote_first_is_not_invited(self):
         self.ev("session.started", "hub")
+        self.came()
         self.ev("message.received", None, text="Hello", **OWNER)
         self.assertFalse(system.invite_due(self.st))
         self.invite()
         self.assertEqual([m["text"] for m in self.msgs()], ["Hello"])
+
+    def test_an_owner_who_came_and_writes_before_the_greeting_gets_the_introduction(self):
+        # their page marked the hub's chat read; the hub session was still coming up (a download, a sign-in)
+        self.came()
+        self.ev("owner.seen", "hub", seq=1, **OWNER)
+        self.ev("message.received", None, text="Hello", **OWNER)
+        self.assertIn("first introduce the owner to the hub following ONBOARDING.md", self.msgs()[-1]["origin"])
+        self.ev("session.started", "hub")
+        self.assertFalse(system.invite_due(self.st))   # the introduction is their message's: no second one
 
     def test_the_first_word_after_the_invitation_is_no_second_tour(self):
         self.ev("session.started", "hub")
@@ -95,11 +157,13 @@ class Fold(unittest.TestCase):
     def test_a_hub_session_that_has_had_a_turn_is_no_new_hub(self):
         # the owner's words may be gone from the state (a long-lived hub, trimmed messages): the hub's own turns say so
         self.ev("session.started", "hub")
+        self.came()
         self.ev("turn.started", "hub", marker="m-old")
         self.assertFalse(system.invite_due(self.st))
 
     def test_the_session_is_the_one_the_fold_writes_to_not_one_by_a_name(self):
         self.ev("session.started", "hub")
+        self.came()
         self.assertTrue(system.invite_due(self.st))
         self.st["sessions"]["hub"]["state"] = "closed"   # no live hub session: nothing is due
         self.assertFalse(system.invite_due(self.st))
@@ -122,38 +186,6 @@ class Fold(unittest.TestCase):
         self.invite("it")
         self.assertIn("Write in it.", self.msgs()[0]["text"])
 
-    def test_the_system_language_is_a_ready_one_or_none(self):
-        for tag, want in (("ru-RU", "ru"), ("en-US", "en"), ("pt-PT", "pt-BR"), ("", None), ("tlh", None)):
-            with mock.patch.object(platforms.current, "system_language", return_value=tag):
-                self.assertEqual(i18n.system_language(), want, tag)
-
-
-class SystemLanguage(unittest.TestCase):
-    @unittest.skipIf(os.name == "nt", "POSIX adapter")
-    def test_a_mac_asks_its_settings_and_others_the_environment(self):
-        from unittest import mock as m
-        from platforms import posix
-        done = m.Mock(stdout='(\n    "ru-RU",\n    "en-US"\n)\n', returncode=0)
-        with m.patch.object(posix.sys, "platform", "darwin"), m.patch.object(posix.subprocess, "run", return_value=done):
-            self.assertEqual(posix.system_language(), "ru-RU")
-        with m.patch.object(posix.sys, "platform", "linux"), \
-                m.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": "de_DE.UTF-8"}):
-            self.assertEqual(posix.system_language(), "de-DE")
-        with m.patch.object(posix.sys, "platform", "linux"), m.patch.dict(os.environ, {"LC_ALL": "C", "LANG": "ru_RU"}):
-            self.assertEqual(posix.system_language(), "ru-RU")   # a stray C does not hide the language LANG names
-        with m.patch.object(posix.sys, "platform", "linux"), m.patch.dict(os.environ, {"LC_ALL": "C", "LANG": "C.UTF-8"}):
-            self.assertEqual(posix.system_language(), "")   # C says nothing
-        failed = m.Mock(stdout="The domain/default pair does not exist\n", returncode=1)
-        with m.patch.object(posix.sys, "platform", "darwin"), m.patch.object(posix.subprocess, "run", return_value=failed), \
-                m.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": "es_ES.UTF-8"}):
-            self.assertEqual(posix.system_language(), "es-ES")   # an error text is no language
-        with m.patch.object(posix.sys, "platform", "darwin"), m.patch.object(posix.subprocess, "run", side_effect=OSError), \
-                m.patch.dict(os.environ, {"LC_ALL": "", "LC_MESSAGES": "", "LANG": "fr_FR.UTF-8"}):
-            self.assertEqual(posix.system_language(), "fr-FR")   # defaults missing: the environment
-
-    def test_both_adapters_have_it(self):
-        from platforms import posix, windows
-        self.assertTrue(callable(posix.system_language) and callable(windows.system_language))
 
 
 class Daemon(unittest.TestCase):
@@ -168,6 +200,60 @@ class Daemon(unittest.TestCase):
             for _ in range(3):
                 h.invite_owner()
         self.assertEqual([t for t, _ in sent], ["owner.invited"])
+
+    def test_the_greeting_speaks_the_language_the_page_said_not_the_machines(self):
+        import types
+        h = Hub(tempfile.mkdtemp(prefix="invite-l-"), types.SimpleNamespace())
+        self.addCleanup(platforms.current.rmtree, h.state_dir)
+        h.config = {**h.config, "hub": {"enabled": True, "name": "hub", "cwd": None}}
+        h.config.pop("language", None)
+        h.settings_known = True
+        h.state["owner"]["came"] = {"ts": 1, "lang": "ru", "via": "web"}
+        sent = []
+        h.record = lambda t, e=None, d=None, **k: sent.append((t, d))
+        with mock.patch.object(system, "invite_off", return_value=False), \
+                mock.patch.object(system, "invite_due", return_value=True), \
+                mock.patch.dict(os.environ, {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "HUB_LANG": "en"}):
+            h.invite_owner()
+        self.assertEqual(sent, [("owner.invited", {"lang": "ru", "channel": "core"})])
+        h.config["language"] = "de"   # the hub's own language still comes first
+        h.invite_tried = False
+        with mock.patch.object(system, "invite_off", return_value=False), \
+                mock.patch.object(system, "invite_due", return_value=True):
+            h.invite_owner()
+        self.assertEqual(sent[-1], ("owner.invited", {"lang": "de", "channel": "core"}))
+
+
+class Page(unittest.TestCase):
+    """The owner's page says they came, once, with the browser's language."""
+    tearDown, req, spooled = test_web.WebTest.tearDown, test_web.WebTest.req, test_web.WebTest.spooled
+
+    def setUp(self):
+        test_web.WebTest.setUp(self)
+        self.web.came_told = False
+
+    def came(self):
+        return [e for e in self.spooled() if e["type"] == "owner.came"]
+
+    def test_the_first_page_says_who_came_and_in_what_language(self):
+        code, _ = self.req("GET", "/", headers={"Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8"})
+        self.assertEqual(code, 200)
+        (fact,) = self.came()
+        self.assertEqual(fact["data"]["lang"], "ru")
+        self.assertTrue(fact["data"]["owner"])
+        self.req("GET", "/", headers={"Accept-Language": "de"})   # once per page process: the fold keeps the first
+        self.assertEqual(self.came(), [])
+
+    def test_a_probe_of_the_port_is_nobody(self):
+        # `hub instance` checks a new hub is up with a bare GET: no browser, no person
+        code, _ = self.req("GET", "/")
+        self.assertEqual(code, 200)
+        self.assertEqual(self.came(), [])
+
+    def test_a_hub_that_has_met_its_owner_hears_nothing(self):
+        self.web.tail.lang_state = {"owner": {"lang": None, "came": None, "met": True}, "ui_lang_default": None}
+        self.req("GET", "/", headers={"Accept-Language": "ru"})
+        self.assertEqual(self.came(), [])
 
 
 class OnClaude(unittest.TestCase):
@@ -186,9 +272,14 @@ class OnClaude(unittest.TestCase):
         os.environ.pop("HUB_NO_INVITE", None)
         self.addCleanup(self.patch.stop)
         self.addCleanup(platforms.current.rmtree, self.state)
+        self.come()
         self.hub = self.new_hub()
         self.hub.start()
         self.addCleanup(self.stop)
+
+    def come(self, lang="de"):
+        """The owner's page opened (modules/web Web.came): the browser's language; hub.json's language comes first."""
+        spool.put(os.path.join(self.state, "spool"), "owner.came", None, {"lang": lang, "channel": "web", "owner": True})
 
     def host(self, env):
         return StreamHost(self.state, claude=(sys.executable, FAKE_CLAUDE), env=env)
@@ -238,6 +329,26 @@ class OnClaude(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(len(self.events("owner.invited")), 1)
         self.assertEqual(len(self.invitations()), 1)
+
+    def test_an_owner_who_has_not_come_is_not_greeted_and_one_who_comes_is(self):
+        self.stop()
+        platforms.current.rmtree(self.state)
+        os.makedirs(self.state)
+        with open(self.cfg, "w") as f:   # no language of the hub's own: the page's one decides
+            json.dump({"update": {"enabled": False}, "hub": {"enabled": True, "name": "hub", "cwd": self.state}}, f)
+        self.hub = self.new_hub()
+        self.hub.start()
+        self.until(lambda: self.hub.state["sessions"].get("hub", {}).get("ever_started"))
+        for _ in range(10):
+            self.hub.tick()
+            time.sleep(0.03)
+        self.assertEqual(self.events("owner.invited"), [])
+        self.come("de")
+        self.until(lambda: self.events("owner.invited"))
+        (fact,) = self.events("owner.invited")
+        self.assertEqual(fact["data"]["lang"], "de")
+        self.until(lambda: self.invitations() and self.invitations()[0]["state"] == "delivered")
+        self.assertIn("Write in German", self.invitations()[0]["text"])
 
     def test_an_owner_who_writes_before_the_hub_has_come_up_gets_no_invitation(self):
         spool.put(os.path.join(self.state, "spool"), "message.received", None,

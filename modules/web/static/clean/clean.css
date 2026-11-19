@@ -1763,7 +1763,7 @@ html.th-clean #nav-extra[data-clean-ptr] :focus-visible { outline: 0; }
 
 /* ---- quiet hover and focus: no blue on hover or on focus; backing --c-hover/--c-fill, border --c-line-strong,
    keyboard ring --c-ring. Here is what comes from the core and plugins: an image in an attachment (the core's lightbox.css and
-   chat-images color the outline --primary), the chat search field (the core's feed.css) ---- */
+   chat-images color the outline --primary) ---- */
 @media (hover: hover) and (pointer: fine) {
   html.th-clean :is(.thumbs img, .attach-list img, .tool-img, .opt-img, .feed img.ci-thumb, .feed img.ci-full):hover { outline-color: var(--c-line-strong); }
 }
@@ -1807,7 +1807,6 @@ html.th-clean .lightbox.clean-tall::-webkit-scrollbar { display: none; }
   html.th-clean .lb-btn { background: var(--background); color: var(--c-t1); box-shadow: var(--c-field); }
   html.th-clean .lb-btn .icon.kit-img[data-clean-mask] { color: inherit; }
 }
-html.th-clean .fs-row input:focus-visible { outline: 0; border-color: var(--c-line-strong); }
 /* keyboard ring one color everywhere: the core colors the outline --ring (light theme — #c9c9d0, 1.6:1: invisible on links and chips) */
 html.th-clean :is(:focus-visible, .opt.pick:has(input:focus-visible), .opt-preview:focus-visible, .limlink:focus-visible, .quote-bar .linkbtn:focus-visible, .ctx-menu button:focus-visible, .menu-item:focus-visible) { outline-color: var(--c-ring); }
 /* an answer option: the ring 2px off the row, as on buttons */
@@ -2672,6 +2671,55 @@ html.th-clean .bus-contact .bus-acts > .btn.danger { background: var(--c-alert-s
     max-width: calc(100% - 280px); }   /* three buttons on the right */
 }
 
+/* ---- feed search: a 36 gray r8 field with a 16 icon and the "3 of 12" count inside, as the left panel's search, no border of the
+   input's own; while nothing is searched — only the field and close. On a computer the arrows and × are inside the field on the
+   right, 24 r8 as the × of the left panel's search; on a phone the bar is in the header row itself, full width, with 32 arrows
+   and the closing word outside the field. The core's bar lies in main next to the header; on a phone it takes the header's
+   grid row, over it ---- */
+html.th-clean main > .fsearch .fs-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto; align-items: center; gap: 0; height: 36px; }
+html.th-clean main > .fsearch .fs-row::before { content: ""; grid-area: 1 / 1 / 2 / -1; align-self: stretch; border-radius: 8px; background: var(--c-fill); }
+html.th-clean main > .fsearch .fs-row > .icon { grid-area: 1 / 1; width: 16px; height: 16px; margin-block: 0; margin-inline: 10px 8px; color: var(--c-t2); }
+html.th-clean main > .fsearch .fs-row input { grid-area: 1 / 2; width: 100%; height: 36px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  font: 400 var(--c-fs)/var(--c-lh) var(--font); letter-spacing: -0.1px; color: var(--c-t1); }
+html.th-clean main > .fsearch .fs-row input::placeholder { color: var(--c-t2); }
+html.th-clean main > .fsearch .fs-row input:focus-visible { outline: 0; }
+/* with a query and in focus — as the left panel's search: a white field with a thin border, slightly darker in focus */
+html.th-clean main > .fsearch .fs-row:has(input:not(:placeholder-shown))::before { background: var(--background); box-shadow: inset 0 0 0 1px var(--c-line); }
+html.th-clean main > .fsearch .fs-row:has(input:focus)::before { background: var(--background); box-shadow: inset 0 0 0 1px var(--c-line-strong); }
+html.th-clean main > .fsearch .fs-row > .btn.round.dictate { grid-area: 1 / 3; margin: 0; }
+html.th-clean main > .fsearch .fs-row:has(.dictate.mini:not([hidden])) input { padding-inline-end: 0; }
+html.th-clean main > .fsearch .fs-n { grid-area: 1 / 4; width: auto; height: var(--c-lh-s); contain: none; padding-block: 0; padding-inline: 4px 6px;
+  font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
+html.th-clean main > .fsearch .fs-btn { grid-row: 1; width: 24px; height: 24px; min-width: 0; min-height: 0; padding: 0; justify-content: center; border-radius: 8px; color: var(--c-t2); }
+html.th-clean main > .fsearch .fs-btn:nth-last-child(4) { grid-column: 5; }
+html.th-clean main > .fsearch .fs-btn:nth-last-child(3) { grid-column: 6; }
+html.th-clean main > .fsearch .fs-close { grid-column: 7; margin-inline: 2px 6px; }
+html.th-clean main > .fsearch .fs-close .icon { width: 12px; height: 12px; }
+@media (hover: hover) and (pointer: fine) {
+  html.th-clean main > .fsearch .fs-btn:hover { background: var(--c-fill); color: var(--c-t1); }
+}
+/* the core's ↑ ↓ as 16 chevrons, as in the mockup */
+html.th-clean main > .fsearch .fs-btn:is(:nth-last-child(3), :nth-last-child(4)) { font-size: 0; }
+html.th-clean main > .fsearch .fs-btn:is(:nth-last-child(3), :nth-last-child(4))::before { content: ""; width: 16px; height: 16px; background: currentColor;
+  -webkit-mask: url("chevron-down.svg") center / 16px no-repeat; mask: url("chevron-down.svg") center / 16px no-repeat; }
+html.th-clean main > .fsearch .fs-btn:nth-last-child(4)::before { transform: rotate(180deg); }
+html.th-clean main > .fsearch .fs-row:has(> .fs-n:empty) > :is(.fs-n, .fs-btn:not(.fs-close, .fs-cancel)) { display: none; }
+html.th-clean main > .fsearch .fs-status:empty { display: none; }
+/* the status line under the field starts at its edge, as on a phone (the core indents it to the input after the outside icon) */
+html.th-clean main > .fsearch .fs-status { padding-inline-start: 0; }
+@media (max-width: 760px) {
+  html.th-clean main > .fsearch { grid-row: 3; align-self: stretch; align-content: center; min-height: 52px; box-sizing: border-box; padding-block: 8px; padding-inline: 12px 4px;
+    border-bottom: 1px solid var(--border); background: var(--background); }
+  html.th-clean main:has(> .fsearch) > .head { visibility: hidden; }
+  html.th-clean main:has(> .fsearch) > .feed { margin-top: 0; }
+  html.th-clean main > .fsearch .fs-row::before { grid-area: 1 / 1 / 2 / 5; }
+  html.th-clean main > .fsearch .fs-row input { font-size: max(16px, var(--c-fs)); letter-spacing: normal; }
+  html.th-clean main > .fsearch .fs-btn { width: 32px; height: 32px; color: var(--c-t1); }
+  html.th-clean main > .fsearch .fs-btn:nth-last-child(4) { margin-inline-start: 4px; }
+  /* the closing word takes its own width: a 32 box cut "Cancel" off at the screen's edge */
+  html.th-clean main > .fsearch .fs-cancel { grid-column: 7; width: auto; margin-inline-start: 4px; padding-inline: 8px; }
+}
+
 /* ---- "Chat avatars" ("Look" setting, on by default; clean.js rowFaces): the row type is data-clean-k (agent / exec / other / dir / hub).
    Two sizes, by level, not by type: the first level ("Hub", specialists, directions) and the second (executors under a parent, inside
    .forks). Compact list: 16 and 12; detailed: 32 and 24, centered on the two lines. A session shows its character (--clean-face,
@@ -2783,40 +2831,6 @@ html.th-clean.th-clean-recent #list { overflow-anchor: none; }
   html.th-clean main > .head .menu-wrap > .menu[data-clean-title]::before { content: attr(data-clean-title); }
   html.th-clean :is(.gpop-i, main > .head .menu-wrap > .menu .menu-item) { min-height: 44px; padding: 12px; font-size: var(--c-fs); line-height: var(--c-lh); }
   html.th-clean main > .head .menu-wrap > .menu .menu-text { padding: 8px 12px; }
-}
-
-/* ---- feed search on a phone is in the header row itself, full width: a 36 gray r8 field with a 16 icon and the "3 of 12" count
-   inside, 32 arrows, a 32 close. While nothing is searched — only the field and close. The core's bar lies in main next to the
-   header; here it takes the header's grid row, over it ---- */
-@media (max-width: 760px) {
-  html.th-clean main > .fsearch { grid-row: 3; align-self: stretch; align-content: center; min-height: 52px; box-sizing: border-box; padding-block: 8px; padding-inline: 12px 4px;
-    border-bottom: 1px solid var(--border); background: var(--background); }
-  html.th-clean main:has(> .fsearch) > .head { visibility: hidden; }
-  html.th-clean main:has(> .fsearch) > .feed { margin-top: 0; }
-  html.th-clean main > .fsearch .fs-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto; align-items: center; gap: 0; height: 36px; }
-  html.th-clean main > .fsearch .fs-row::before { content: ""; grid-area: 1 / 1 / 2 / 5; align-self: stretch; border-radius: 8px; background: var(--c-fill); }
-  html.th-clean main > .fsearch .fs-row > .icon { grid-area: 1 / 1; width: 16px; height: 16px; margin-block: 0; margin-inline: 10px 8px; color: var(--c-t2); }
-  html.th-clean main > .fsearch .fs-row input { grid-area: 1 / 2; width: 100%; height: 36px; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
-    font: 400 max(16px, var(--c-fs))/var(--c-lh) var(--font); color: var(--c-t1); }
-  html.th-clean main > .fsearch .fs-row input::placeholder { color: var(--c-t2); }
-  html.th-clean main > .fsearch .fs-row input:focus-visible { outline: 0; }
-  html.th-clean main > .fsearch .fs-row:has(input:focus-visible)::before { box-shadow: inset 0 0 0 1px var(--c-line-strong); }
-  html.th-clean main > .fsearch .fs-row > .btn.round.dictate { grid-area: 1 / 3; margin: 0; }
-  html.th-clean main > .fsearch .fs-row:has(.dictate.mini:not([hidden])) input { padding-inline-end: 0; }
-  html.th-clean main > .fsearch .fs-n { grid-area: 1 / 4; width: auto; height: var(--c-lh-s); contain: none; padding-block: 0; padding-inline: 4px 6px;
-    font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
-  html.th-clean main > .fsearch .fs-btn { grid-row: 1; width: 32px; height: 32px; min-width: 0; min-height: 0; padding: 0; justify-content: center; border-radius: 8px; color: var(--c-t1); }
-  html.th-clean main > .fsearch .fs-btn:nth-last-child(3) { grid-column: 5; margin-inline-start: 4px; }
-  html.th-clean main > .fsearch .fs-btn:nth-last-child(2) { grid-column: 6; }
-  html.th-clean main > .fsearch .fs-btn:last-child { grid-column: 7; margin-inline-start: 4px; }
-  html.th-clean main > .fsearch .fs-btn .icon { width: 16px; height: 16px; }
-  /* the core's ↑ ↓ as 16 chevrons, as in the mockup */
-  html.th-clean main > .fsearch .fs-btn:is(:nth-last-child(2), :nth-last-child(3)) { font-size: 0; }
-  html.th-clean main > .fsearch .fs-btn:is(:nth-last-child(2), :nth-last-child(3))::before { content: ""; width: 16px; height: 16px; background: currentColor;
-    -webkit-mask: url("chevron-down.svg") center / 16px no-repeat; mask: url("chevron-down.svg") center / 16px no-repeat; }
-  html.th-clean main > .fsearch .fs-btn:nth-last-child(3)::before { transform: rotate(180deg); }
-  html.th-clean main > .fsearch .fs-row:has(> .fs-n:empty) > :is(.fs-n, .fs-btn:not(:last-child)) { display: none; }
-  html.th-clean main > .fsearch .fs-status:empty { display: none; }
 }
 
 /* ---- "Latest" on a phone: a white 40 r10 button with the field's shadow (as the buttons floating over the feed), a 24 icon; the

@@ -437,6 +437,8 @@ def main(argv):
     plat.on_hub_up_stop(stop)
     if "update" in only:
         boot_private()
+    if "hubd" in only:
+        drop_codex_restart()
     start(only[0])  # core first: the neighbors wait for its heartbeat
     time.sleep(1)
     for name in only[1:]:
@@ -522,6 +524,16 @@ def boot_private():
         say(f"private modules: the step before the core took longer than {private.BOOT_WAIT} s — going on without it")
     except Exception as e:  # noqa: BLE001 — the hub matters more
         say(f"private modules: the step before the core failed — {e}")
+
+
+def drop_codex_restart():
+    """hubd comes up on hub.json's host now: the restart onto Codex that the band's install of Codex CLI waited for
+    (modules/setup/job.CODEX_RESTART) is this start — its mark goes. Never raises."""
+    try:
+        from modules.setup import job
+        job.restart_after_codex(default_state_dir(), on=False)
+    except Exception as e:  # noqa: BLE001 — the hub matters more
+        say(f"setup: the mark of the restart onto Codex stays — {e}")
 
 
 def start_setup():

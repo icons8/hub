@@ -296,7 +296,9 @@ function catalogRow(p) {
   title.append(el("h4", null, p.name));
   const by = p.author || author(p);
   if (by) title.append(el("span", "plugin-author", by));
-  if (p.cat) title.append(el("span", "chip" + (p.cat === official() ? " ok" : ""), p.cat));
+  // official: the catalog's own flag (a team's build has two official catalogs); an older server — by the name
+  const ofc = (mp?.catalogs || []).find((c) => c.name === p.cat);
+  if (p.cat) title.append(el("span", "chip" + ((ofc ? ofc.official : p.cat === official()) ? " ok" : ""), p.cat));
   else if (p.link) title.append(el("span", "chip", t("web.plugins.by_link")));
   if (p.installed && p.mp) title.append(el("span", "chip ok", t("web.plugins.on")));
   main.append(title);
@@ -478,14 +480,21 @@ function filter(root) {
   if (slot) slot.replaceChildren(...(link ? [linkBox(link)] : []));
   const words = link ? [] : query.toLowerCase().split(/\s+/).filter(Boolean);
   let shown = 0;
-  for (const c of root.querySelectorAll(".plugin-row:not(.plugin-mp)")) {
+  for (const c of root.querySelectorAll(".plugin-row:not(.plugin-mp):not(.plugin-engine)")) {
     const ok = words.every((w) => c.dataset.text.includes(w)) && (kindBy === "all" || c.dataset.kind === kindBy) &&
       (catBy === "all" || c.dataset.cat === catBy) && (categoryBy === "all" || c.dataset.category === categoryBy);
     c.hidden = !ok;
     shown += ok;
   }
-  // a group with no visible rows has no heading
+  // Claude and Codex plugins: by the words of the search; they have no category or catalog of the shared list
+  for (const c of root.querySelectorAll(".plugin-engine")) {
+    const ok = words.every((w) => c.dataset.text.includes(w)) && ["all", "plugin"].includes(kindBy) && catBy === "all" && categoryBy === "all";
+    c.hidden = !ok;
+    shown += ok;
+  }
+  // a group with no visible rows has no heading; the Claude and Codex section — only while the search hides all its rows
   for (const g of root.querySelectorAll(".plugin-group")) g.hidden = !g.querySelector(".plugin-row:not([hidden])");
+  for (const g of root.querySelectorAll(".plugin-engines")) g.hidden = !!g.querySelector(".plugin-row") && !g.querySelector(".plugin-row:not([hidden])");
   const none = root.querySelector(".plugin-none");
   if (none) none.hidden = shown > 0 || !(words.length || kindBy !== "all" || catBy !== "all" || categoryBy !== "all") || !!link;
 }
@@ -538,6 +547,145 @@ function marketsBlock() {
   return parts;
 }
 
+// "Claude and Codex plugins": what the hub installed from the engines' own catalogs (the built-in claude-plugins-official
+// and openai-curated). They are not in the shared list: the hub installs them when asked and gives each to the sessions
+// that need it (hub tools grant). Per plugin: its catalog, what is inside (skills, commands, MCP servers), which sessions
+// have it, what will not work as shipped (a placeholder instead of a server's sign-in data), "Give to a session…" and
+// "Remove". The list comes with /api/marketplaces (engine); a server of an earlier release (until its restart) has no such
+// field — the rows come from the snapshot's catalog then, without what is inside
+const ENGINE = new Set(["claude-plugins-official", "openai-curated"]);
+const engineCat = (name) => !!name && ((mp?.catalogs || []).find((c) => c.name === name)?.builtin ?? ENGINE.has(name));
+// a session the core grants to: up, or asleep and coming up with the same set (core/tools LIVE + ASLEEP, not retired)
+const GRANTABLE = new Set(["starting", "idle", "busy", "dialog", "held", "asleep", "parked", "absent"]);
+const giving = new Map();   // plugin key -> the session picked in "Give to a session…" (open while the key is here)
+const giveBoxes = new Map();   // plugin key -> its picker node: a redraw of the tab keeps the same select and buttons
+const opened = new Set();   // "<key> <kind>" of a parts line opened to its whole list (a tap: a phone has no tooltip)
+let focusPick = null;   // the key whose picker was just opened: the focus goes to its session list, not to the page
+function enginePlugins() {
+  if (Array.isArray(mp?.engine)) return mp.engine;
+  return Object.entries(S.snap.catalog || {}).filter(([k, v]) => v.kind === "plugin" && engineCat(k.split("@").pop()))
+    .map(([k, v]) => ({ key: k, entry: k.replace(/@[^@]*$/, ""), catalog: k.split("@").pop(), description: v.description || "" }))
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+const holders = (key) => (S.snap.sessions || []).filter((s) => s.state !== "removed" && (s.tools || []).includes(key));
+
+// one line, cut; a tap or Enter opens the whole list (and closes it again) — it stays open across redraws of the tab
+function partLine(id, label, names, count) {
+  if (!count) return null;
+  const line = el("p", "plugin-meta plugin-part" + (opened.has(id) ? "" : " clamp-1"), `${label}: ${names.join(", ")}${count > names.length ? "…" : ""}`);
+  line.title = names.join(", ");
+  line.tabIndex = 0;
+  line.setAttribute("role", "button");
+  line.setAttribute("aria-expanded", String(opened.has(id)));
+  const flip = () => {
+    if (opened.has(id)) opened.delete(id); else opened.add(id);
+    line.classList.toggle("clamp-1", !opened.has(id));
+    line.setAttribute("aria-expanded", String(opened.has(id)));
+  };
+  line.addEventListener("click", flip);
+  line.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } });
+  return line;
+}
+
+function engineRow(p) {
+  const r = el("article", "plugin-row plugin-engine");
+  r.dataset.key = p.key;
+  r.dataset.text = [p.entry, p.catalog, p.description, ...(p.skills || []), ...(p.commands || []), ...(p.mcp || [])]
+    .join(" ").toLowerCase();
+  const entry = (mp?.entries || []).find((e) => e.installed === p.key);
+  const main = el("div", "plugin-main"), title = el("div", "plugin-title");
+  title.append(el("h4", null, p.entry), el("span", "plugin-author", t("web.plugins.from_catalog", { name: p.catalog })));
+  const about = p.description || entry?.description || "";
+  const what = el("p", "plugin-what clamp-2", about || t("web.plugins.no_description"));
+  what.title = about;
+  main.append(title, what);
+  const c = p.counts || {};
+  for (const line of [partLine(`${p.key} skills`, t("web.plugins.engine_skills", { count: c.skills || 0 }), p.skills || [], c.skills),
+    partLine(`${p.key} commands`, t("web.plugins.engine_commands", { count: c.commands || 0 }), p.commands || [], c.commands),
+    partLine(`${p.key} mcp`, t("web.plugins.engine_mcp", { count: c.mcp || 0 }), p.mcp || [], c.mcp)]) if (line) main.append(line);
+  const have = holders(p.key).map((s) => s.name);
+  main.append(el("p", "plugin-meta", have.length ? t("web.plugins.engine_granted", { names: have.join(", ") }) : t("web.plugins.engine_granted_none")));
+  const warns = [p.missing && t("web.plugins.missing_dir"), entry?.revoked && t("web.plugins.revoked", { why: entry.revoked }),
+    ...(p.warnings || []).filter((w) => w.code === "placeholder").map((w) => t("web.plugins.engine_placeholder", { server: w.server, value: w.value }))]
+    .filter(Boolean);
+  for (const w of warns) main.append(el("p", "plugin-warn", `⚠ ${w}`));
+  const note = noteFor(`engine:${p.key}`);
+  const bar = el("div", "plugin-actions");
+  // a page server of the previous release (until its restart) has no grant path, it would answer 404 — no button
+  if (!giving.has(p.key) && mp?.grant) {
+    const give = el("button", "btn small", t("web.plugins.engine_give"));
+    give.type = "button";
+    give.addEventListener("click", () => { giving.set(p.key, ""); focusPick = p.key; window.dispatchEvent(new Event("hub-plugins")); });
+    bar.append(give);
+  }
+  bar.append(action(t("web.plugins.remove"), "/api/plugins/remove", { name: p.key }, note, "btn quiet small danger", reload));
+  if (giving.has(p.key)) main.append(giveBox(p.key, have, note));
+  main.append(note);
+  r.append(entry?.icon ? icon({ ...entry, name: p.entry }) : letterIcon(el("div", "plugin-icon"), { name: p.entry }), main, bar);
+  return r;
+}
+
+// "Give to a session…": a session that does not have it yet, then "Give" — the owner's word from the page, the same fact
+// as hub tools grant <session> <id> (the core brings a free session up with the new set, a sleeping one gets it on wake-up)
+function giveBox(key, have, note) {
+  const box = giveBoxes.get(key) || el("div", "plugin-give");
+  const free = (S.snap.sessions || []).filter((s) => GRANTABLE.has(s.state) && !have.includes(s.name)).map((s) => s.name);
+  const sig = free.join("\n");
+  if (box.dataset.sig === sig) return box;   // the same choice: the node stays as it is (focus, the picked session)
+  box.dataset.sig = sig;
+  giveBoxes.set(key, box);
+  const cancel = el("button", "btn quiet small", t("web.plugins.engine_give_cancel"));
+  cancel.type = "button";
+  // closing: the focus leaves the picker first — Settings are not redrawn while a field in them has it
+  const close = () => {
+    if (box.contains(document.activeElement)) document.activeElement.blur();
+    giving.delete(key);
+    giveBoxes.delete(key);
+  };
+  cancel.addEventListener("click", () => { close(); window.dispatchEvent(new Event("hub-plugins")); });
+  if (!free.length) { box.replaceChildren(el("span", "hint", t("web.plugins.engine_give_none")), cancel); return box; }
+  const pick = el("select", "plugin-sort plugin-give-pick");
+  pick.setAttribute("aria-label", t("web.plugins.engine_give_label"));
+  for (const name of free) {
+    const o = el("option", null, name);
+    o.value = name;
+    pick.append(o);
+  }
+  pick.value = free.includes(giving.get(key)) ? giving.get(key) : free[0];
+  giving.set(key, pick.value);
+  pick.addEventListener("change", () => giving.set(key, pick.value));
+  if (focusPick === key) { focusPick = null; requestAnimationFrame(() => pick.focus()); }
+  const ok = el("button", "btn small primary", t("web.plugins.engine_give_ok"));
+  ok.type = "button";
+  ok.addEventListener("click", async () => {
+    const busy = `${note.dataset.key} grant`;
+    if (inFlight.has(busy)) return;
+    inFlight.add(busy);
+    ok.disabled = true;
+    const r = await post("/api/tools/grant", { session: pick.value, tool: key });
+    inFlight.delete(busy);
+    ok.disabled = false;
+    const got = { text: r.error ? t("web.plugins.failed", { error: r.error }) : (r.data?.text || t("web.plugins.done")), warn: !!r.error };
+    notes.set(note.dataset.key, got);
+    note.textContent = got.text;
+    note.classList.toggle("warn", got.warn);
+    if (!r.error) close();
+    window.dispatchEvent(new Event("hub-plugins"));
+  });
+  box.replaceChildren(pick, ok, cancel);
+  return box;
+}
+
+function engineBlock() {
+  const list = enginePlugins();
+  const sec = el("section", "plugin-engines");   // the search hides it whole when none of its rows matches
+  sec.append(el("h3", "plugin-section", t("web.plugins.engine_head", { count: list.length })));
+  if (!list.length) sec.append(el("p", "hint", t("web.plugins.engine_empty")));
+  else { const box = el("div", "plugin-list"); box.append(...list.map(engineRow)); sec.append(box); }
+  for (const k of [...giving.keys()]) if (!list.some((p) => p.key === k)) { giving.delete(k); giveBoxes.delete(k); }
+  return [sec];
+}
+
 export function pluginsSection() {
   if (!wrap) {
     wrap = el("div", "plugins");
@@ -556,7 +704,8 @@ export function pluginsSection() {
   iconUses.clear();
   const mine = S.snap.plugins || [];
   const sources = new Set(mine.map((p) => (p.source || "").toLowerCase()).filter(Boolean));
-  const entries = (mp?.entries || []).map((e) => ({ ...e, mp: true, cat: e.catalog }));
+  // the engines' catalogs (Claude Code, Codex) are not in the shared list: their plugins have a section of their own
+  const entries = (mp?.entries || []).filter((e) => !engineCat(e.catalog)).map((e) => ({ ...e, mp: true, cat: e.catalog }));
   // by link: if the same repo is pinned in a connected catalog — one row, from the catalog (an unpinned entry cannot
   // be installed from the page — the row with code review stays)
   const fromMp = new Set(entries.filter((e) => e.pinned).map((e) => (e.repo || "").toLowerCase()).filter(Boolean));
@@ -565,7 +714,8 @@ export function pluginsSection() {
   const old = (available || []).filter((p) => !sources.has((p.repo || "").toLowerCase()) && !fromMp.has((p.repo || "").toLowerCase()));
   const rest = [...entries.filter((e) => !e.installed || e.type === "module"), ...old];
   // filters: category and kind — always; catalog — when there is more than one
-  const cats = [...new Set([...(mp?.catalogs || []).map((c) => c.name), ...rest.map((p) => p.cat).filter(Boolean)])].sort();
+  const cats = [...new Set([...(mp?.catalogs || []).filter((c) => !engineCat(c.name)).map((c) => c.name),
+    ...rest.map((p) => p.cat).filter(Boolean)])].sort();
   if (catBy !== "all" && !cats.includes(catBy)) catBy = "all";
   picks.replaceChildren(select("plugin-category", t("web.plugins.category_label"), [["all", t("web.plugins.category_all")], ...CATEGORIES],
     categoryBy, (v) => { categoryBy = v; }), select("plugin-kind", t("web.plugins.kind_label"), [["all", t("web.plugins.kind_all")], ...GROUPS], kindBy, (v) => { kindBy = v; }),
@@ -573,6 +723,7 @@ export function pluginsSection() {
   const parts = [el("div", "plugin-link-slot"), el("h3", "plugin-section", t("web.plugins.installed_head", { count: mine.length }))];
   if (mine.length) { const list = el("div", "plugin-list"); list.append(...mine.map(installedRow)); parts.push(list); }
   else parts.push(el("p", "hint", t("web.plugins.none_installed")));
+  parts.push(...engineBlock());
   const head = el("div", "plugin-section-row");
   const ready = available && mp;
   head.append(el("h3", "plugin-section", ready ? t("web.plugins.available_head", { count: rest.length }) : t("web.plugins.available")));

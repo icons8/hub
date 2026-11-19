@@ -201,6 +201,22 @@ class Web:
         self.bundle_lock = threading.Lock()   # «A file for support»: one build at a time
         self.probe_lock = threading.Lock()   # Settings -> Accounts "Refresh": one limits measurement at a time
 
+    came_told = False
+    came_lock = threading.Lock()
+
+    def came(self, lang):
+        """The owner's page opened: while the core has not met them (a fresh hub), it learns they came and the language
+        their browser speaks (reducer owner.came) — the hub greets them in it, not in the machine's (owner 2026-11-19:
+        a Russian browser on an English system was greeted in English). Once per process; the fold keeps the first."""
+        with self.came_lock:   # two tabs at once: one fact
+            if self.came_told or ((self.tail.lang_state or {}).get("owner") or {}).get("met"):
+                return
+            try:
+                self.put("owner.came", None, {"lang": lang})
+                self.came_told = True
+            except OSError as e:   # the page matters more: the next page load tries again
+                print(f"web: owner.came not written: {e}", file=sys.stderr, flush=True)
+
     def push_source(self):
         """For the push module: open alerts (only it counts them), the snapshot's sessions (the question text for the
         summarizer) and the pool account (the summarizer calls the model on it)."""
@@ -655,8 +671,10 @@ class Web:
     def setup_host(self, body):
         """POST /api/setup/host {host: claude|codex} — the app's band (app spec §4a.1): the engine the hub's sessions run
         on, chosen before any sign-in; hub.json "host" (codex — the key, claude — none) and a restart of the whole hub on
-        the owner's word: the core comes up on it, its steps install Codex CLI and start the sign-in. A hub from git
-        chooses in «Settings» as before (400)."""
+        the owner's word: the core comes up on it, its steps start the sign-in. Codex CLI the hub installs itself (none,
+        or its own older copy) is installed first: the step codex asks the restart once it is in place (job.CODEX_RESTART;
+        a failed install — the band's error and «Retry», no restart). A hub from git chooses in «Settings» as before (400)."""
+        from modules.setup import job
         host = body.get("host")
         if not getattr(self.setup(), "app", False) or host not in ("claude", "codex"):
             return 400, self.t("web.srv.setup_bad")
@@ -667,10 +685,18 @@ class Web:
                 cfg["host"] = "codex"
             else:
                 cfg.pop("host", None)
-        self.put("hub.restart_requested", None, {"parts": [], "now": True,
-                                                 "why": self.t("web.srv.setup_host_restart", host=host)})
         with self.setup().lock:
             self.setup().cache.clear()
+        if host == "codex" and job.hub_installs_codex(self.setup().item_codex()):
+            job.restart_after_codex(self.state_dir)
+            self.setup().run("codex")   # one already running (auto.py saw the setting first) is that one
+            return 202, {"ok": True, "host": host, "installing": True}
+        if host == "claude" and job.codex_restart_waits(self.state_dir):   # hubd never left Claude: nothing to restart
+            job.restart_after_codex(self.state_dir, on=False)
+            return 200, {"ok": True, "host": host}
+        job.restart_after_codex(self.state_dir, on=False)
+        self.put("hub.restart_requested", None, {"parts": [], "now": True,
+                                                 "why": self.t("web.srv.setup_host_restart", host=host)})
         return 202, {"ok": True, "host": host}
 
     def mcp_login(self, body):
@@ -1190,6 +1216,13 @@ class Web:
         if path == "/api/session/remove":   # a sleeping, parked or failed one; the core shuts down and removes a free worker
             return self.act_decided("session.remove_requested", name, {}, {s: "web.srv.remove_asleep_only"
                                                                            for s in ("starting", "idle", "busy", "dialog", "held")})
+        if path == "/api/tools/grant":   # Settings -> Plugins "Give to a session…": the owner's word, as hub tools grant
+            tool = body.get("tool")
+            if not isinstance(tool, str) or tool not in (snap.get("catalog") or {}):
+                return 409, self.t("web.srv.tool_not_in_catalog", tool=str(tool or ""))
+            code, out = self.put_decided("tools.granted", name, {"tool": tool})
+            return (code, {"ok": True, "text": self.t("web.srv.tool_granted", tool=tool, name=name)}) if out == "ok" \
+                else (code, out)
         if path == "/api/tools":
             tool, action = body.get("tool"), body.get("action")
             waiting = [r for r in sessions[name].get("requests") or [] if r["tool"] == tool and r["state"] == "needs-owner"]
@@ -3095,6 +3128,8 @@ class Web:
                     from modules.web import secretsweb
                     return self.send(200, json.dumps(secretsweb.status(web, self), ensure_ascii=False))
                 if self.path in ("/", "/index.html"):
+                    if self.headers.get("Accept-Language"):   # a person's browser; a probe of the port (hub instance) sends none
+                        web.came(i18n.negotiate(self.headers["Accept-Language"]))
                     return self.send_page(os.path.join(STATIC, "index.html"), self.lang())
                 if self.path.split("?")[0] == "/i18n.json":   # page strings in its language (static/js/i18n.js; API 1.25)
                     # ?lang=<code> — strings of another ready language: the app (iOS/Mac) tells the Flow view its own
@@ -3385,6 +3420,14 @@ class Web:
                         got = marketplaces.page(web.state_dir, catalog.config_path(web.state_dir))
                     except (RuntimeError, ValueError, OSError) as err:   # hub.json has the wrong shape, git does not run
                         got = {"catalogs": [], "entries": [], "error": str(err)[:300]}
+                    # "Claude and Codex plugins": what the hub installed from the engines' catalogs, with what is inside;
+                    # grant — this server takes "Give to a session…" (/api/tools/grant)
+                    got["grant"] = True
+                    try:
+                        from core import engineplugins
+                        got["engine"] = engineplugins.installed(catalog.read_settings(catalog.config_path(web.state_dir)))
+                    except (ImportError, ValueError, OSError):
+                        pass   # the page keeps its own view of them (from the entries and the snapshot's catalog)
                     return self.send(200, json.dumps({**got, "official": marketplaces.OFFICIAL_NAME}, ensure_ascii=False))
                 if self.path.startswith("/api/marketplaces/icon?"):  # an entry's icon — from the catalog clone, for <img> only
                     from core import catalog, marketplaces

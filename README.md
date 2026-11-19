@@ -428,7 +428,7 @@ Created by Pavel Malai ([@flagman](https://github.com/flagman))
 With the pull requests, bug reports and ideas of (most first; the whole list with what it counts is in
 [CONTRIBUTORS.md](CONTRIBUTORS.md)):
 
-- [@visualpharm](https://github.com/visualpharm): 164 pull requests, 1 report or idea
+- [@visualpharm](https://github.com/visualpharm): 165 pull requests, 1 report or idea
 - [@kalimullin](https://github.com/kalimullin): 61 pull requests, 4 reports and ideas
 - [@ManyLattice](https://github.com/ManyLattice): 56 pull requests, 5 reports and ideas
 - [@Eugenius-S](https://github.com/Eugenius-S): 58 pull requests

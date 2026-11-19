@@ -223,7 +223,8 @@ class GitThroughTheHubsSignIn(Base):
 class ClaudeLogin(Base):
     def run_login(self, life=20):
         j = job.Job(self.state, "login")
-        return self.thread(job.step_login, j, claude=[self.claude], life=life, sleep=lambda s: time.sleep(0.02)), j
+        return self.thread(job.step_login, j, claude=[self.claude], life=life, sleep=lambda s: time.sleep(0.02),
+                           check=lambda j, sleep: None), j   # no hub check process from a test
 
     def test_both_links_then_the_pasted_code_signs_in(self):
         t, _ = self.run_login()
@@ -240,6 +241,46 @@ class ClaudeLogin(Base):
         self.assertFalse(os.path.exists(os.path.join(job.folder(self.state), "login.in")))
         item = s.status(full=False)["items"][1]
         self.assertEqual((item["state"], item["via"], item["account"]["email"]), ("ok", "own", "someone@example.com"))
+
+    def test_a_sign_in_that_went_through_starts_the_hub_check_before_it_says_done(self):
+        # a check made when the first sign-in timed out said "not signed in": once the code goes in, the page reads
+        # that check as running, never as the old red (owner 2026-11-19: the band stayed until Retry and a reload)
+        seen = []
+
+        def check(j, sleep):
+            seen.append(self.status("login")["state"])
+        j = job.Job(self.state, "login")
+        t = self.thread(job.step_login, j, claude=[self.claude], life=20, sleep=lambda s: time.sleep(0.02), check=check)
+        until(lambda: self.status("login").get("url"))
+        setup.Setup(self.state, lambda: {}, claude=[self.claude]).give("login", "good-code#s1")
+        t.join(20)
+        self.assertEqual((seen, self.status("login")["state"]), (["running"], "done"))
+        t = self.thread(job.step_login, job.Job(self.state, "login"), claude=[self.claude], life=20,
+                        sleep=lambda s: time.sleep(0.02), check=check)
+        until(lambda: self.status("login").get("url"))
+        setup.Setup(self.state, lambda: {}, claude=[self.claude]).give("login", "nonsense")
+        t.join(20)
+        self.assertEqual(seen, ["running"])   # a wrong code: no check
+
+    def test_the_check_after_a_sign_in_is_waited_for_until_it_runs(self):
+        j = job.Job(self.state, "login")
+        writes = []
+
+        class Child:
+            def poll(self):
+                return None
+
+        def spawn(state, step):
+            writes.append(step)
+            return Child()
+
+        def sleep(s):   # the child writes its status a moment later, as a started step does
+            if len(writes) == 1:
+                job.Job(self.state, "doctor")
+                writes.append("written")
+        job.recheck(j, sleep=sleep, spawn=spawn)
+        self.assertEqual(writes, ["doctor", "written"])
+        self.assertEqual(self.status("doctor")["state"], "running")
 
     def test_a_wrong_code_ends_the_attempt_with_its_reason(self):
         t, _ = self.run_login()
@@ -599,6 +640,19 @@ class Checklist(Base):
         st = until(lambda: (lambda x: x if x.get("state") in ("failed", "done") else None)(self.status("claude")), 60)
         self.assertEqual((st["state"], st["why"]), ("failed", "network"), st)
         self.assertEqual(s.run("nonsense")[0], 400)
+
+
+class DoctorLanguage(Base):
+    def test_the_check_names_the_language_of_its_rows_and_the_page_sees_it(self):
+        # its rows are text: the page asks it again when they are not in its own language (setup.js otherLang)
+        out = "ok    settings  /x/hub.json\nfail  Claude sign-in  no\n"
+        run = lambda argv, **kw: subprocess.CompletedProcess(argv, 1, out, "")   # noqa: E731
+        j = job.Job(self.state, "doctor")
+        with mock.patch.object(job.i18n, "current", return_value="ru"):
+            job.step_doctor(j, run=run)
+        self.assertEqual((self.status("doctor")["lang"], self.status("doctor")["rows"][1][0]), ("ru", "fail"))
+        s = setup.Setup(self.state, lambda: {}, claude=[self.claude])
+        self.assertEqual(s.item_doctor()["job"]["lang"], "ru")
 
 
 class SupportBundle(Base):

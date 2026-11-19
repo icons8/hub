@@ -30,7 +30,9 @@ class TheRuleInTheSystemPrompt(Base):
     def test_it_stands_right_after_autonomy(self):
         h = self.host()
         text = self.prompt(h.command("w", "s-1", agent_file=self.agent(h)))
-        self.assertIn(streamjson.AUTONOMY + "\n\n" + streamjson.IDLE + "\n\n" + streamjson.FINDINGS, text)
+        # then the helpers part (whom the work goes to), with the same sessions
+        self.assertIn(streamjson.AUTONOMY + "\n\n" + streamjson.IDLE + "\n\n" + streamjson.HELPERS + "\n\n"
+                      + streamjson.FINDINGS, text)
 
     def test_the_text_is_one_paragraph_and_keeps_the_gates(self):
         self.assertNotIn("\n", streamjson.IDLE)

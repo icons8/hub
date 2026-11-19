@@ -84,7 +84,8 @@ class Publish(unittest.TestCase):
         self.assertEqual(self.refs(), [])
 
     def test_an_open_repository_is_refused_in_every_form_of_its_address(self):
-        # the full tree goes only to the team's own repository; the open ones are filled by tools/oss_open.py. Nothing
+        # the full tree goes only to the team's own repository; the open ones are filled by tools/oss_open.py and
+        # tools/publish_pair.py (later snapshots, the embed into its own repository). Nothing
         # may leave (no network protocol is allowed here), the refusal comes before any work
         env = {**self.env, "GIT_ALLOW_PROTOCOL": "file"}
         for url in ("https://github.com/icons8/hub", "https://github.com/icons8/hub.git", "https://GitHub.com/Icons8/HUB.git",
@@ -97,6 +98,7 @@ class Publish(unittest.TestCase):
                     r = run(self.src, "sh", os.path.join(self.src, "tools", "publish.sh"), url, *args, env=env, check=False)
                     self.assertEqual(r.returncode, 12, r.stderr)
                     self.assertIn("oss_open.py", r.stderr)
+                    self.assertIn("publish_pair.py", r.stderr)
                     self.assertIn("open repository", r.stderr)
         self.assertEqual(self.refs(), [])
 
@@ -239,10 +241,14 @@ class Publish(unittest.TestCase):
         self.write("modules/web/vendor/lib.js", "// forbidden-name\n")
         # a signed package: the signature carries the certificate holder's name
         self.write("deploy/mac/Agents Hub.app/Contents/_CodeSignature/CodeResources", "forbidden-name\n")
+        # ...and where the working tree keeps it: in the company's embed (core/embed.PLACED)
+        self.write("embed/acme/deploy/mac/Agents Hub.app/Contents/_CodeSignature/CodeResources", "forbidden-name\n")
+        self.write("embed/acme/deploy/mac/Agents Hub.app/Contents/MacOS/Agents Hub", "forbidden-name\n")
         self.commit()
         self.assertEqual(self.publish("--check").returncode, 0)
         for path in ("plugins/x/vendor/lib.js", "modules/market/trusted.json", "deploy/mac/Other.app/Contents/Info.plist",
-                     "deploy/mac/Agents Hub.app/Contents/Info.plist"):
+                     "deploy/mac/Agents Hub.app/Contents/Info.plist", "embed/acme/deploy/mac/Agents Hub.app/Contents/Info.plist",
+                     "embed/acme/modules/web/vendor/lib.js"):
             with self.subTest(path=path):
                 self.write(path, "forbidden-name\n")
                 self.commit()

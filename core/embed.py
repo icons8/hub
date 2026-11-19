@@ -33,13 +33,21 @@ import sys
 CORE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # the API's number (core/version.EMBED_API names it too); kept here: a process started on the previous release keeps
 # its older core.version in memory when it first imports this file
-API = "1.1"   # 1.1: the slot codex_pool; the Module API modules of an embed are built-in ones (module_folders)
+API = "1.2"   # 1.1 (released in v1.9.0): the slot codex_pool; the Module API modules of an embed are built-in ones
+#   (module_folders); 1.2 (released in v1.9.8): modules/private.json "catalog" — the company's plugin catalog next to the open one
+#   (core/marketplaces.team_of); deploy/ — files a team build lays at the same path of its layer (PLACED: the
+#   company's signed Mac launcher)
 FOLDER = "embed"
 PASSPORT = "embed.json"
 PROFILE = "profile.json"
 NAME = re.compile(r"[a-z0-9_-]{1,32}\Z")
 # what an embed may carry: files under these folders, and these two at its top
-ALLOWED = ("modules/", "i18n/", "tests/")
+ALLOWED = ("modules/", "i18n/", "tests/", "deploy/")
+# the folders whose files a team build lays at the same path of the core's tree in its layer (tools/package/layer.py
+# place; since 1.2): what the core does not carry and the company signs itself — its Mac launcher
+# deploy/mac/<name>.app in place of the open flavor's (core/appcode.OPEN_SWAP). The core finds no code there: a file the
+# core carries, or another embed places, is refused (problems)
+PLACED = ("deploy/",)
 TOP = (PASSPORT, PROFILE)
 # the folders whose files share one Python namespace with the core's: no path of them repeats the core's or another
 # embed's (an embed adds, it never replaces)
@@ -124,6 +132,18 @@ def module_folders(repo=None):
             continue
         out += [(name, os.path.join(root, d)) for d in names if os.path.isfile(os.path.join(root, d, "module.json"))]
     return out
+
+
+def bundle(rel):
+    """The macOS bundle (<folder>.app) a path lies in, or None: its signature seals every file of it."""
+    m = re.match(r"(.*?\.app)/", rel)
+    return m.group(1) if m else None
+
+
+def placed(repo=None):
+    """[(embed name, path)] of the files the embeds of the tree repo lay at their path in a team layer (PLACED), by
+    embed name, then by path."""
+    return [(name, rel) for name, top in roots(repo) for rel in sorted(_files(top)[0]) if rel.startswith(PLACED)]
 
 
 def where(rel, repo=None):
@@ -272,7 +292,7 @@ def problems(repo=None, wanted=None):
     if wanted is not None:
         bad += [f"{FOLDER}/{n}: not in the profile" for n in found if n not in wanted]
         bad += [f"{FOLDER}/{n}: the profile's embed is not in the tree" for n in wanted if n not in found]
-    seen, slots, keys = {}, {}, {}
+    seen, slots, keys, apps = {}, {}, {}, {}
     core_api = _version(API)
     for name, folder in roots(repo):
         got = passport(folder)
@@ -289,12 +309,20 @@ def problems(repo=None, wanted=None):
             if rel not in TOP and not rel.startswith(ALLOWED):
                 bad.append(f"{where_}: an embed carries only {', '.join(ALLOWED)} and {', '.join(TOP)}")
                 continue
-            if rel.startswith(SHARED):
+            if rel.startswith(SHARED + PLACED):
                 if rel not in SHIMS and os.path.isfile(os.path.join(repo, *rel.split("/"))):
                     bad.append(f"{where_}: the core's own file — an embed adds, it does not replace")
                 elif rel in seen:
                     bad.append(f"{where_}: {FOLDER}/{seen[rel]}/{rel} too")
                 seen.setdefault(rel, name)
+            app = bundle(rel) if rel.startswith(PLACED) else None
+            if app and app not in apps:   # a bundle is one embed's and none of the core's: one line a bundle
+                apps[app] = name
+                if os.path.isdir(os.path.join(repo, *app.split("/"))):
+                    bad.append(f"{where_}: {app} is the core's — a bundle is laid whole, never into another")
+            elif app and apps[app] != name:
+                bad.append(f"{where_}: {app} is {FOLDER}/{apps[app]}'s — a bundle is laid whole, never into another")
+                apps[app] = name   # said once for this embed
             if CATALOG.match(rel):
                 lang = rel[len("i18n/"):-len(".json")]
                 bad += _keys(os.path.join(folder, *rel.split("/")), where_, lang, name, keys, repo)

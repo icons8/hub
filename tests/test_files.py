@@ -1145,14 +1145,18 @@ class FilesTest(unittest.TestCase):
         from core import reducer
         path = os.path.join(self.dir, "journal.jsonl")
         j = journal.Journal(path)
-        j.append("session.requested", "w", {"session_id": "s", "cwd": self.proj})
+        j.append("session.requested", "w", {"session_id": "s", "cwd": self.proj}, ts=1700000000.5)
         journal.save_state(self.dir, reducer.replay(journal.read(path)))
-        os.unlink(path)   # a new journal: it starts from another number
+        os.unlink(path)   # a new journal: it starts from the same number 1
         j = journal.Journal(path)
-        j.append("session.requested", "a", {"session_id": "sa", "cwd": self.proj})
+        # the first line of the same length as the old one (11-18: a line boundary at the saved offset, with the same
+        # first number — the old state file was taken for this journal's, one run in thirty by the length of the time)
+        j.append("session.requested", "x", {"session_id": "s", "cwd": self.proj}, ts=1700000001.5)
         j.append("session.requested", "b", {"session_id": "sb", "cwd": self.proj})
+        with open(path, "rb") as f:
+            self.assertEqual(journal.read_state_file(self.dir)["offset"], len(f.readline()))   # the trap is set: a line boundary
         st = Files(config=lambda: self.cfg, state_dir=self.dir).state()
-        self.assertEqual(sorted(st["sessions"]), ["a", "b"])
+        self.assertEqual(sorted(st["sessions"]), ["b", "x"])
 
     def test_first_read_does_not_trust_a_state_file_ahead_of_the_journal_it_reads(self):
         """A state file whose journal offset lies past the end of what is readable (the journal was cut back at hubd's start,

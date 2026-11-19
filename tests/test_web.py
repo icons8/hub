@@ -67,6 +67,7 @@ class WebTest(unittest.TestCase):
         self.web = Web(self.state)
         self.web.decide_wait = 0   # there is no hubd in tests: do not wait for core decisions on commands
         self.web._setup = ReadySetup()
+        self.web.came_told = True   # its page loads are no owner coming to a new hub (tests/test_invite Page)
         self.server = self.web.serve(port=0)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()

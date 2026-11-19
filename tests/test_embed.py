@@ -201,6 +201,36 @@ class Rules(Tree):
         for rel, why in cases.items():
             self.assertTrue(any(rel in x and why in x for x in embed.problems(self.top)), (rel, why, got))
 
+    def test_a_file_the_build_places_in_the_tree(self):
+        # Embed API 1.2: an embed's deploy/ is laid at the same path of a team build's layer (the company's signed Mac
+        # launcher): a file the core carries is never replaced, nor one another embed places
+        passport(self.top, "acme")
+        passport(self.top, "beta")
+        write(self.top, "deploy/mac/install.sh")
+        write(self.top, "embed/acme/deploy/mac/Acme.app/Contents/Info.plist")
+        self.assertEqual(embed.problems(self.top), [])
+        write(self.top, "embed/acme/deploy/mac/install.sh")
+        write(self.top, "embed/beta/deploy/mac/Acme.app/Contents/Info.plist")
+        got = embed.problems(self.top)
+        self.assertTrue(any("embed/acme/deploy/mac/install.sh: the core's own file" in x for x in got), got)
+        self.assertTrue(any("embed/beta/deploy/mac/Acme.app/Contents/Info.plist: embed/acme/deploy/mac/Acme.app/Contents/"
+                            "Info.plist too" in x for x in got), got)
+        # a bundle is whole (its signature seals every file): none laid into a bundle the core carries
+        write(self.top, "deploy/mac/Core.app/Contents/Info.plist")
+        write(self.top, "embed/acme/deploy/mac/Core.app/Contents/MacOS/Core")
+        self.assertTrue(any("embed/acme/deploy/mac/Core.app/Contents/MacOS/Core: deploy/mac/Core.app is the core's" in x
+                            for x in embed.problems(self.top)), embed.problems(self.top))
+        os.unlink(os.path.join(self.top, "embed", "acme", "deploy", "mac", "Core.app", "Contents", "MacOS", "Core"))
+        write(self.top, "embed/beta/deploy/mac/Acme.app/Contents/MacOS/Acme")   # another file of acme's bundle
+        got = embed.problems(self.top)
+        self.assertTrue(any(x.startswith("embed/beta/deploy/mac/Acme.app/") and "deploy/mac/Acme.app is embed/acme's" in x
+                            for x in got), got)
+        self.assertEqual(len([x for x in got if "Acme.app is embed/acme's" in x]), 1, got)   # one line a bundle
+        os.unlink(os.path.join(self.top, "embed", "beta", "deploy", "mac", "Acme.app", "Contents", "MacOS", "Acme"))
+        self.assertEqual(embed.placed(self.top), [("acme", "deploy/mac/Acme.app/Contents/Info.plist"),
+                                                  ("acme", "deploy/mac/install.sh"),
+                                                  ("beta", "deploy/mac/Acme.app/Contents/Info.plist")])
+
     def test_the_profile_names_exactly_the_embeds_of_the_tree(self):
         passport(self.top, "acme")
         passport(self.top, "beta")

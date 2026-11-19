@@ -36,7 +36,8 @@ class Group(unittest.TestCase):
     def setUp(self):
         self.T.setUp(self)
         for name in ("maps",):
-            self.j.append("session.requested", name, {"cwd": "/w", "session_id": name, "channel": "web", "owner": True})
+            self.j.append("session.requested", name, {"cwd": "/w", "session_id": name, "role": "agent", "about": "maps",
+                                                      "channel": "web", "owner": True})
             self.j.append("session.started", name, {"session_id": name})
         self.fake.results.update({"getMe": ME, "getChatAdministrators": lambda body: admins(ADMIN)})
         tg.save_config({"token": "1:x", "owners": [ADMIN], "group": {"id": GROUP, "title": "maps team"}})
@@ -237,14 +238,177 @@ class Group(unittest.TestCase):
         answer = [b for b in self.fake.sent() if "three renders" in b.get("text", "")]
         self.assertEqual([(b["chat_id"], b.get("message_thread_id")) for b in answer], [(GROUP, 9)])
 
-    def test_a_member_cannot_bind_a_topic_and_an_executor_is_not_bound(self):
+    def test_a_member_cannot_bind_a_topic_and_general_is_the_hubs(self):
         self.poll(self.gmsg("/here maps", 5, user=MEMBER, thread=9))
         self.assertEqual(self.bot.st["topics"], {})
-        self.bot.reader.state["sessions"]["maps"]["role"] = "executor"
-        self.poll(self.gmsg("/here maps", 6, thread=9))
-        self.assertEqual(self.bot.st["topics"], {})
         self.poll(self.gmsg("/here", 7))
-        self.assertEqual(html.unescape(self.fake.last_text()), tg.i18n.t("telegram.group.here_general"))
+        self.assertTrue(html.unescape(self.fake.last_text()).startswith(tg.i18n.t("telegram.group.here_general")))
+
+    # --- /here on a session that is neither an agent nor a direction: make it one, and bind at once ----------------------
+    def executor(self, name="anim", busy=False):
+        """An executor the hub raised (role executor, raised_by): it sleeps when it hands in."""
+        self.j.append("session.requested", name, {"cwd": "/w", "session_id": name, "channel": "web", "owner": True})
+        self.j.append("session.started", name, {"session_id": name})
+        if busy:
+            self.j.append("turn.started", name, {"marker": None, "prompt_head": "render"})
+        self.bot.tick()
+        self.bot.reader.state["sessions"][name].update(role="executor", raised_by="hub")   # as hub task run leaves it
+        self.fake.calls.clear()
+
+    def offer(self, name="anim", thread=9, mid=5):
+        self.poll(self.gmsg(f"/here {name}", mid, thread=thread))
+        card = self.fake.sent()[-1]
+        return card, [b for row in card.get("reply_markup", {}).get("inline_keyboard", []) for b in row]
+
+    def test_here_on_an_executor_offers_agent_direction_or_cancel(self):
+        self.executor()
+        card, buttons = self.offer()
+        self.assertEqual(self.bot.st["topics"], {})   # nothing bound yet: an executor sleeps when it hands in
+        self.assertEqual(card.get("message_thread_id"), 9)
+        self.assertEqual([b["text"] for b in buttons], [tg.i18n.t("telegram.group.here_make_agent"),
+                                                        tg.i18n.t("telegram.group.here_make_direction"),
+                                                        tg.i18n.t("telegram.group.here_cancel")])
+        self.assertIn("anim", card["text"])
+        self.assertEqual(self.spooled(), [])
+
+    def test_an_admins_press_makes_it_an_agent_and_binds_the_topic(self):
+        self.executor(busy=True)
+        _, (agent, _, _) = self.offer()
+        self.press(agent["callback_data"], MEMBER, mid=901)   # a member's press is no word of the owner
+        self.assertEqual(self.spooled(), [])
+        self.assertEqual(self.notes(), [tg.i18n.t("telegram.group.press_admins")])
+        self.press(agent["callback_data"], ADMIN, mid=902)
+        (ev,) = self.spooled_ingested()
+        self.assertEqual((ev["type"], ev["entity"], ev["data"]["role"], ev["data"]["owner"], ev["data"]["tg_by"]["tg"]),
+                         ("session.role_set", "anim", "agent", True, ADMIN))
+        self.assertTrue(ev["data"]["about"])
+        self.bot.tick()
+        sess = self.bot.reader.state["sessions"]["anim"]
+        self.assertEqual((sess["role"], sess["state"]), ("agent", "busy"))   # its running turn goes on
+        self.assertEqual(self.bot.st["topics"], {"9": "anim"})
+        line = self.fake.sent()[-1]
+        self.assertEqual(line.get("message_thread_id"), 9)
+        self.assertIn("<code>anim</code>", line["text"])
+        self.assertIn(tg.i18n.t("telegram.group.role_agent"), line["text"])
+        self.press(agent["callback_data"], ADMIN, mid=903)   # one press, one fact
+        self.assertEqual(self.spooled(), [])
+
+    def test_an_admins_press_makes_it_a_direction_and_binds_the_topic(self):
+        self.executor()
+        _, (_, direction, _) = self.offer()
+        root = os.path.join(self.dir, "directions")
+        with mock.patch.dict(os.environ, {"HUB_DIRECTIONS": root, "HUB_STATE_DIR": self.state}):
+            self.press(direction["callback_data"], ADMIN, mid=902)
+        self.assertTrue(os.path.isdir(os.path.join(root, "anim", "backlog")))
+        (ev,) = self.spooled_ingested()
+        self.assertEqual((ev["type"], ev["data"]["slug"], ev["data"]["session"]), ("task.backlog", "anim", "anim"))
+        self.bot.tick()
+        self.assertEqual(self.bot.reader.state["sessions"]["anim"]["backlog"], "anim")
+        self.assertEqual(self.bot.st["topics"], {"9": "anim"})
+        self.assertIn(tg.i18n.t("telegram.group.role_direction"), self.fake.sent()[-1]["text"])
+
+    def test_cancel_binds_nothing_and_a_refusal_of_the_core_is_said(self):
+        self.executor()
+        _, (_, _, cancel) = self.offer()
+        self.press(cancel["callback_data"], ADMIN, mid=902)
+        self.assertEqual(self.spooled(), [])
+        self.assertEqual(self.bot.st["topics"], {})
+        _, (agent, _, _) = self.offer(mid=6)
+        self.press(agent["callback_data"], ADMIN, mid=903)
+        (ev,) = self.spooled()
+        self.j.append(ev["type"], ev["entity"], ev["data"], src=ev["src"])
+        self.j.append("core.rejected", "anim", {"of": journal.read(self.j.path)[-1]["seq"], "type": ev["type"],
+                                                "reason": "rejected by the test"})
+        self.bot.tick()
+        self.assertEqual(self.bot.st["topics"], {})
+        self.assertIn("rejected by the test", self.fake.last_text())
+
+    def test_an_agent_is_bound_at_once_and_here_says_who_is_who(self):
+        self.executor()
+        self.j.append("session.requested", "maps-two", {"cwd": "/w", "session_id": "m2", "role": "agent",
+                                                       "about": "maps", "channel": "web", "owner": True})
+        self.bot.tick()
+        self.poll(self.gmsg("/here maps-two", 5, thread=9))
+        self.assertEqual(self.bot.st["topics"], {"9": "maps-two"})
+        self.poll(self.gmsg("/here", 6, thread=9))
+        text = html.unescape(self.fake.last_text())
+        self.assertIn(tg.i18n.t("telegram.group.role_agent"), text)
+        self.assertIn(tg.i18n.t("telegram.group.role_executor"), text)   # anim, offered when named
+        self.assertIn("t.me/c/", self.fake.last_text())   # the bound topic is a link (a supergroup)
+
+    def made_line(self, role):
+        return tg.i18n.t("telegram.group.here_made", name="anim", role=tg.i18n.t(role)).replace("`anim`", "<code>anim</code>")
+
+    def test_the_line_after_a_press_survives_a_failed_send(self):
+        self.executor()
+        _, (agent, _, _) = self.offer()
+        self.press(agent["callback_data"], ADMIN, mid=902)
+        self.spooled_ingested()
+        self.fake.fail["sendMessage"] = ["drop"]
+        with mock.patch("sys.stderr", new=io.StringIO()):
+            self.bot.tick()
+        self.bot.hold_until = 0   # the pause is over: the event is sent again, with its line
+        self.bot.tick()
+        made = [b for b in self.fake.sent() if b.get("text") == self.made_line("telegram.group.role_agent")]
+        self.assertEqual([b.get("message_thread_id") for b in made], [9])
+        self.assertEqual((self.bot.st["binding"], self.bot.st["topics"]), ({}, {"9": "anim"}))
+
+    def test_a_direction_another_session_waits_for_is_not_taken(self):
+        self.executor()
+        root = os.path.join(self.dir, "directions")
+        with mock.patch.dict(os.environ, {"HUB_DIRECTIONS": root, "HUB_STATE_DIR": self.state}):
+            from modules.directions import direction
+            with mock.patch("sys.stdout", new=io.StringIO()):
+                direction.new("anim")
+            self.bot.reader.state["pending_backlogs"] = {"anim-lead": {"slug": "anim", "ts": 1}}   # hub direction new --session
+            _, (agent, direction_b, _) = self.offer()
+            self.press(direction_b["callback_data"], ADMIN, mid=902)
+        self.assertEqual(self.spooled(), [])
+        self.assertIn("anim-lead", self.fake.last_text())
+        self.press(agent["callback_data"], ADMIN, mid=903)   # the buttons stayed: the other choice still works
+        self.assertEqual([e["type"] for e in self.spooled()], ["session.role_set"])
+
+    def test_a_press_after_it_became_an_agent_only_binds(self):
+        self.executor()
+        _, (_, direction_b, _) = self.offer()
+        self.bot.reader.state["sessions"]["anim"].update(role="agent", about="renders")   # the hub made it one meanwhile
+        self.press(direction_b["callback_data"], ADMIN, mid=902)
+        self.assertEqual(self.spooled(), [])
+        self.assertEqual(self.bot.st["topics"], {"9": "anim"})
+        self.assertEqual(self.fake.sent()[-1]["text"], self.made_line("telegram.group.role_agent"))
+
+    def spooled_ingested(self):
+        """The bot's facts — into the journal, as hubd does; returned as they went."""
+        got = self.spooled()
+        for e in got:
+            self.j.append(e["type"], e.get("entity"), e.get("data"), src=e.get("src"))
+        return got
+
+    # --- words to a person in the group are not a task for the hub -----------------------------------------------------
+    def test_words_that_begin_with_a_person_are_a_remark_not_a_turn(self):
+        import time
+        now = time.time()
+        self.bot.clock = lambda: now
+        self.bot.reader.state["sessions"]["hub"]["attention"] = {"ts": now}   # waits for the owner: a remark still wakes nothing
+        mention = [{"type": "mention", "offset": 0, "length": 6}]
+        self.poll(self.gmsg("@julia this is how it is done", 5, entities=mention),
+                  self.gmsg("Julia, look", 6, user=MEMBER, entities=[
+                      {"type": "text_mention", "offset": 0, "length": 5, "user": {"id": 31, "first_name": "Julia"}}]),
+                  self.gmsg("@test_bot render it", 7, entities=[{"type": "mention", "offset": 0, "length": 9}]),
+                  self.gmsg("look @julia", 8, entities=[{"type": "mention", "offset": 5, "length": 6}]))
+        got = self.spooled_ingested()
+        self.assertEqual([(e["data"]["text"], e["data"].get("fyi")) for e in got],
+                         [("@julia this is how it is done", True), ("Julia, look", True),
+                          ("@test_bot render it", None), ("look @julia", None)])
+        self.bot.tick()
+        msgs = [m for m in self.bot.reader.state["messages"].values() if m.get("fyi")]
+        self.assertEqual([m["state"] for m in msgs], ["aside", "aside"])   # no turn: it rides with the next one
+        self.assertEqual(len(self.bot.st["live"]), 2)   # no "typing", no "⏳" for the two remarks
+        self.j.append("turn.started", "hub", {"marker": None})
+        now += 700
+        self.bot.tick()
+        late = [b for b in self.fake.sent() if "⏳" in b.get("text", "")]
+        self.assertEqual(sorted(b["reply_parameters"]["message_id"] for b in late), [7, 8])
 
     def test_a_deleted_topic_sends_to_general_and_unbinds(self):
         self.bot.st["topics"] = {"9": "maps"}

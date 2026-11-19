@@ -82,9 +82,10 @@ hub session effort [<name>] <low|medium|high|xhigh|max|default>
 $ hub session effort maps high
 ! an executor's model and effort are set when it is raised: hub task run … --work risky
 
-hub session model [<name>] <opus|sonnet|fable|haiku|claude-…|default>
+hub session model [<name>] <opus|sonnet|fable|haiku|claude-…|codex/<id>|default>
 : the session's model; default — from settings again
   An idle one is restarted with its conversation. Without a name — for yourself.
+  A hub on Codex: codex/<id> of its model list (the page's model menu); a bare listed id becomes codex/<id>.
 @ owner, hub, self
 $ hub session model maps sonnet
 
@@ -391,7 +392,7 @@ hub task run <name> "<task: what, why, when it is done>" --work normal|risky [--
   Own working copy (branch task/<name>) from the folder's current branch; your CLAUDE.md; handed in, it falls asleep by itself. No free slots: a queue.
   The name is the gist of the task in Latin letters: tiles-dark, geocoder-fix (up to 40 chars, not taken).
 --work normal|risky  kind of work: a model pair from "Settings → Executors" (required from a session)
---model M  explicit model (owner from the terminal; overrides --work)
+--model M  explicit model (owner from the terminal; overrides --work); on Codex codex/<id>, as in hub session model
 --effort E  explicit effort (owner from the terminal)
 --repo PATH  which repo (default: your folder)
 --here  right in the existing copy PATH, without its own (where nobody works)

@@ -11,7 +11,7 @@
 import { el } from "./dom.js";
 import { post } from "./api.js";
 import { S } from "./state.js";
-import { t } from "./i18n.js";
+import { t, lang } from "./i18n.js";
 import { copyText } from "./markdown.js";
 
 const FAST = 2000, SLOW = 120000;
@@ -24,6 +24,8 @@ setupBar.hidden = true;
 
 let again = false;   // a load asked for while one runs (About opened): one more right after it
 let st = null, timer = null, busy = false, aboutNode = null, aboutPainted = "", autoDone = false, doctorDone = false, doctorShown = false, stFull = false;
+let langAsked = 0;   // when the check was asked again in this page's language
+const LANG_WAIT = 30000;   // ms: a check of another language is not shown while the one asked in this page's runs
 const drafts = {}, mine = {};   // field drafts and the person's own refusals, kept through redraws
 let pressedUntil = 0;   // a step was started here: the page looks every FAST until it shows (a run may not be "running" yet)
 let quickUntil = 0;   // "Update" pressed (updates.js says so): the band looks every FAST for a while
@@ -52,8 +54,12 @@ async function load() {
     autoDone = true;
     for (const step of st.auto) run(step);
   }
-  const doc = item("doctor");   // «Hub check» runs by itself when About opens and the last one is old (§6.1)
-  if (full && doc?.stale && doc.state !== "running" && !doctorDone) { doctorDone = true; run("doctor"); }
+  const doc = item("doctor");   // «Hub check» runs by itself when About opens and the last one is old (§6.1),
+  // and when its rows are words of another language than this page's (a fresh hub checked itself in the machine's)
+  if (doc && doc.state !== "running") {
+    if (full && doc.stale && !doctorDone) { doctorDone = true; run("doctor"); }
+    else if (otherLang(doc) && !langAsked) { langAsked = Date.now(); run("doctor"); }
+  }
   paint();
   // a step runs (About shows its card, the band its progress), the app: a step waits for the network, or "Update" was
   // pressed lately (its download is a file of the update process, not in the snapshot)
@@ -66,6 +72,12 @@ export function renderSetup() {
   if (!timer && !busy) load();
   paint();
 }
+
+// the check's rows are text of the language it ran in (job.lang; older checks name none — taken as they are)
+const otherLang = (doc) => !!doc?.job?.lang && doc.job.lang !== lang;
+// not shown: a check of another language while this page's is being asked (a page of another language next to this
+// one may ask it back: after LANG_WAIT it is shown as it is)
+const hiddenCheck = (doc) => otherLang(doc) && (!langAsked || Date.now() - langAsked < LANG_WAIT);
 
 async function run(step) {
   pressedUntil = Date.now() + 15000;
@@ -261,7 +273,7 @@ export function appBand(status, snap) {
   if (ch && ch.state === "failed" && !ch.system) return { kind: "chrome_failed", level: "fail", text: t("web.setup.app_chrome_failed"),
     why: reason(ch.job), acts: [{ label: t("web.setup.again"), run: "chrome", primary: true }] };
   const d = items.doctor, bad = (d?.rows || []).find((r) => r[0] === "fail");
-  if (d && d.state === "fail") return { kind: "doctor", level: "fail",
+  if (d && d.state === "fail" && !hiddenCheck(d)) return { kind: "doctor", level: "fail",
     text: bad ? t("web.setup.app_doctor_bad", { what: bad[1] }) : t("web.setup.app_doctor_failed"), why: bad?.[2] || reason(d.job),
     acts: [{ label: t("web.setup.again"), run: "doctor", primary: true }, { label: t("web.setup.app_more"), about: true }] };
   // 3. progress: the layer's download, the restart it waits for, the agents' browser

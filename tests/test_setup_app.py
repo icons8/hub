@@ -158,7 +158,10 @@ class FakeSetup:
                       "login": {"id": "login", "state": "wait", "job": None},
                       "chrome": {"id": "chrome", "state": "todo", "available": True, "job": None},
                       "doctor": {"id": "doctor", "state": "todo", "stale": True, "job": None}}
-        self.started = []
+        self.started, self.langs = [], []
+
+    def cfg(self):
+        return {}
 
     def status(self, full=True, working=False):
         need = ("codex", "codex_login") if "codex" in self.items else ("claude", "login")
@@ -167,6 +170,7 @@ class FakeSetup:
 
     def run(self, step, lang=None):
         self.started.append(step)
+        self.langs.append(lang)
         self.set(step, "running", job={"step": step, "state": "running"})
         return 202, {}
 
@@ -278,6 +282,30 @@ class Auto(Base):
         self.fake.set("doctor", "ok", stale=False)
         self.assertFalse(a.round())
         self.assertEqual((self.fake.started, self.told), ([], []))
+
+    def test_a_check_that_found_trouble_before_this_start_is_done_again(self):
+        # a red band over a hub whose sessions answered: the check ran before a sign-in key came with this start
+        for level in ("fail", "warn", "ok"):
+            with self.subTest(level=level):
+                a = self.make()
+                for k in ("claude", "login", "chrome"):
+                    self.fake.set(k, "ok")
+                self.fake.set("claude", "ok", pending=None)
+                self.fake.set("doctor", level, stale=False, job={"state": "done", "ts": 99.0})
+                a.round()
+                self.assertEqual(self.fake.started, [] if level == "ok" else ["doctor"])
+                self.fake.set("doctor", level, stale=False, job={"state": "done", "ts": 101.0})
+                a.round()   # its own check found it again: the band's, not a loop
+                self.assertEqual(self.fake.started, [] if level == "ok" else ["doctor"])
+
+    def test_the_steps_speak_the_language_the_owners_page_said(self):
+        # a fresh hub on an English machine, the owner's browser in Russian (reducer owner.came)
+        write(os.path.join(self.state, "state.json"), json.dumps(
+            {"seq": 1, "state": {"owner": {"came": {"ts": 1, "lang": "ru", "via": "web"}}}}))
+        with mock.patch.dict(os.environ, {"HUB_LANG": "en"}):
+            a = self.make()
+            a.round()
+        self.assertEqual((self.fake.started, self.fake.langs), (["claude", "chrome"], ["ru", "ru"]))
 
     def test_a_chrome_the_system_does_not_let_start_is_not_downloaded(self):
         a = self.make()
@@ -748,7 +776,122 @@ class EngineChoice(Base):
         w.t = lambda key, **kw: key
         w._setup = setup.Setup(self.state, lambda: {}, repo=self.app_repo("app" if app else None))
         w.setup = lambda: w._setup
+        w._setup.codex_program, w._setup.codex_version = lambda: "/x/codex", lambda: "0.162.1"   # Codex CLI is there
+        self.steps = []
+        w._setup.run = lambda step, **kw: self.steps.append(step) or (202, {"ok": True, "step": step})
         return w, cfg
+
+    def taken(self):
+        from core import spool
+        got = spool.take(os.path.join(self.state, "spool"))
+        for path, _ in got:   # read once: the next look sees only what came after
+            os.remove(path)
+        return [(item["type"], item["data"].get("parts"), item["data"].get("now"), item["data"].get("owner"))
+                for _, item in got]
+
+    def no_codex(self, w):
+        w._setup.codex_program, w._setup.codex_version = lambda: None, lambda: None
+
+    def installer(self, fail=None):
+        from core import codexinstall
+
+        class Fake:
+            def ensure_whole(self):
+                if fail:
+                    raise codexinstall.Failed("network", fail)
+                return "0.162.1", "/x/codex"
+        return Fake()
+
+    def test_codex_not_there_is_installed_before_the_restart(self):
+        # 2026-11-19, a fresh hub: «Codex» on the band asked the restart at once, Codex CLI came 7 s later — hubd came up
+        # with a name to nothing, the hook's trust was never written and every session start was refused
+        w, cfg = self.web(app=True)
+        self.no_codex(w)
+        self.assertEqual(w.setup_host({"host": "codex"}), (202, {"ok": True, "host": "codex", "installing": True}))
+        with open(cfg, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["host"], "codex")
+        self.assertEqual((self.steps, self.taken()), (["codex"], []))   # the install first, no restart yet
+        j = job.Job(self.state, "codex")
+        job.step_codex(j, installer=self.installer())
+        self.assertEqual(self.taken(), [("hub.restart_requested", [], True, True)])   # now, once it is in place
+        self.assertFalse(job.codex_restart_waits(self.state))
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer())
+        self.assertEqual(self.taken(), [])   # a later install (Settings, a retry) restarts nothing
+
+    def test_a_failed_install_restarts_nothing_and_the_band_says_why(self):
+        w, cfg = self.web(app=True)
+        self.no_codex(w)
+        w.setup_host({"host": "codex"})
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer(fail="no network to github.com"))
+        self.assertEqual(self.taken(), [])
+        w._setup.cache.clear()
+        x = w._setup.item_codex()
+        self.assertEqual((x["state"], x["job"]["why"]), ("failed", "network"))
+        self.assertIn("no network", x["job"]["text"])
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer())   # «Retry» on the band
+        self.assertEqual(self.taken(), [("hub.restart_requested", [], True, True)])
+
+    def test_back_to_claude_while_codex_installs_restarts_nothing(self):
+        w, cfg = self.web(app=True)
+        self.no_codex(w)
+        w.setup_host({"host": "codex"})
+        self.assertEqual(w.setup_host({"host": "claude"}), (200, {"ok": True, "host": "claude"}))
+        with open(cfg, encoding="utf-8") as f:
+            self.assertNotIn("host", json.load(f))
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer())
+        self.assertEqual(self.taken(), [])   # hubd never left Claude: neither the switch back nor the install restarts
+        w._setup.codex_program, w._setup.codex_version = lambda: "/x/codex", lambda: "0.162.1"
+        w.setup_host({"host": "codex"})   # Codex CLI is there now: the restart at once, as before
+        self.assertEqual(self.taken(), [("hub.restart_requested", [], True, True)])
+
+    def test_a_restart_asked_is_asked_once_and_its_mark_goes_when_hubd_comes_up(self):
+        w, cfg = self.web(app=True)
+        self.no_codex(w)
+        w.setup_host({"host": "codex"})
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer())
+        self.assertEqual(job.codex_restart(self.state), job.ASKED)   # the old run of auto.py still holds the sign-in
+        job.step_codex(job.Job(self.state, "codex"), installer=self.installer())
+        self.assertEqual(len(self.taken()), 1)   # asked once
+        from tests.test_hub_up_extensions import load_hub_up
+        load_hub_up().drop_codex_restart()   # hub-up starts hubd anew: it reads the host from hub.json (HUB_STATE_DIR)
+        self.assertIsNone(job.codex_restart(self.state))
+
+    def test_a_spool_that_fails_after_the_install_still_finishes_the_step(self):
+        w, cfg = self.web(app=True)
+        self.no_codex(w)
+        w.setup_host({"host": "codex"})
+        with mock.patch("core.spool.put", side_effect=OSError("disk full")):
+            job.step_codex(job.Job(self.state, "codex"), installer=self.installer())
+        self.assertEqual(w._setup.job("codex")["state"], "done")
+
+    def test_codex_put_in_place_by_hand_after_a_failed_install_restarts_from_auto(self):
+        fake = FakeSetup()
+        fake.items = {"codex": {"id": "codex", "state": "ok", "version": "0.170.0", "own": False, "found": True,
+                                "job": {"state": "failed", "why": "network"}},
+                      "codex_login": {"id": "codex_login", "state": "todo", "job": None},
+                      "chrome": {"id": "chrome", "state": "ok", "job": None},
+                      "doctor": {"id": "doctor", "state": "ok", "stale": False, "job": None}}
+        fake.codex_sign_in = lambda: self.fail("a sign-in before the restart onto Codex")
+        job.restart_after_codex(self.state)
+        auto.Auto(self.state, fake, clock=lambda: 0.0, sleep=lambda s: None, working=False).round()
+        self.assertEqual(self.taken(), [("hub.restart_requested", [], True, True)])
+        self.assertEqual(job.codex_restart(self.state), job.ASKED)
+
+    def test_auto_starts_no_codex_sign_in_before_the_restart_onto_codex(self):
+        fake = FakeSetup()
+        fake.items = {"codex": {"id": "codex", "state": "ok", "version": "0.162.1", "own": True, "job": None},
+                      "codex_login": {"id": "codex_login", "state": "todo", "job": None},
+                      "chrome": {"id": "chrome", "state": "ok", "job": None},
+                      "doctor": {"id": "doctor", "state": "ok", "stale": False, "job": None}}
+        signed = []
+        fake.codex_sign_in = lambda: signed.append(1)
+        job.restart_after_codex(self.state)
+        a = auto.Auto(self.state, fake, clock=lambda: 100.0, sleep=lambda s: None, working=False)
+        a.round()
+        self.assertEqual(signed, [])   # hubd still runs on Claude: the sign-in is the run after the restart
+        job.restart_after_codex(self.state, on=False)
+        a.round()
+        self.assertEqual(signed, [1])
 
     def test_codex_on_the_band_writes_the_host_and_restarts_the_hub(self):
         from core import spool

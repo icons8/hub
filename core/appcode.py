@@ -50,7 +50,9 @@ OPEN_CUT = ("embed/*", "EMBED.json",   # EMBED.json: what a composed tree is mad
             "modules/accounts/accounts.py", "modules/gateway/gateway.py", "modules/conduit/conduit.py",
             "modules/stats/stats.py", "modules/voice/speak.py", "bin/hub-gateway", "bin/hub-conduit",
             "bin/hub-stats", "core/codexpool.py",   # the shims of the move for one release (core/embed.SHIMS): they lead into an embed
-            "deploy/mac/Agents Hub.app/*")   # the Mac launcher signed by the company's Developer ID: OPEN_SWAP's instead
+            "deploy/mac/Agents Hub.app/*",   # the Mac launcher signed by the company's Developer ID: OPEN_SWAP's instead
+            "deliver/*")   # the delivery server of the team build (keys, installer links): the open build is given out by pages
+#   (where an earlier tree has it; since Embed API 1.2 the embed carries it, core/embed.PLACED, under embed/*)
 # what the open flavor carries in place of a team's file it cuts: (where it lies in the tree, where the open tree has it).
 # The Mac launcher bundle "Hub by Icons8.app" (deploy/mac/app.py): built from the same deploy/mac/launcher.c, universal,
 # signed ad hoc — no company's certificate in the open tree. A team layer leaves it out (LEFT_OUT)
