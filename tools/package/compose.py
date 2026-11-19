@@ -38,8 +38,9 @@ class Refused(Exception):
     """The tree is not made: what is wrong, for a person."""
 
 
-def git(repo, *args, data=False):
-    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=600, stdin=subprocess.DEVNULL,
+def git(repo, *args, data=False, given=None):
+    r = subprocess.run(["git", "-C", repo, *args], capture_output=True, timeout=600, input=given,
+                       stdin=None if given is not None else subprocess.DEVNULL,
                        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
     if r.returncode:
         raise Refused(f"git {' '.join(args[:2])}: {r.stderr.decode(errors='replace').strip()[-400:]}")
@@ -97,6 +98,7 @@ def compose(prof, core, ref, out):
         for name in sorted(os.listdir(top)) if os.path.isdir(top) else []:
             if name not in here:   # another company's, or one this profile does not carry
                 appcode.remove_tree(os.path.join(top, name))
+                programs = [n for n in programs if not n.startswith(f"{embed.FOLDER}/{name}/")]   # gone with it
         made = {"profile": prof["name"], "core": {"repo": plain(core), "ref": ref, "commit": commit}, "embeds": []}
         for e in prof["embeds"]:
             if e["repo"] == ".":
@@ -113,11 +115,11 @@ def compose(prof, core, ref, out):
         with open(os.path.join(out, TOP), "w", encoding="utf-8", newline="\n") as f:
             json.dump(made, f, ensure_ascii=False, indent=1)
         git(out, "init", "-q", "-b", "main")
-        git(out, "add", "-A")
+        git(out, "add", "-A", "-f")   # the archives' files, every one: no ignore rule (the core's, the builder's) drops one
         # a program stays one in the tree's commit, as in the archives: a disk without the bit (Windows) gives git none
         laid = [n for n in dict.fromkeys(programs) if os.path.isfile(os.path.join(out, *n.split("/")))]
-        for i in range(0, len(laid), 200):
-            git(out, "update-index", "--chmod=+x", "--", *laid[i:i + 200])
+        if laid:   # through stdin: no command line to outgrow (Windows)
+            git(out, "update-index", "--chmod=+x", "-z", "--stdin", given="".join(n + "\0" for n in laid).encode())
         git(out, "-c", "user.name=factory", "-c", "user.email=factory@example.test", "commit", "-q", "--no-verify",
             "-m", f"{prof['name']}: core {ref} with {', '.join(profiles.wanted(prof)) or 'no embeds'}")
         return made

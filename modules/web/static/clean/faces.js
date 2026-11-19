@@ -25,15 +25,23 @@ export const PICTURES = [
 // djb2 over the name's code points: the same name always gets the same picture
 export const hash = (t) => { let h = 5381; for (const ch of t) h = ((h << 5) + h + ch.codePointAt(0)) >>> 0; return h; };
 
-// the pictures did not load (the page server of an older release does not serve them, no network to it): no picture is drawn,
-// the emoji or the letter stays
+// the pictures did not load (the page server of an older release does not serve them, no network to it): no picture is drawn, the
+// emoji or the letter stays. One failed request is not that: it is asked again after each of `wait` ms, and only then the pictures
+// are missing; while they are, it is asked every `every` ms, and when one loads they are back (onChange tells the page each time)
 let missing = false;
 export const loaded = () => !missing;
-export function probe(onMissing) {
+export function probe(onChange, wait = [2000, 6000], every = 30000) {
   if (typeof Image === "undefined") return;
-  const img = new Image();
-  img.onerror = () => { missing = true; onMissing(); };
-  img.src = PICTURES[0];
+  const attempt = (i) => {
+    const img = new Image();
+    img.onload = () => { if (missing) { missing = false; onChange(); } };
+    img.onerror = () => {
+      if (i >= wait.length && !missing) { missing = true; onChange(); }
+      setTimeout(() => attempt(i + 1), i < wait.length ? wait[i] : every);
+    };
+    img.src = PICTURES[0];
+  };
+  attempt(0);
 }
 
 export const faceByName = (name) => (missing ? "" : PICTURES[hash(name || "") % PICTURES.length]);

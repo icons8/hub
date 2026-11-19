@@ -59,7 +59,8 @@ argv = sys.argv[1:]
 key = open(argv[argv.index("--key-file") + 1]).read().strip() if "--key-file" in argv else None
 with open(os.environ["STUB_OUT"], "w") as f:
     json.dump({"argv": argv, "key": key, "lang": os.environ.get("HUB_LANG"), "log": os.environ.get("HUB_INSTALL_LOG"),
-               "tty": os.isatty(0), "cwd_env": os.path.isdir(argv[argv.index("--env") + 1])}, f)
+               "tty": os.isatty(0), "cwd_env": os.path.isdir(argv[argv.index("--env") + 1]),
+               "ui": os.environ.get("HUB_INSTALL_UI")}, f)
 pyc = os.path.join(argv[argv.index("--env") + 1], "runtime", "python", "lib", "stale.pyc")
 if os.path.isfile(pyc):   # as install.py prepare: its compileall writes the Python's stale bytecode again
     with open(pyc, "ab") as f:

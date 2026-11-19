@@ -127,7 +127,9 @@ docker build -t hub-relay relay/
 docker run -d -p 8080:8080 -v hub-relay:/data hub-relay
 ```
 
-or without Docker: `HUB_RELAY_DB=/var/lib/hub-relay/relay.sqlite3 python3 relay/server.py serve`.
+or without Docker: `HUB_RELAY_DB=/var/lib/hub-relay/relay.sqlite3 python3 relay/server.py serve` — on Linux or macOS
+only: on Windows the relay has no file limit to raise (no `resource` module), and a slow client it cuts keeps its
+connection's place until the socket's own timeout.
 
 Settings: `HUB_RELAY_DB` (the SQLite file; the relay's key `relay.key` is made next to it on the first start — keep the
 folder: a new key means new invitations for everyone), `HUB_RELAY_PORT` (8080), `HUB_RELAY_HOST` (0.0.0.0),

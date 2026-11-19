@@ -272,8 +272,8 @@ class Base(unittest.TestCase):
 
     hand_to = None   # a setup.py the hand-over to a layer's installer runs in this process (else it is only recorded)
 
-    def install(self, *more, ask=None, channel="stable", environ=None):
-        out = io.StringIO()
+    def install(self, *more, ask=None, channel="stable", environ=None, out=None):
+        out = out or io.StringIO()
         job_env = {"PATH": "/usr/bin:/bin", "SHELL": "/bin/bash", "USER": "tester", **(environ or {})}
         kw = {"run": self.run_, "ask": ask or (lambda p: "3"), "out": out, "osname": self.os_name, "home": self.home,
               "environ": job_env, "spawn": self.spawned.append, "clock": itertools.count().__next__,

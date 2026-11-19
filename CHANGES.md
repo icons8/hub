@@ -175,6 +175,47 @@ attaches to each session's next message only what it has not seen yet; the page 
   restart came first, and on a fresh hub every session failed to start with "the bans do not hold"). A failed install
   restarts nothing: the band says why and has "Retry". A hub on Codex that came up before Codex CLI was there finds it
   by itself as soon as it is installed: sessions start without a restart.
+- A session's words sent straight to your own hub (`hub send liaison --to <hub> "…"`, no liaison in between) are back in
+  its feed: the "Thread with hub X" block starts with them, and the other hub's answer joins it. Before, only the answers
+  stayed in the thread. Words sent before the update stay missing from the feed. Needs `hub restart web`.
+- `hub secret add --from-file <file>` now ends with a line about the file it read: it still holds the value in plain
+  text, so delete it if it was made only to hand the value over, and keep it (knowing it will not change by itself when
+  the secret is changed in the hub) if other programs read it, such as a service or docker compose. The core deletes
+  nothing itself, and the line names the path only, never the value; a value from stdin gets no such line.
+  — thanks: @GreatMedivack
+- Clean: the icon picker no longer scrolls sideways and does not cut off its last column where the scrollbar is always
+  drawn (Windows, Linux, a Mac set to "always show scrollbars"): the four columns share the width the bar leaves. And one
+  failed request for the characters' pictures no longer switches them off until the page is reloaded: it is asked again
+  after 2 and 6 seconds, and while they are missing, every 30 seconds; when one loads, the characters are back. Reload the
+  page (⌘R / Ctrl+R). — thanks: @kalimullin
+- A session whose turn was cut by a limit has "Resume" in its ⋯ menu: the core continues the cut turn now instead of at
+  the planned time (the core's `POST /api/session/resume`, API 1.36); while the limit is still closed, the page says so
+  and the session keeps waiting. Reload the page (⌘R / Ctrl+R). — thanks: @visualpharm
+- Windows, the bus between hubs: the hub check ("keys or library not in order: TimeoutExpired ssh-keygen") and accepting
+  an invite no longer hang 30 s and fail when a password manager's SSH agent (Bitwarden, 1Password) is running: the bus
+  key has no passphrase, so `ssh-keygen` now signs without asking an SSH agent (on macOS and Linux too, where an agent
+  that never answers held it the same way). Needs a hub restart. — thanks: @Eugenius-S
+- The liaison no longer lights "new" for every letter it sends or passes on ("the words of X went to the hub Y", "passed
+  to session X"): the session whose words went out, or which got the item, tells you itself. The liaison's result stays
+  in its own feed and in the bus thread as before. It stays "new" when the turn did anything else: the core or the
+  other hub refused something, a message is not sent or an item not delivered yet, the liaison asked you with a card,
+  wrote to another hub in its own words for nobody, closed or declined an item, wrote down a rule, or answered in your
+  chats with people; when the turn was on your own words, when it sent or passed nothing, and when that session is
+  asleep. Needs `hub restart`. — thanks: @GreatMedivack
+- The one-line install on macOS and Linux looks like an install now, not a pile of lines: five numbered steps (check the
+  computer, download, unpack, set up, start) each with its time, the download as one live line with a bar, the
+  megabytes and the speed, the hub's sign beside the words (the white dots of its orange tile glow in a wave while the work goes on, the
+  sign is whole at the end and dimmed with a dark ray when a step fails), and a closing screen with the address of the
+  page and the command. The colours are for a
+  terminal that has them (24 bits, 256 or 16). With `NO_COLOR`, a `TERM` of `dumb`, a pipe or a log, a locale that is
+  not UTF-8 or a window under 60 columns wide, and when the drawing does not work on a machine, the install says the plain
+  lines it said before, the same way; `HUB_INSTALL_LOOK=plain` before the line asks for them too. Windows is as it was.
+- Sessions with a queue (the hub, a mini-hub, a lead, a direction) no longer end every answer with a standing "Queue:"
+  list copied from their earlier answers or kept by a summary after compaction, half of it long closed: each item is
+  checked where it lives in that turn (the task, the session, the schedule, the MR), a closed one is dropped, and the
+  end of an answer has only what changed and what waits for you. On three recorded turns, closed items named as open
+  went from 7–9 of 9 to none, at the same cost; the rule of going through the queue stays as it was. Needs
+  `hub restart`; sessions already running get the rule at their next start and by the text for sessions below.
 ### For sessions
 - `hub tools grant <session> <tool> --for mN|qN` of a risky tool: the owner's message, or the question of the card they
   answered, must name the tool by its id ("the browser" does not). When the yes to a card should also connect a risky
@@ -186,6 +227,12 @@ attaches to each session's next message only what it has not seen yet; the page 
   run`); your own helper agents (Agent, Codex subagents) are for support work inside your turn — a search, reading, a
   parallel check — and you gather their findings in the same turn. A refused `hub task run` is fixed as the refusal
   says or reported, not moved to helpers.
+- With a queue: do not end an answer with a standing "Queue:" list: not one copied from your earlier answers, not one a
+  summary after compaction tells you to keep ("every reply ends with a Queue list" is no rule). Every item of your
+  queue — from your earlier answer or a summary too — you check at its source in this turn (`hub task list`, `hub task
+  show <dN>`, `hub show <session>`, `hub schedule list`, the MR, the cluster); closed — drop it; an item from an earlier
+  answer or a summary is a reason to check, not a fact. The end of an answer has only what changed in this turn and, if
+  something waits for the owner, "Waits for you: <what to decide>".
 
 ## 2026-11-18
 - Mac, the open release: the hub runs through its own launcher, `Hub by Icons8.app` (Login Items show "Hub by Icons8"),

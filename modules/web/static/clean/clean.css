@@ -1678,8 +1678,8 @@ html.th-clean .gpop.palette > .pal-find { margin-bottom: 4px; padding: 0; }
 html.th-clean .gpop.palette > :is(.pal-find, .pal-own) input { box-sizing: border-box; height: 32px; padding: 0 8px; font: 400 var(--c-fs)/var(--c-lh) var(--font); }
 html.th-clean .gpop.palette > .pal-own { margin-top: 4px; padding: 0; }
 html.th-clean .gpop.palette .pal-none { padding: 12px 8px; font: 400 var(--c-fs)/var(--c-lh) var(--font); color: var(--c-t2); }
-html.th-clean .gpop.palette > .pal-grid { grid-template-columns: repeat(4, 56px); gap: 0; padding: 0; min-height: 0; max-height: min(50vh, 336px); }
-html.th-clean .pal-e { width: 56px; height: 56px; aspect-ratio: auto; border-radius: 12px; }
+html.th-clean .gpop.palette > .pal-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0; min-height: 0; max-height: min(50vh, 336px); scrollbar-gutter: stable; }   /* 56 each; a classic scrollbar (Windows, Linux, "always show") takes its width from the cells, not from the last column */
+html.th-clean .pal-e { width: 100%; max-width: 56px; justify-self: center; height: 56px; aspect-ratio: auto; border-radius: 12px; }
 html.th-clean .pal-e > .pal-av:not(.kit-img) { font-size: calc(28px * var(--c-rel)); line-height: 1; }
 @media (hover: hover) and (pointer: fine) {
   html.th-clean .pal-e:hover { background: var(--c-hover); }

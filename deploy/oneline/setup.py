@@ -152,6 +152,17 @@ def _read(path, kind=dict):
     return data if isinstance(data, kind) else kind()
 
 
+def _look_module():
+    """look.py of this code layer (what the terminal shows; HUB_INSTALL_UI), loaded by its path: the script's folder is not on
+    the path of an isolated run."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("hub_install_look", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                                    "look.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def _sha(path):
     try:
         return appcode.sha256(path)
@@ -182,12 +193,37 @@ class Install:
         self.anchor = {}
         self.notes = []          # lines said at the end (PATH, linger)
         self.step = "start"
+        self.look = None         # what the terminal shows (look.py), when the install script asked for it: main() sets it
 
     # --- what is where
 
     def say(self, text):
-        print(text, file=self.out, flush=True)
+        if not self._ui(lambda look: look.say(text)):
+            print(text, file=self.out, flush=True)
         self.log(text)
+
+    def _ui(self, draw):
+        """draw(look) on the terminal's look. -> True when it was drawn; False when there is none (the words are said the plain
+        way) or the drawing failed: it is turned off for good (said in the log), the install goes on as it always did."""
+        if not self.look:
+            return False
+        try:
+            draw(self.look)
+            return True
+        except Exception as e:  # noqa: BLE001 — a picture is never a reason to stop an install
+            self.log(f"the look failed, the lines as they were: {type(e).__name__}: {e}")
+            with contextlib.suppress(Exception):
+                self.look.close()   # no more frames of the sign
+            self.look = None
+            return False
+
+    def ask_person(self, prompt):
+        """`ask`, with the live part of the screen taken off while the person types."""
+        self._ui(lambda look: look.pause())
+        try:
+            return self.ask(prompt)
+        finally:
+            self._ui(lambda look: look.resume())
 
     def log(self, text):
         path = self.environ.get("HUB_INSTALL_LOG")
@@ -242,12 +278,17 @@ class Install:
         env["HUB_STATE_DIR"] = state or self.state
         cmd = [sys.executable, "-B", *(["-X", "utf8"] if self.windows() else []), os.path.join(code, "bin", "hub"), *args]
         kw = {"stdout": out, "stderr": subprocess.STDOUT} if out is not None else {"capture_output": True}
+        if out is not None:   # the program writes to the terminal itself: the live part is off meanwhile
+            self._ui(lambda look: look.pause())
         with sigint_later() if service else contextlib.nullcontext():   # a move or its undo finishes its own way
             try:
                 return self.run(cmd, stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", env=env,
                                 timeout=timeout, cwd=self.home, **kw)
             except (OSError, subprocess.SubprocessError) as e:
                 return subprocess.CompletedProcess(cmd, 1, "", str(e))
+            finally:
+                if out is not None:
+                    self._ui(lambda look: look.resume())
 
     # --- 1. what is in the state folder
 
@@ -317,14 +358,19 @@ class Install:
 
     hints = None   # not looked for yet
     hint_names = ()
+    hints_said = False
 
     def say_hints(self):
         """The lines of hint_instances: to the terminal whole (the key is in the person's own line already), to the
         install log without the key."""
+        if self.hints_said:   # the screen of the look said them; its closing failing must not say them twice
+            return
         for words, line, masked in self.hints or ():
-            print(words, file=self.out, flush=True)
-            print("  " + line, file=self.out, flush=True)
+            if not self._ui(lambda look: look.say(words, verbatim=[line])):
+                print(words, file=self.out, flush=True)
+                print("  " + line, file=self.out, flush=True)
             self.log(f"{words} {masked}")
+        self.hints_said = bool(self.look and self.hints)
 
     def choose(self, texts):
         """The move question: move | stay | later | None (nobody to ask)."""
@@ -338,7 +384,7 @@ class Install:
         self.say(t("cli.oneline.choices", move=texts.get("move") or "move", stay=texts.get("stay") or "stay",
                    later=texts.get("later") or "later"))
         try:
-            got = self.ask(t("cli.oneline.answer")).strip()
+            got = self.ask_person(t("cli.oneline.answer")).strip()
         except (EOFError, OSError):
             return "later"
         return {"1": "move", "2": "stay"}.get(got, "later")
@@ -408,7 +454,7 @@ class Install:
         for i, text in enumerate(options, 1):
             self.say(f"  {i} — {text}")
         try:
-            got = self.ask(t("cli.oneline.answer") if len(options) == 3 else
+            got = self.ask_person(t("cli.oneline.answer") if len(options) == 3 else
                            t("cli.oneline.answer_any", last=len(options))).strip()
         except (EOFError, OSError):
             return "later"
@@ -552,6 +598,10 @@ class Install:
             self.log(f"handed over to {entry['version']} before the state folder is read")
             cmd = [sys.executable, "-I", "-B", *(["-X", "utf8"] if self.windows() else []), os.path.join(folder, SETUP),
                    *self.argv, "--handed"]
+            def hand(look):   # the layer's setup.py draws the screen from here (its own words, the same step)
+                os.environ["HUB_INSTALL_UI"] = look.hand_over()
+            if not self._ui(hand):   # no look here, or it failed: the plain lines go on there too
+                os.environ.pop("HUB_INSTALL_UI", None)
             code = self.run(cmd).returncode
             return code
         finally:   # the layer is the state folder's now; its archive stays for a run again after one that did not end
@@ -1325,7 +1375,8 @@ class Install:
         try:
             return self.install(fresh, moving, self.latest())
         except Step as e:
-            self.say(t("cli.oneline.failed", step=e.step, error=e.error, log=self.environ.get("HUB_INSTALL_LOG") or ""))
+            self.failed(t("cli.oneline.ui_failed_at", step=e.step, error=e.error),
+                        t("cli.oneline.failed", step=e.step, error=e.error, log=self.environ.get("HUB_INSTALL_LOG") or ""))
             self.report(e.step, e.error, e)
             if moving and self.moved:
                 return self.undo(moving)
@@ -1398,9 +1449,11 @@ class Install:
                 raise
             except Exception as e:  # noqa: BLE001 — named for the person and the report
                 raise Step(name, f"{type(e).__name__}: {e}") from e
+        self._ui(lambda look: (look.done(t("cli.oneline.ui_setup_done")), look.begin(5, t("cli.oneline.ui_start_now"))))
         self.step = "service"
         started = self.service_step()
-        self.say(t("cli.oneline.starting"))
+        if not self.look:   # (the live line of the step says it)
+            self.say(t("cli.oneline.starting"))
         up = self.wait_page()
         if not up and not started:   # the service was right, the hub is not up: a restart of it
             self.restart_needed = True
@@ -1414,9 +1467,9 @@ class Install:
                 self.open_page()
                 return NOT_UP
         if not up:
-            self.say(t("cli.oneline.not_up", seconds=PAGE_WAIT, log=os.path.join(self.state, "logs", "hub-up.log")))
-            for line in self.log_tail():
-                self.say("  " + line)
+            words = t("cli.oneline.not_up", seconds=PAGE_WAIT, log=os.path.join(self.state, "logs", "hub-up.log"))
+            tail = ["  " + line for line in self.log_tail()]
+            self.failed(words + ("\n" + "\n".join(tail) if self.look else ""), words, tail)
             self.report("page", "the page did not answer", None)
             return self.undo(moving) if moving else NOT_UP
         if moving or self.finish_move:
@@ -1434,25 +1487,51 @@ class Install:
             from core import envs
             envs.prune(self.state, say=self.log)
         url = self.open_page()
+        command = instance.command_name(self.instance)
+        if self.look:
+            self.say_hints()
+            tunnel = self.tunnel_lines(url)
+            if self._ui(lambda look: (look.done(t("cli.oneline.ui_start_done", port=self.port())),
+                                      look.finish(t("cli.oneline.ui_done"),
+                                                  [(t("cli.oneline.ui_open"), url), (t("cli.oneline.ui_command"), command),
+                                                   (t("cli.oneline.ui_next"), t("cli.oneline.ui_next_text"))],
+                                                  self.notes + ([tunnel[0]] if tunnel else []),
+                                                  verbatim=[tunnel[1]] if tunnel else []))):
+                return OK
         for line in self.notes:
             self.say(line)
         self.say_hints()
-        self.say(t("cli.oneline.done", url=url, command=instance.command_name(self.instance)))
+        self.say(t("cli.oneline.done", url=url, command=command))
         self.say_tunnel(url)
         return OK
 
-    def say_tunnel(self, url):
-        """A Linux without a display (a server, install.sh --server): the page is on 127.0.0.1 here — the one SSH command
-        that brings it to the person's computer (install.sh --server shows the last such line at every SSH sign-in)."""
+    def tunnel_lines(self, url):
+        """A Linux without a display (a server, install.sh --server): the page is on 127.0.0.1 here — what to say and the one
+        SSH command that brings it to the person's computer (install.sh --server shows the last such line at every SSH
+        sign-in). -> (words, command), or None."""
         if self.os != "linux":
-            return
+            return None
         from core import remote
         from platforms import posix
         if posix.has_browser(self.environ, "linux"):   # the rule of `hub open`
+            return None
+        return t("cli.service.tunnel", url=url), remote.tunnel(self.port(), instance.port("files", self.state, environ=self.ports()),
+                                                               self.user_name(), self.environ)
+
+    def say_tunnel(self, url):
+        lines = self.tunnel_lines(url)
+        if lines:
+            self.say(lines[0])
+            self.say("  " + lines[1])
+
+    def failed(self, words, plain, more=()):
+        """The install stopped: the words for the screen of the look, or `plain` (and `more`, line by line) as they were said."""
+        if self._ui(lambda look: look.fail(words, log=self.environ.get("HUB_INSTALL_LOG") or "")):
+            self.log(words)
             return
-        self.say(t("cli.service.tunnel", url=url))
-        self.say("  " + remote.tunnel(self.port(), instance.port("files", self.state, environ=self.ports()),
-                                      self.user_name(), self.environ))
+        self.say(plain)
+        for line in more:
+            self.say(line)
 
     def newer(self, entry):
         name = appcode.current(self.code(), self.layers())
@@ -1677,6 +1756,25 @@ def profile_line(home, environ):
     return wrote
 
 
+def _terminal_look(job):
+    """What the terminal shows (look.py), when install.sh asked for it in HUB_INSTALL_UI and this output is a terminal; the
+    install's own step 4 starts at once. None — the lines as they always were."""
+    if not job.environ.get("HUB_INSTALL_UI"):
+        return None
+    try:
+        names = {4: t("cli.oneline.ui_step_setup"), 5: t("cli.oneline.ui_step_start"),
+                 "fail": t("cli.oneline.ui_stopped"), "log": t("cli.oneline.ui_log")}
+        look = _look_module().Look.from_env(job.environ, job.out, names)
+    except Exception:   # noqa: BLE001 — a picture is never a reason not to install
+        return None
+    if look:
+        try:
+            look.begin(look.step, t("cli.oneline.ui_setup_now"))
+        except Exception:   # noqa: BLE001
+            return None
+    return look
+
+
 def main(argv, **kw):
     try:
         args = parse(argv)
@@ -1685,20 +1783,24 @@ def main(argv, **kw):
         return USAGE
     job = Install(args, **kw)
     job.argv = [a for a in argv if a != "--handed"]
+    job.look = _terminal_look(job)
     try:
         code = job.early()
         return job.main() if code is None else code
     except Refused as e:
-        job.say(str(e))
+        job.failed(str(e), str(e))
         return FAILED
     except KeyboardInterrupt:
         return 130
     except Exception as e:  # noqa: BLE001 — a person reads it: the step and the cause, the traceback in the log
         import traceback
         job.log(traceback.format_exc())
-        job.say(t("cli.oneline.failed", step=job.step, error=f"{type(e).__name__}: {e}",
-                  log=job.environ.get("HUB_INSTALL_LOG") or ""))
+        error = f"{type(e).__name__}: {e}"
+        job.failed(t("cli.oneline.ui_failed_at", step=job.step, error=error),
+                   t("cli.oneline.failed", step=job.step, error=error, log=job.environ.get("HUB_INSTALL_LOG") or ""))
         return FAILED
+    finally:
+        job._ui(lambda look: look.end())
 
 
 if __name__ == "__main__":

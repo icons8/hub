@@ -60,9 +60,367 @@ HUB_INSTALL_CONSTANTS='HUB_INSTALL_CONTRACT HUB_INSTALL_KEY_IN HUB_INSTALL_SERVE
   HUB_INSTALL_SERVER_USER HUB_INSTALL_SERVER_RAM_KB HUB_INSTALL_SERVER_SWAP_BELOW_KB HUB_INSTALL_SERVER_SWAP_MB
   HUB_INSTALL_SERVER_DISK_KB HUB_INSTALL_CHROME_DEB HUB_INSTALL_SERVER_FIELDS HUB_INSTALL_CONSTANTS'
 
-say() { printf '%s\n' "$*" >&2; [ -n "${HUB_INSTALL_LOGFILE:-}" ] && printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$HUB_INSTALL_LOGFILE" 2>/dev/null; return 0; }
+say() {
+  if [ -n "${UI_ON:-}" ]; then ui_say "$*"; else printf '%s\n' "$*" >&2; fi
+  [ -n "${HUB_INSTALL_LOGFILE:-}" ] && printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$HUB_INSTALL_LOGFILE" 2>/dev/null
+  return 0
+}
 note() { [ -n "${HUB_INSTALL_LOGFILE:-}" ] && printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$HUB_INSTALL_LOGFILE" 2>/dev/null; return 0; }
-refuse() { say "Hub by Icons8 install: $*"; return 1; }
+refuse() {
+  if [ -n "${UI_ON:-}" ]; then ui_fail "$*"; else printf '%s\n' "Hub by Icons8 install: $*" >&2; fi
+  note "refused: $*"
+  return 1
+}
+
+# --- the look: what a terminal shows (deploy/oneline/README.md, "The look"; look.py draws what comes after the hand-over,
+# the same way, told by HUB_INSTALL_UI). Five steps: the first three are this script's, the last two are setup.py's.
+# The live part of the screen - "the tail": the hub's sign with its words (its dots glow in a wave while the work goes on;
+# with 256 colours and 20 rows at least) and the line of the step in progress - is taken off and drawn again whenever
+# something is said above it. Nothing of this runs unless stderr is a terminal with a TERM, 60 columns wide at least, in a
+# UTF-8 locale, with NO_COLOR unset: anything else gets the lines as they were. HUB_INSTALL_LOOK=plain asks for them too.
+# logo:begin (tools/dev/logo.py writes this; a test holds it equal to look.py's)
+ui_logo_rgb() {   # a letter of the sign -> UI_RGB (24 bits) and UI_X256 (256 colours)
+  case $1 in
+    T) UI_RGB='224;80;16'; UI_X256=166 ;;
+    a) UI_RGB='229;109;56'; UI_X256=167 ;;
+    b) UI_RGB='234;138;96'; UI_X256=173 ;;
+    c) UI_RGB='240;168;136'; UI_X256=216 ;;
+    d) UI_RGB='245;197;175'; UI_X256=223 ;;
+    e) UI_RGB='250;226;215'; UI_X256=224 ;;
+    W) UI_RGB='255;255;255'; UI_X256=231 ;;
+    X) UI_RGB='164;92;60'; UI_X256=131 ;;
+    g) UI_RGB='191;141;118'; UI_X256=138 ;;
+    K) UI_RGB='40;32;36'; UI_X256=235 ;;
+  esac
+}
+ui_logo() {   # the sign: UI_FRAMES (the wave of the work), UI_PIC_DONE and UI_PIC_FAIL, UI_W columns of UI_H rows of pixels
+  UI_W=14; UI_H=14; UI_NFRAMES=8
+  UI_FRAMES=(
+    .TTTTTTTTTTTT.TTTTTbTTbTTTTTTTTTTTTTTTTTTTTTTbTTccTTbTTTTTTTcTddTcTTTTTbTTTdTTdTTTbTTTTcdTTTTdcTTTTTTcdTTTTdcTTTTbTTTdTTdTTTbTTTTTcTddTcTTTTTTTbTTccTTbTTTTTTTTTTTTTTTTTTTTTTbTTbTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTbTTbTTTTTTTTTTTTTTTTTTTTTTbTTccTTbTTTTTTTcTeeTcTTTTTbTTTeTTeTTTbTTTTceTTTTecTTTTTTceTTTTecTTTTbTTTeTTeTTTbTTTTTcTeeTcTTTTTTTbTTccTTbTTTTTTTTTTTTTTTTTTTTTTbTTbTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTbTTbTTTTTTTTTTTTTTTTTTTTTTbTTccTTbTTTTTTTcTWWTcTTTTTbTTTWTTWTTTbTTTTcWTTTTWcTTTTTTcWTTTTWcTTTTbTTTWTTWTTTbTTTTTcTWWTcTTTTTTTbTTccTTbTTTTTTTTTTTTTTTTTTTTTTbTTbTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTbTTbTTTTTTTTTTTTTTTTTTTTTTbTTddTTbTTTTTTTdTeeTdTTTTTbTTTeTTeTTTbTTTTdeTTTTedTTTTTTdeTTTTedTTTTbTTTeTTeTTTbTTTTTdTeeTdTTTTTTTbTTddTTbTTTTTTTTTTTTTTTTTTTTTTbTTbTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTcTTcTTTTTTTTTTTTTTTTTTTTTTcTTeeTTcTTTTTTTeTddTeTTTTTcTTTdTTdTTTcTTTTedTTTTdeTTTTTTedTTTTdeTTTTcTTTdTTdTTTcTTTTTeTddTeTTTTTTTcTTeeTTcTTTTTTTTTTTTTTTTTTTTTTcTTcTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTdTTdTTTTTTTTTTTTTTTTTTTTTTdTTeeTTdTTTTTTTeTddTeTTTTTdTTTdTTdTTTdTTTTedTTTTdeTTTTTTedTTTTdeTTTTdTTTdTTdTTTdTTTTTeTddTeTTTTTTTdTTeeTTdTTTTTTTTTTTTTTTTTTTTTTdTTdTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTeTTeTTTTTTTTTTTTTTTTTTTTTTeTTddTTeTTTTTTTdTddTdTTTTTeTTTdTTdTTTeTTTTddTTTTddTTTTTTddTTTTddTTTTeTTTdTTdTTTeTTTTTdTddTdTTTTTTTeTTddTTeTTTTTTTTTTTTTTTTTTTTTTeTTeTTTTT.TTTTTTTTTTTT.
+    .TTTTTTTTTTTT.TTTTTdTTdTTTTTTTTTTTTTTTTTTTTTTdTTccTTdTTTTTTTcTddTcTTTTTdTTTdTTdTTTdTTTTcdTTTTdcTTTTTTcdTTTTdcTTTTdTTTdTTdTTTdTTTTTcTddTcTTTTTTTdTTccTTdTTTTTTTTTTTTTTTTTTTTTTdTTdTTTTT.TTTTTTTTTTTT.
+  )
+  UI_PIC_DONE=.TTTTTTTTTTTT.TTTTTeTTeTTTTTTTTTTTTTTTTTTTTTTeTTWWTTeTTTTTTTWTWWTWTTTTTeTTTWTTWTTTeTTTTWWTTTTWWTTTTTTWWTTTTWWTTTTeTTTWTTWTTTeTTTTTWTWWTWTTTTTTTeTTWWTTeTTTTTTTTTTTTTTTTTTTTTTeTTeTTTTT.TTTTTTTTTTTT.
+  UI_PIC_FAIL=.XXXXXXXXXXXX.XXXXXKXXKXXXXXXXXXXXXXXXXXXXXXXgXXKKXXgXXXXXXXgXKKXgXXXXXgXXXgXXgXXXgXXXXggXXXXggXXXXXXggXXXXggXXXXgXXXgXXgXXXgXXXXXgXggXgXXXXXXXgXXggXXgXXXXXXXXXXXXXXXXXXXXXXgXXgXXXXX.XXXXXXXXXXXX.
+}
+# logo:end
+
+ui_init() {   # -> UI_ON and its settings, or nothing: a plain run, the lines as they always were
+  local loc size
+  UI_ON=; UI_COL=1; UI_ROWS=24; UI_COLS=80; UI_STEPS=5; UI_STEP=0; UI_NAME=; UI_DETAIL=; UI_T0=0
+  UI_TAIL=0; UI_MOOD=work; UI_ART_ON=; UI_PAUSED=; UI_IDLE=; UI_S=; UI_CPID=; UI_ESC=; UI_TOOK=; UI_LEN=0
+  UI_LIVE=; UI_FRAME=0; UI_NFRAMES=1; UI_CACHE=(); UI_BUF=; UI_NLINES=0
+  [ -t 2 ] || return 0                              # a pipe, a log, user data of a cloud machine
+  case ${TERM:-} in ''|dumb) return 0 ;; esac
+  [ -z "${NO_COLOR:-}" ] || return 0                # no colour asked for: the plain lines
+  [ "${HUB_INSTALL_LOOK:-}" != plain ] || return 0
+  loc=${LC_ALL:-${LC_CTYPE:-${LANG:-}}}
+  case $loc in *[Uu][Tt][Ff]-8*|*[Uu][Tt][Ff]8*) ;; *) return 0 ;; esac   # the marks are UTF-8
+  size=$(stty size <&2 2>/dev/null)
+  rows=${size%% *}; UI_COLS=${size#* }
+  case $UI_COLS in ''|*[!0-9]*) UI_COLS=${COLUMNS:-80} ;; esac
+  case $UI_COLS in ''|*[!0-9]*) UI_COLS=80 ;; esac
+  UI_ROWS=$rows
+  case $UI_ROWS in ''|*[!0-9]*) UI_ROWS=24 ;; esac
+  [ "$UI_COLS" -ge 60 ] || return 0                 # a narrow window: the plain lines wrap by themselves
+  [ "$UI_COLS" -gt 80 ] && UI_COLS=80
+  case ${COLORTERM:-} in
+    truecolor|24bit) UI_COL=3 ;;
+    *) case ${TERM:-} in *256color*) UI_COL=2 ;; esac ;;
+  esac
+  UI_ESC=$(printf '\033')
+  # the marks as the bytes of UTF-8: this file stays ASCII
+  printf -v UI_OK '\342\234\223'; printf -v UI_BAD '\342\234\227'; printf -v UI_NOW '\342\200\272'
+  printf -v UI_SKIP '\342\200\223'; printf -v UI_DOT '\302\267'; printf -v UI_ELL '\342\200\246'
+  printf -v UI_BAR '\342\224\201'; printf -v UI_REST '\342\224\200'
+  printf -v UI_HI '\342\226\200'; printf -v UI_LO '\342\226\204'
+  if [ "$UI_COL" -ge 2 ] && [ "$UI_ROWS" -ge 20 ]; then UI_ART_ON=1; fi
+  ui_logo
+  # a drawing that fails here (a bash or a tool that does something else than expected) is no reason for a screen of
+  # errors: the lines as they were
+  if ! ( ui_art work && [ -n "${UI_LINES[0]}" ] && ui_art done && ui_art fail && ui_line accent "$UI_NOW" 1 Check "$UI_DOT x" 1 && ui_p dim x ) >/dev/null 2>&1; then
+    UI_ART_ON=; return 0
+  fi
+  UI_ON=1
+}
+
+ui_p() {   # ui_p <class> <text> -> UI_S: the text in a colour (accent good bad dim; accentb goodb badb bold)
+  local c=
+  if [ "$UI_COL" -gt 0 ]; then
+    case $1:$UI_COL in
+      accent*:3) c='38;2;240;104;43' ;; accent*:2) c='38;5;202' ;; accent*:1) c=33 ;;
+      good*:3) c='38;2;40;167;90' ;; good*:2) c='38;5;35' ;; good*:1) c=32 ;;
+      bad*:3) c='38;2;232;76;76' ;; bad*:2) c='38;5;167' ;; bad*:1) c=31 ;;
+      dim:*) c=2 ;;   # the terminal's own text colour, fainter: readable on a dark and on a light background
+      bold:*) c=1 ;;
+    esac
+    case $1 in accentb|goodb|badb) c="1;$c" ;; esac
+  fi
+  if [ -n "$c" ]; then UI_S="${UI_ESC}[${c}m$2${UI_ESC}[0m"; else UI_S=$2; fi
+}
+
+ui_color() {   # ui_color <letter> <38|48> -> UI_S: the escape of a colour of the picture
+  ui_logo_rgb "$1"
+  if [ "$UI_COL" = 3 ]; then UI_S="${UI_ESC}[$2;2;${UI_RGB}m"; else UI_S="${UI_ESC}[$2;5;${UI_X256}m"; fi
+}
+
+ui_art() {   # ui_art <mood> -> UI_LINES: the picture, one line of text for two rows of pixels
+  local pic y x top bot want last line cell slot i n=$((UI_H / 2))
+  case $1 in   # the frames of the wave while it works, drawn once each (the cache), then as they are
+    done) slot=$UI_NFRAMES; pic=$UI_PIC_DONE ;;
+    fail) slot=$((UI_NFRAMES + 1)); pic=$UI_PIC_FAIL ;;
+    *) slot=$UI_FRAME; pic=${UI_FRAMES[$UI_FRAME]} ;;
+  esac
+  if [ -n "${UI_CACHE[$((slot * n))]:-}" ]; then   # (one flat array: the n lines of slot k at k*n; bash 3.2 has no other)
+    UI_LINES=(); i=0
+    while [ "$i" -lt "$n" ]; do UI_LINES[$i]=${UI_CACHE[$((slot * n + i))]}; i=$((i + 1)); done
+    return 0
+  fi
+  UI_LINES=(); y=0
+  while [ "$y" -lt "$UI_H" ]; do
+    line=; last=; x=0
+    while [ "$x" -lt "$UI_W" ]; do
+      top=${pic:$((y * UI_W + x)):1}; bot=${pic:$(((y + 1) * UI_W + x)):1}
+      if [ "$top" = . ] && [ "$bot" = . ]; then
+        cell=' '; want=; [ -n "$last" ] && want="${UI_ESC}[0m"
+      elif [ "$top" = . ]; then
+        cell=$UI_LO; ui_color "$bot" 38; want="$UI_S${UI_ESC}[49m"
+      else
+        cell=$UI_HI; ui_color "$top" 38; want=$UI_S
+        if [ "$bot" = . ]; then want="$want${UI_ESC}[49m"; else ui_color "$bot" 48; want="$want$UI_S"; fi
+      fi
+      if [ -n "$want" ] && [ "$want" != "$last" ]; then line="$line$want"; last=$want; fi
+      line="$line$cell"; x=$((x + 1))
+    done
+    UI_LINES[$((y / 2))]="$line${UI_ESC}[0m"
+    y=$((y + 2))
+  done
+  i=0; while [ "$i" -lt "$n" ]; do UI_CACHE[$((slot * n + i))]=${UI_LINES[$i]}; i=$((i + 1)); done
+}
+
+ui_words() {   # the words beside the sign: UI_WORDS (painted lines; the first one at the second line of the picture)
+  UI_WORDS=()
+  ui_p accentb "Hub by Icons8"; UI_WORDS[0]=$UI_S
+  UI_WORDS[1]=
+  ui_p dim "Claude Code and Codex, in one place"; UI_WORDS[2]=$UI_S
+  ui_p dim "installing for this computer"; UI_WORDS[3]=$UI_S
+}
+
+ui_face_buf() {   # the sign in UI_MOOD beside UI_WORDS -> UI_BUF (the lines, each ended), UI_NLINES
+  local i=0 n w pad
+  ui_art "$UI_MOOD"
+  n=$((UI_H / 2))
+  printf -v pad '%*s' $((2 + UI_W + 3)) ''
+  UI_BUF=; UI_NLINES=0
+  while [ "$i" -lt "$n" ] || [ "$i" -le "${#UI_WORDS[@]}" ]; do
+    w=; [ "$i" -ge 1 ] && w=${UI_WORDS[$((i - 1))]:-}
+    if [ "$i" -lt "$n" ]; then UI_BUF="$UI_BUF  ${UI_LINES[$i]}${w:+   }$w"$'\n'
+    else UI_BUF="$UI_BUF$pad$w"$'\n'
+    fi
+    i=$((i + 1)); UI_NLINES=$((UI_NLINES + 1))
+  done
+}
+
+ui_face() {   # print the sign in UI_MOOD beside UI_WORDS; UI_TAIL counts the lines
+  ui_face_buf
+  printf '%s' "$UI_BUF" >&2
+  UI_TAIL=$((UI_TAIL + UI_NLINES))
+}
+
+ui_took() {   # the seconds since UI_T0 -> UI_TOOK
+  local n=$((SECONDS - UI_T0))
+  if [ "$n" -lt 1 ]; then UI_TOOK='<1 s'; elif [ "$n" -lt 60 ]; then UI_TOOK="$n s"; else UI_TOOK="$((n / 60)) min $((n % 60)) s"; fi
+}
+
+ui_len() {   # ui_len <text> -> UI_LEN: its columns (a mark is one, whatever the locale makes of its bytes)
+  local t=${1//"$UI_DOT"/.}
+  t=${t//"$UI_ELL"/.}
+  UI_LEN=${#t}
+}
+
+ui_line() {   # ui_line <class> <mark> <n> <name> <detail> [took] -> UI_S: the line of a step (20 columns, then the detail)
+  local room text took=${6:-} pad a b c name line
+  printf -v name '%-10s' "$4"
+  room=$((UI_COLS - 2 - 20 - ${#took}))
+  [ -n "$took" ] && room=$((room - 2))
+  text=$5
+  ui_len "$text"
+  [ "$UI_LEN" -gt "$room" ] && { text="${text:0:$((room - 1))}$UI_ELL"; ui_len "$text"; }
+  ui_p "$1" "$2"; a=$UI_S
+  ui_p dim "$3/$UI_STEPS"; b=$UI_S
+  ui_p dim "$text"; c=$UI_S
+  line="  $a $b  $name $c"
+  if [ -n "$took" ]; then
+    pad=$((UI_COLS - 2 - 20 - UI_LEN - ${#took}))
+    [ "$pad" -lt 1 ] && pad=1
+    ui_p dim "$took"
+    printf -v pad '%*s' "$pad" ''
+    line="$line$pad$UI_S"
+  fi
+  UI_S=$line
+}
+
+ui_tail_clear() { [ "$UI_TAIL" -gt 0 ] && printf '\033[%dA\r\033[J' "$UI_TAIL" >&2; UI_TAIL=0; return 0; }
+
+ui_tail_buf() {   # the live part: the sign with its words, and the line of the step in progress -> UI_BUF, UI_NLINES
+  local lines=0 art=
+  if [ -n "$UI_ART_ON" ]; then
+    ui_words; ui_face_buf; art=$UI_BUF; lines=$((UI_NLINES + 1))
+    art="$art"$'\n'
+  fi
+  ui_live_line
+  UI_BUF="$art$UI_S${UI_ESC}[K"$'\n'; UI_NLINES=$((lines + 1))
+}
+
+ui_live_line() {   # -> UI_S: the line of the step in progress (the bar of a download, when there is one)
+  if [ -n "$UI_LIVE" ]; then UI_S=$UI_LIVE; else ui_line accent "$UI_NOW" "$UI_STEP" "$UI_NAME" "${UI_DETAIL:-$UI_ELL}"; fi
+}
+
+ui_tail_draw() {
+  [ -n "$UI_PAUSED$UI_IDLE" ] && return 0
+  ui_tail_buf
+  printf '%s' "$UI_BUF" >&2
+  UI_TAIL=$UI_NLINES
+}
+
+ui_tick() {   # the live part again, in place, in one write: the next frame of the sign, the live line as it is now
+  [ -n "$UI_PAUSED$UI_IDLE" ] && return 0
+  [ "$UI_TAIL" -ge 1 ] || return 0
+  if [ -n "$UI_ART_ON" ]; then
+    UI_FRAME=$(((UI_FRAME + 1) % UI_NFRAMES))
+    ui_tail_buf
+    printf '\033[%dA%s' "$UI_TAIL" "$UI_BUF" >&2
+  else
+    ui_live_line
+    printf '\033[1A\r%s\033[K\n' "$UI_S" >&2
+  fi
+}
+
+ui_say() {   # a line of this script's own words, above the live part
+  local line
+  ui_tail_clear
+  while IFS= read -r line; do
+    ui_p dim "$line"; printf '    %s\n' "$UI_S" >&2
+  done <<< "$(printf '%s\n' "$1" | fold -s -w $((UI_COLS - 6)))"
+  ui_tail_draw
+}
+
+ui_begin() {   # ui_begin <n> <name> [detail]: the step n starts; it is the live line
+  ui_tail_clear
+  UI_STEP=$1; UI_NAME=$2; UI_DETAIL=${3:-}; UI_T0=$SECONDS; UI_MOOD=work; UI_IDLE=; UI_LIVE=
+  ui_tail_draw
+}
+
+ui_progress() {   # ui_progress <detail>: only the live line changes
+  UI_DETAIL=$1
+  ui_tick
+}
+
+ui_done() {   # ui_done [detail]: the step in progress is finished; its line stays
+  ui_tail_clear
+  ui_took
+  ui_line good "$UI_OK" "$UI_STEP" "$UI_NAME" "${1:-}" "$UI_TOOK"
+  printf '%s\n' "$UI_S" >&2
+  UI_IDLE=1
+}
+
+ui_skip() {   # ui_skip <n> <name> <why>: a step this run does not need
+  ui_tail_clear
+  ui_line dim "$UI_SKIP" "$1" "$2" "$3"
+  printf '%s\n' "$UI_S" >&2
+  UI_IDLE=1
+}
+
+ui_interrupted() {   # Ctrl-C or a TERM: the live part off the screen, the colours back, so the prompt is a prompt
+  if [ -n "${UI_ON:-}" ]; then ui_tail_clear; printf '\033[0m' >&2; fi
+  return 0
+}
+
+ui_pause() { if [ -n "${UI_ON:-}" ]; then ui_tail_clear; UI_PAUSED=1; fi; return 0; }   # sudo asks for a password
+ui_resume() { if [ -n "${UI_ON:-}" ]; then UI_PAUSED=; ui_tail_draw; fi; return 0; }
+
+ui_fail() {   # ui_fail <words>: the step in progress failed - its line, then the words beside the sign
+  local line i width
+  ui_tail_clear
+  if [ -z "$UI_IDLE" ] && [ "$UI_STEP" -gt 0 ]; then   # a step that is done keeps its line: it did not fail
+    ui_took
+    ui_line bad "$UI_BAD" "$UI_STEP" "$UI_NAME" "" "$UI_TOOK"
+    printf '%s\n' "$UI_S" >&2
+  fi
+  printf '\n' >&2
+  width=$((UI_COLS - 4))
+  [ -n "$UI_ART_ON" ] && width=$((UI_COLS - 2 - UI_W - 3))
+  UI_WORDS=()
+  ui_p badb "The install stopped"; UI_WORDS[0]=$UI_S
+  UI_WORDS[1]=
+  i=2
+  while IFS= read -r line; do UI_WORDS[$i]=$line; i=$((i + 1)); done <<< "$(printf '%s\n' "$1" | fold -s -w "$width")"
+  if [ -n "${HUB_INSTALL_LOGFILE:-}" ]; then
+    UI_WORDS[$i]=; ui_p dim "The log  $HUB_INSTALL_LOGFILE"; UI_WORDS[$((i + 1))]=$UI_S
+  fi
+  if [ -n "$UI_ART_ON" ]; then
+    UI_MOOD=fail; UI_TAIL=0; ui_face; UI_TAIL=0
+  else
+    for line in "${UI_WORDS[@]}"; do printf '    %s\n' "$line" >&2; done
+  fi
+  UI_ON=
+}
+
+ui_env() {   # ui_env <step>: the words of HUB_INSTALL_UI for setup.py (look.py parse): the screen is its from here
+  printf '%s.%s.%s.%s.0' "$UI_COL" "$UI_COLS" "$UI_ROWS" "$1"
+}
+
+ui_header() {   # the title, once, when there is no sign: with it, the title is beside it
+  [ -n "$UI_ART_ON" ] && return 0
+  ui_p bold "Hub by Icons8"; printf '\n  %s\n' "$UI_S" >&2
+  ui_p dim "Claude Code and Codex, in one place"; printf '  %s\n\n' "$UI_S" >&2
+}
+
+ui_download_bar() {   # ui_download_bar <curl's pid> <the part file> <bytes it had>: the bar of the live line (and the sign), 8 times a second
+  local pid=$1 part=$2 had=$3 got pct n filled i bar rest speed t0=$SECONDS el mb k=0 nap=0.12 width=$((UI_COLS - 54))   # the line is 20 + the bar + 2 + 30 columns at most
+  [ "$width" -gt 20 ] && width=20; [ "$width" -lt 4 ] && width=4
+  [ -n "$UI_ART_ON" ] || nap=0.3   # with the sign: 8 frames of it a second, and the bar itself is made each third time
+  while kill -0 "$pid" 2>/dev/null; do
+    k=$((k + 1))
+    if [ -n "$UI_ART_ON" ] && [ $((k % 3)) -ne 1 ]; then ui_tick; sleep "$nap" 2>/dev/null || sleep 1; continue; fi
+    got=0
+    if [ -f "$part" ]; then got=$(wc -c < "$part" | tr -d ' '); fi
+    pct=$((got * 100 / SHELL_SIZE)); [ "$pct" -gt 100 ] && pct=100
+    filled=$((pct * width / 100))
+    bar=; rest=; i=0
+    while [ "$i" -lt "$width" ]; do
+      if [ "$i" -lt "$filled" ]; then bar="$bar$UI_BAR"; else rest="$rest$UI_REST"; fi
+      i=$((i + 1))
+    done
+    el=$((SECONDS - t0)); speed=
+    if [ "$el" -ge 2 ] && [ "$got" -gt "$had" ]; then
+      n=$(((got - had) / el / 100000))   # tenths of MB/s
+      speed=" $UI_DOT $((n / 10)).$((n % 10)) MB/s"
+    fi
+    mb="$((got / 1000000)) of $((SHELL_SIZE / 1000000)) MB"
+    ui_bar_line "$bar" "$rest" "$pct% $mb$speed"
+    ui_tick
+    sleep "$nap" 2>/dev/null || sleep 1
+  done
+  UI_LIVE=
+}
+
+ui_bar_line() {   # ui_bar_line <filled> <rest> <text> -> UI_LIVE: the line of the step with a bar in place of the detail
+  local name a b c d e
+  printf -v name '%-10s' "$UI_NAME"
+  ui_p accent "$UI_NOW"; a=$UI_S
+  ui_p dim "$UI_STEP/$UI_STEPS"; b=$UI_S
+  ui_p accent "$1"; c=$UI_S
+  ui_p dim "$2"; d=$UI_S
+  ui_p dim "$3"; e=$UI_S
+  UI_LIVE="  $a $b  $name $c$d  $e"
+}
+# --- end of the look
 
 usage() {
   cat >&2 <<'EOF'
@@ -197,7 +555,11 @@ need_programs() {   # -> FETCH (curl|wget), SUM (the sha256 command)
   find_programs
   [ -z "$MISSING" ] && return 0
   package_manager
-  if install_missing; then
+  ui_pause   # sudo may ask for the password on the terminal
+  install_missing
+  local installed=$?
+  ui_resume
+  if [ "$installed" -eq 0 ]; then
     find_programs
     [ -n "$MISSING" ] || return 0
   fi
@@ -423,14 +785,22 @@ download() {   # the archive into downloads/<name>.part, continued if a run befo
     [ -f "$part" ] && have=$(wc -c < "$part" | tr -d ' ')
     if [ "$have" -gt "$SHELL_SIZE" ]; then rm -f "$part"; have=0; fi
     [ "$have" -eq "$SHELL_SIZE" ] && break
-    [ "$try" -eq 1 ] && say "Downloading the hub's environment for $PLATFORM ($((SHELL_SIZE / 1000000)) MB)..."
+    [ "$try" -eq 1 ] && [ -z "${UI_ON:-}" ] && say "Downloading the hub's environment for $PLATFORM ($((SHELL_SIZE / 1000000)) MB)..."
     [ "$have" -gt 0 ] && note "continuing $ARCHIVE from $have"
     : > "$WORK/fetch.err"
     case $SHELL_URL in
       /*) from=$SERVER$SHELL_URL ;;
       *) from=$(resolve "$SHELL_URL") || { got=1; note "download try $try: $(tail -n 1 "$WORK/fetch.err" 2>/dev/null)"; break; } ;;
     esac
-    if [ "$FETCH" = curl ] && [ -t 2 ]; then     # a terminal sees the progress bar (and curl's own errors)
+    if [ "$FETCH" = curl ] && [ -n "${UI_ON:-}" ]; then   # the look's own bar: the file's size, asked while curl runs
+      curl -f -sS --connect-timeout 20 --retry 3 --retry-delay 3 -C - "${CURL_KEY[@]}" \
+        -o "$part" "$from" 2>"$WORK/fetch.err" &
+      UI_CPID=$!
+      ui_download_bar "$UI_CPID" "$part" "$have"
+      wait "$UI_CPID"
+      got=$?
+      UI_CPID=
+    elif [ "$FETCH" = curl ] && [ -t 2 ]; then     # a terminal sees the progress bar (and curl's own errors)
       curl -f --progress-bar --connect-timeout 20 --retry 3 --retry-delay 3 -C - "${CURL_KEY[@]}" \
         -o "$part" "$from"
       got=$?
@@ -707,7 +1077,7 @@ unpack() {   # the archive into shells/<runtime>-<flavor>.part with tar, every f
   local part="$ENV.part" out
   rm -rf "$part" || { refuse "cannot remove the earlier unfinished $part"; return 1; }
   mkdir -p "$part" || { refuse "cannot create $part"; return 1; }
-  say "Unpacking..."
+  [ -z "${UI_ON:-}" ] && say "Unpacking..."
   if ! tar -xzf "$PART_FILE" -C "$part" --strip-components=1 2>"$WORK/tar.err"; then
     rm -rf "$part"
     refuse "unpacking the environment failed: $(tail -n 1 "$WORK/tar.err")"
@@ -768,6 +1138,7 @@ take_lock() {
 }
 
 cleanup() {
+  [ -n "${UI_CPID:-}" ] && kill "$UI_CPID" 2>/dev/null
   [ -n "${LOCK:-}" ] && [ "$(cat "$LOCK/owner" 2>/dev/null | cut -d' ' -f1)" = "pid=$$" ] && rm -rf "$LOCK"
   [ -n "${WORK:-}" ] && rm -rf "$WORK"
   LOCK=; WORK=
@@ -1302,6 +1673,8 @@ main() {
     return 1
   fi
   [ -n "${HOME:-}" ] && [ -d "$HOME" ] || { refuse "the home folder (HOME) is not there"; return 1; }
+  ui_init
+  if [ -n "$UI_ON" ]; then ui_header; ui_begin 1 Check "this computer"; fi
   pick_platform || return 1
   need_programs || return 1
   SERVER=$(server_url) || return 1
@@ -1324,17 +1697,22 @@ main() {
   # runs, another install's - each gets its own words there (and the line of a second hub from git); the script cannot tell them apart
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/agents-hub-install.XXXXXX") || { refuse "cannot make a temporary folder"; return 1; }
   trap cleanup EXIT
-  trap 'cleanup; exit 130' INT TERM
+  trap 'ui_interrupted; cleanup; exit 130' INT TERM
   key_files || { refuse "cannot write the key files in $WORK"; return 1; }
   take_lock || return 1
   read_release || return 1
+  if [ -n "$UI_ON" ]; then ui_done "$PLATFORM $UI_DOT $((${free:-0} / 1048576)) GB free"; fi
   mkdir -p "$ROOT/shells" || { refuse "cannot create $ROOT/shells"; return 1; }
   write_helper
   if pick_env "$state"; then
     note "environment $ENV is in place"
+    if [ -n "$UI_ON" ]; then ui_skip 2 Download "not needed $UI_DOT the environment is here"; ui_skip 3 Unpack "not needed"; fi
   else
+    if [ -n "$UI_ON" ]; then ui_begin 2 Download "$((SHELL_SIZE / 1000000)) MB"; fi
     download || return 1
+    if [ -n "$UI_ON" ]; then ui_done "$((SHELL_SIZE / 1000000)) MB $UI_DOT verified"; ui_begin 3 Unpack "every file is checked"; fi
     unpack || return 1
+    if [ -n "$UI_ON" ]; then ui_done "every file checked"; fi
   fi
   if [ ! -f "$ENV/install.py" ]; then
     refuse "this build of the environment has no installer (install.py): the delivery server has an older build"
@@ -1354,10 +1732,12 @@ main() {
   local lang
   lang=$(system_language)
   note "install.py $*"
+  local uienv=   # the screen goes to setup.py from the step 4 on (look.py); an older setup.py ignores it and says its lines
+  if [ -n "$UI_ON" ]; then ui_tail_clear; UI_IDLE=1; uienv=$(ui_env 4); fi
   if [ -n "$tty" ]; then
-    HUB_LANG=${HUB_LANG:-$lang} HUB_INSTALL_LOG=$HUB_INSTALL_LOGFILE "$py" -I -B "$ENV/install.py" "$@" < /dev/tty
+    HUB_INSTALL_UI=$uienv HUB_LANG=${HUB_LANG:-$lang} HUB_INSTALL_LOG=$HUB_INSTALL_LOGFILE "$py" -I -B "$ENV/install.py" "$@" < /dev/tty
   else
-    HUB_LANG=${HUB_LANG:-$lang} HUB_INSTALL_LOG=$HUB_INSTALL_LOGFILE "$py" -I -B "$ENV/install.py" "$@" < /dev/null
+    HUB_INSTALL_UI=$uienv HUB_LANG=${HUB_LANG:-$lang} HUB_INSTALL_LOG=$HUB_INSTALL_LOGFILE "$py" -I -B "$ENV/install.py" "$@" < /dev/null
   fi
   code=$?
   note "install.py exit $code"

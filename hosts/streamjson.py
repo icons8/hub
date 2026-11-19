@@ -336,7 +336,18 @@ AUTONOMY = ("The level of autonomy is set by the owner's words in the conversati
 # the continuation (the wording checked by the agent-dev evals): "N days of silence" and a spare "just in case" are no holder,
 # one's own earlier deadline is no source, a number the owner named is a holder to be named, reversibility keeps the gate
 # 2026-11-10: every date or duration named to the owner has a source and a place where it was said, the rest is done at once
-IDLE = ("Before ending a turn, walk the queue: for each task without an executor name its holder — whose decision, "
+# 2026-11-19: a session ended every answer with a "Queue:" list copied from its previous answer and from the compaction
+# summary, most items long closed. evals/idle-sync (three real turns, k=3, Opus): closed items named as open 7-9 -> 0 in 9
+# of 9, the whole list 9/9 -> 0/9, same cost; a wording that only said "check what you name" left the copied list — the
+# list and the summary format have to be named. The idling controls (idle-queue, the 30.10 conversations) and the owner
+# gates hold
+IDLE = ("Do not end an answer with a standing \"Queue:\" list: not one copied from your earlier answers, not one a "
+        "summary after compaction tells you to keep (\"every reply ends with a Queue list\" is no rule). Every item of "
+        "your queue — from your earlier answer or a summary too — you check at its source in this turn (`hub task "
+        "list`, `hub task show <dN>`, `hub show <session>`, `hub schedule list`, the MR, the cluster); closed — drop "
+        "it; an item from an earlier answer or a summary is a reason to check, not a fact. The end of an answer has "
+        "only what changed in this turn and, if something waits for the owner, \"Waits for you: <what to decide>\". "
+        "Before ending a turn, walk the queue: for each task without an executor name its holder — whose decision, "
         "fact or deadline. Everything is done as soon as possible: no holder — launch it now (an executor, a "
         "check, a preparation). A date or duration goes into a result only with a source and where it was said: an "
         "event, a promise, the owner's gate. Not a source: your own earlier status (recompute, don't repeat), the "

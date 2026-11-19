@@ -1130,6 +1130,15 @@ def _items(st, ev):
                                     "midturn": st["sessions"][via]["state"] in MIDTURN}))
             return items
         return []
+    if kind == "bus.direct_requested":
+        # a session's words straight to an own hub (busstate._direct): the core sends them itself, the liaison and its
+        # `message.received` are not in the way — so this is the only row of them: the first words of the thread with that
+        # hub in the sender's feed, as the ones handed to the liaison above (the page joins the hub's answer to it)
+        asker = data.get("sender")
+        if asker and asker in st["sessions"] and data.get("contact") and isinstance(data.get("text"), str):
+            return [(asker, {**base, "kind": "bus", "id": f"m{ev['seq']}", "dir": "out", "contact": data["contact"],
+                             "text": data["text"]})]
+        return []
     if kind == "owner.notify":  # a monitor wrote to the owner — into the hub timeline
         return [(_hub_name(st), {**base, "kind": "notify", "title": data.get("title") or data.get("source") or i18n.t("core.views.monitor"),
                                  "text": data.get("text", ""), "urgent": bool(data.get("urgent"))})]

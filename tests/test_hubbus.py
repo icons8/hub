@@ -10,6 +10,7 @@ or at HUB_TEST_PYLIB."""
 import tests  # noqa: F401 — keeps the machine's settings out
 import ast
 import base64
+import contextlib
 import json
 import os
 import shutil
@@ -243,6 +244,99 @@ class SignatureFiles(unittest.TestCase):
             self.assertTrue(bus.ssh_verify(bytes(32), b"x", sig, bus.NS))
         self.assertEqual(seen["sig"], sig.encode("ascii"))
         self.assertNotIn(b"\r", seen["allowed"])
+
+    def test_ssh_keygen_never_goes_to_an_ssh_agent(self):
+        # `-Y sign` asks the SSH agent first: a password manager's agent (Bitwarden, 1Password) holds the default pipe
+        # or socket and does not answer, ssh-keygen hung 30 s and the invite's "hub keys" step failed (Windows, 16.11)
+        seen = {}
+
+        def run(args, timeout, **kw):
+            seen.update(kw.get("env") or {"inherited": True})
+            return subprocess.CompletedProcess(args, 0, b"sig", None)
+        env = {"SSH_AUTH_SOCK": r"\\.\pipe\openssh-ssh-agent", "SSH_AGENT_PID": "4242", "HUB_MARK": "kept"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(platforms.current, "run", run), \
+                mock.patch.object(bus, "_ssh", lambda: "ssh-keygen"), tempfile.TemporaryDirectory() as d:
+            self.assertEqual(bus._keygen(["-Y", "sign", "-f", "k", "-n", bus.NS], b"x", d)[0], 0)
+        self.assertEqual(seen.get("SSH_AUTH_SOCK"), "")
+        self.assertNotIn("SSH_AGENT_PID", seen)
+        self.assertEqual(seen.get("HUB_MARK"), "kept")              # the rest of the environment is the same
+
+    @need_ssh
+    @unittest.skipIf(os.name == "nt", "a unix socket for the agent")
+    def test_a_real_signature_does_not_wait_for_a_silent_agent(self):
+        # the same on macOS and Linux: SSH_AUTH_SOCK names an agent that takes the connection and never answers —
+        # the real ssh-keygen waited for it until the 30 s timeout
+        import socket
+        with tempfile.TemporaryDirectory() as d:
+            key = os.path.join(d, "key")
+            self.assertEqual(bus._keygen(["-q", "-t", "ed25519", "-N", "", "-C", "test", "-f", key], b"", d)[0], 0)
+            srv, held, done = socket.socket(socket.AF_UNIX), [], threading.Event()
+            self.addCleanup(srv.close)
+            srv.bind(os.path.join(d, "agent"))
+            srv.listen(4)
+            srv.settimeout(0.2)   # closing the socket does not wake a blocked accept on Linux: the loop looks at done
+
+            def serve():
+                while not done.is_set():
+                    try:
+                        held.append(srv.accept()[0])   # reads nothing, answers nothing
+                    except TimeoutError:
+                        continue
+                    except OSError:
+                        return
+            server = threading.Thread(target=serve, daemon=True)
+            server.start()
+            try:
+                with mock.patch.dict(os.environ, {"SSH_AUTH_SOCK": os.path.join(d, "agent")}):
+                    sig = bus.ssh_sign(key, b"x", bus.NS)
+            finally:
+                done.set()
+                server.join(5)
+                for c in held:
+                    c.close()
+            self.assertIn("BEGIN SSH SIGNATURE", sig)   # the agent never answers: only a signature made without it gets here
+            self.assertEqual(held, [])                  # ... and ssh-keygen never even connected to it
+
+    @need_ssh
+    @unittest.skipUnless(os.name == "nt", "the agent's default pipe of OpenSSH for Windows")
+    def test_a_real_signature_on_windows_does_not_ask_the_agent_s_default_pipe(self):
+        # OpenSSH for Windows asks \\.\pipe\openssh-ssh-agent when SSH_AUTH_SOCK is not set (a password manager's agent
+        # holds it); an empty SSH_AUTH_SOCK, as the core gives it, is no agent at all (winstand: unset — it waited, empty —
+        # signed at once, never connected)
+        from multiprocessing.connection import Client, Listener
+        pipe = r"\\.\pipe\openssh-ssh-agent"
+        with tempfile.TemporaryDirectory() as d:
+            key = os.path.join(d, "key")
+            self.assertEqual(bus._keygen(["-q", "-t", "ed25519", "-N", "", "-C", "test", "-f", key], b"", d)[0], 0)
+            try:
+                listener = Listener(address=pipe, family="AF_PIPE")
+            except OSError:
+                self.skipTest("an SSH agent of this machine holds the default pipe")
+            held, done = [], threading.Event()
+
+            def serve():
+                while not done.is_set():
+                    try:
+                        held.append(listener.accept())   # reads nothing, answers nothing
+                    except OSError:
+                        return
+            server = threading.Thread(target=serve, daemon=True)
+            server.start()
+            try:
+                with mock.patch.dict(os.environ):
+                    os.environ.pop("SSH_AUTH_SOCK", None)
+                    sig = bus.ssh_sign(key, b"x", bus.NS)
+            finally:
+                made = len(held)
+                done.set()
+                with contextlib.suppress(OSError):
+                    Client(pipe, family="AF_PIPE").close()   # wakes the accept that waits
+                server.join(5)
+                listener.close()
+                for c in held:
+                    c.close()
+            self.assertIn("BEGIN SSH SIGNATURE", sig)
+            self.assertEqual(made, 0)   # ssh-keygen never connected to the pipe
 
 
 @need_lib

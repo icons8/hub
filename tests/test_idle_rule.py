@@ -36,7 +36,7 @@ class TheRuleInTheSystemPrompt(Base):
 
     def test_the_text_is_one_paragraph_and_keeps_the_gates(self):
         self.assertNotIn("\n", streamjson.IDLE)
-        self.assertLess(len(streamjson.IDLE), 1500)   # was 1000; the wait rule (2026-11-17) added ~460, eval-checked as a whole (agent-dev)
+        self.assertLess(len(streamjson.IDLE), 2200)   # was 1500; the queue-sync part (2026-11-19) added ~640, eval-checked as a whole (agent-dev evals/idle-sync)
         for gate in ("prod", "money", "clients", "the irreversible", "only on the owner's \"yes\""):
             self.assertIn(gate, streamjson.IDLE)
 

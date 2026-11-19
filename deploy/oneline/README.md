@@ -206,6 +206,41 @@ first, so a line run at once is not touched (`%TEMP%\agents-hub-uninstall.log`).
 takes such a hub as its own again (its mark `<state>/layers/oneline.json`, written by setup.py); `--purge` deletes it too. Never touched: Claude Code,
 `~/.claude`, Codex and `~/.codex`, Chrome.
 
+## The look
+
+On a terminal (stderr is one, `TERM` is not `dumb` or empty, `NO_COLOR` is unset, the locale is UTF-8, 60 columns or more) the
+two scripts draw one screen instead of lines: five steps, `1/5 Check`, `2/5 Download`, `3/5 Unpack` (install.sh), `4/5 Set up`,
+`5/5 Start` (setup.py), each a line that stays with its time when it is finished; the step in progress is the last line of
+the screen — the download's has a bar, the megabytes and the speed (the size of the `.part` file, asked every 0.3 s while
+curl runs quietly) — and, with 256 colours and 20 lines, a picture above it: the hub's sign, the
+orange tile and the rays of white dots of the tab icon (`modules/web/static/favicon/tab.svg`), whose dots glow in a wave that runs from the centre outwards while the
+work goes on (8 frames, drawn again 8 times a second: install.sh in the time of the download bar, in one write for the
+whole live part; setup.py by a thread of look.py), whole when it is done and a dimmed tile with the rays at the top dark when a step
+failed (the words beside it). That live part is taken off (`ESC[nA`, `ESC[J`) and drawn again whenever something is said above it, so a line, a
+question or a failure never meets half of the picture. The closing screen is the address, the command and what is next
+(without the picture: in a frame). `HUB_INSTALL_LOOK=plain` asks for the lines as they were.
+
+- Anything else is the fallback: **the lines as they were**, the same install by the same path. That is a pipe, a log, the
+  user data of a cloud machine (`--server` draws nothing), `TERM=dumb`, `NO_COLOR`, a locale that is not UTF-8 (the marks
+  are UTF-8), a window under 60 columns, `HUB_INSTALL_LOOK=plain`, and a drawing that does not work on this machine (install.sh tries the sign
+  and a step line once, quietly, before it draws anything; setup.py turns the look off for good at the first failure of
+  one of its calls, says so in the log and goes on with the lines; a stream that cannot write the marks never starts it).
+  The tests read those lines.
+- Colours: 24 bits when `COLORTERM` is `truecolor`/`24bit`, 256 when `TERM` says `256color`, else 16. The sign needs 256
+  colours at least and 20 lines. Text that is not an accent is the terminal's own colour, fainter (SGR 2), so it reads on a
+  dark and on a light ground; the accent, the green and the red are mid-tones for the same reason.
+- The hand-over: install.sh gives setup.py `HUB_INSTALL_UI=<colours>.<columns>.<rows>.<step>.<tail>` (look.py `parse`; the rows, so that both halves draw the sign or neither does); a
+  setup.py that does not know it (an environment's seed of an older release) says its lines as before, and an older
+  install.sh tells it nothing. setup.py hands the same words on to the layer it hands over to. Windows: install.ps1 draws
+  nothing and tells nothing, so setup.py says its lines there as before.
+- The sign is 8 frames, a finished picture and a failed one on a grid of 14 x 14 pixels (7 lines, 14 columns; `tools/dev/logo.py`
+  draws it, `--source` another svg of the same make: twelve rays of dots in three rings, the colours and the sizes of the dots read out of the svg), written as plain text into install.sh
+  (`ui_logo`) and look.py (`LOGO_*`) between `# logo:begin` and `# logo:end`; a frame is drawn once (a cache) and printed
+  after that; nothing is computed on the machine, and `tests/test_oneline_look.py` holds the two equal to what the generator draws.
+  A terminal that goes away ends the frames, not the install.
+- `bash deploy/oneline/demo.sh [fail]` shows it with made-up steps and pauses: the same functions, nothing is
+  downloaded or written. `tools/dev/termshot.py` turns a recording (`script -T`) into a picture of the screen at a moment.
+
 ## Flags
 
 | macOS, Linux | Windows | |

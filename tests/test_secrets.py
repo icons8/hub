@@ -753,6 +753,36 @@ class Add(Folders):
         self.assertIn("gitlab-token", out)
         self.assertNotIn("glpat-probe", out)
 
+    def test_a_file_that_still_holds_the_value_is_said_with_its_path_only(self):
+        path = self.file("tok-probe-77\n")
+        hint = cli.i18n.t("cli.secrets.source_stays", file=path)
+        answers = [(200, {"ok": True, "new": True, "changed": ["value"]}), (200, {"ok": True, "new": False, "changed": []}),
+                   (200, {"ok": True, "new": False, "changed": ["value"]}),
+                   (200, {"ok": True, "new": False, "changed": ["value"], "was": {"who": "", "changed": "2026-11-16T09:00:00Z"}})]
+        for answer in answers:
+            code, out, _ = self.run_add(["tok", "--from-file", path], answer=answer)
+            self.assertEqual(code, 0, out)
+            self.assertIn(hint, out, answer)
+            self.assertIn(path, hint)
+            self.assertNotIn("probe-77", out)
+        path = self.file(self.ENV)
+        code, out, _ = self.run_add(["tok", "--from-file", path, "--key", "GITLAB_TOKEN"])
+        self.assertIn(cli.i18n.t("cli.secrets.source_stays", file=path), out)
+        self.assertNotIn("glpat-probe", out)
+
+    def test_no_file_no_hint(self):
+        code, out, _ = self.run_add(["tok", "--from-file", "-"], stdin=b"piped-probe-99\n")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(cli.i18n.t("cli.secrets.source_stays", file="-"), out)
+        self.assertNotIn("still", out)
+        path = self.file("tok-probe-5\n")      # a refusal is no success: the file is not spoken of
+        code, out, _ = self.run_add(["tok", "--from-file", path], answer=(404, {"error": "no such action"}))
+        self.assertEqual(code, 2)
+        self.assertNotIn("still", out)
+        code, out, _ = self.run_add(["tok", "--from-file", self.file("one-probe\ntwo-probe\n")])
+        self.assertEqual(code, 2)
+        self.assertNotIn("still", out)
+
     def test_dotenv_lines_as_shells_and_dotenv_read_them(self):
         self.assertEqual(self.picked(self.ENV, "QUOTED"), 'a "q" b\\c')
         self.assertEqual(self.picked(self.ENV, "SINGLE"), "lit\\n $x")

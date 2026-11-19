@@ -1459,6 +1459,60 @@ def is_decline_notice(text):
                for prefix, middle in ((DECLINE_PREFIX, DECLINE_MIDDLE), (DECLINE_OLD["prefix"], DECLINE_OLD["middle"])))
 
 
+# --- the liaison's echo: "sent to the hub X", "passed to session Y" (reducer._merged_into) ---------------------------
+
+ECHO_SENT = ("signed", "handed", "delivered")   # the core sealed it: gone out, whatever the other hub does after
+
+
+ECHO_QUIET = ("session.gist", "bus.note")   # its line about itself, its own notes: nothing anybody is told
+
+
+def echo_mark(st, ev):
+    """What the liaison's turn asked of the core and the core took: an outgoing message and an item passed to a session
+    (each decided by its own later fact) — or anything else, a decision of its own nobody else tells (`off`): closing or
+    declining an item, a rule, a request in the owner's chats with people. Cleared at the start of its next turn."""
+    from core import liaison
+    sess = st["sessions"].get(liaison.NAME)
+    kind, data = ev["type"], ev["data"]
+    if sess is None or kind in ECHO_QUIET:
+        return
+    mark = sess.setdefault("turn_echo", {})
+    if kind == "bus.send_requested":
+        mark.setdefault("out", []).append(f"o{ev['seq']}")
+    elif kind == "bus.pass_requested":
+        # the item may have gone to that session before: this pass counts once it is there one more time
+        had = ((st["bus"]["inbox"].get(data["inbox"]) or {}).get("passed_to") or []).count(data["session"])
+        mark.setdefault("pass", []).append([data["inbox"], data["session"], had])
+    else:
+        mark["off"] = True
+
+
+def echo_refused(st, data):
+    """core.rejected of a request of the liaison: its turn had a refusal, and the result tells of it."""
+    from core import liaison
+    sess = st["sessions"].get(liaison.NAME)
+    if sess is not None and data.get("sender") == liaison.NAME:
+        sess.setdefault("turn_echo", {})["off"] = True
+
+
+def echo_of(st, sess):
+    """The sessions the liaison's turn only echoes — whose words it sent out, to which it passed an item — when the core
+    sealed every message of the turn with no card to the owner, delivered every item, refused nothing, and the liaison
+    neither asked the owner nor decided anything of its own; else []. Such a session tells the owner itself."""
+    mark = sess.get("turn_echo") or {}
+    if mark.get("off") or sess.get("turn_asks"):
+        return []
+    bus = st.get("bus") or {}
+    out = [(bus.get("out") or {}).get(oid) or {} for oid in mark.get("out") or ()]
+    if any(o.get("status") not in ECHO_SENT or o.get("approved") != "auto" or "finding" in o or not whose(o)
+           for o in out):
+        return []   # not gone yet, refused, the owner had a card on it, or the liaison's own words to nobody's request
+    passed = mark.get("pass") or ()
+    if any((((bus.get("inbox") or {}).get(bid) or {}).get("passed_to") or []).count(to) <= had for bid, to, had in passed):
+        return []   # the core has not delivered it (yet), or refused
+    return list(dict.fromkeys([w for w in map(whose, out) if w] + [to for _, to, _ in passed]))
+
+
 def pass_refusal(st, bid, to, now):
     """Why the core does not pass an incoming item to this session (None — it may): to any live session of the hub but
     the liaison — the liaison chooses; nobody gets an item held for the owner or a muted one."""

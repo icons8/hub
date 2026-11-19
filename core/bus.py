@@ -355,12 +355,16 @@ def load(folder, state_dir=None):
 def _keygen(args, data, folder):
     """ssh-keygen with the data from a file on stdin and stderr into a file: (code, stdout, stderr text). Not pipes:
     OpenSSH for Windows (9.5) hangs reading data from a stdin pipe and hangs on a failed check while its stderr is a
-    pipe (winstand 28.10); a file is the same on every OS."""
+    pipe (winstand 28.10); a file is the same on every OS. No SSH agent: `-Y sign` asks the agent first, and a password
+    manager's agent (Bitwarden, 1Password) holds the default pipe or socket without answering — ssh-keygen hung its 30 s;
+    the bus key has no passphrase and needs no agent."""
     data_file, err_file = os.path.join(folder, "data"), os.path.join(folder, "err")
     with open(data_file, "wb") as f:
         f.write(data)
+    env = {k: v for k, v in os.environ.items() if k.upper() != "SSH_AGENT_PID"}
+    env["SSH_AUTH_SOCK"] = ""
     with open(data_file, "rb") as stdin, open(err_file, "wb") as stderr:
-        r = platforms.current.run([_ssh(), *args], 30, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr)
+        r = platforms.current.run([_ssh(), *args], 30, stdin=stdin, stdout=subprocess.PIPE, stderr=stderr, env=env)
     with open(err_file, "rb") as f:
         err = f.read().decode("utf-8", "replace").strip()
     return r.returncode, r.stdout or b"", err

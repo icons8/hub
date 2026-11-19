@@ -438,6 +438,8 @@ def add(argv, session, send):
                      when=str(was.get("changed") or "").replace("T", " ")[:16]))
     else:
         print(i18n.t("cli.secrets.changed", name=name, parts=", ".join(changed), source=shown))
+    if where != "-":   # the copy the session was given stays in the clear whatever the vault now holds
+        print(i18n.t("cli.secrets.source_stays", file=where))
     if looks:
         print(i18n.t("cli.secrets.looks_env"))
     return 0

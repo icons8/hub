@@ -428,15 +428,15 @@ Created by Pavel Malai ([@flagman](https://github.com/flagman))
 With the pull requests, bug reports and ideas of (most first; the whole list with what it counts is in
 [CONTRIBUTORS.md](CONTRIBUTORS.md)):
 
-- [@visualpharm](https://github.com/visualpharm): 165 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 61 pull requests, 4 reports and ideas
+- [@visualpharm](https://github.com/visualpharm): 166 pull requests, 1 report or idea
+- [@kalimullin](https://github.com/kalimullin): 62 pull requests, 4 reports and ideas
 - [@ManyLattice](https://github.com/ManyLattice): 56 pull requests, 5 reports and ideas
-- [@Eugenius-S](https://github.com/Eugenius-S): 58 pull requests
+- [@Eugenius-S](https://github.com/Eugenius-S): 59 pull requests
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas
 - [@eniwito](https://github.com/eniwito): 34 pull requests, 1 report or idea
 - [@tolaysha](https://github.com/tolaysha): 18 pull requests
 - [@Scremliss](https://github.com/Scremliss): 16 pull requests
-- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 9 reports and ideas
+- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 11 reports and ideas
 - [@dnnaumov99](https://github.com/dnnaumov99): 11 pull requests
 - [@Enwimo](https://github.com/Enwimo): 10 pull requests, 1 report or idea
 - [@elenalo91](https://github.com/elenalo91): 8 pull requests

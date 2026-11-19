@@ -162,6 +162,8 @@ def reduce(state, event, known=None):
                                                                                               reason=f.get("reason")))
         if f is None or f.get("mode") != "replace":
             _apply(new, event, actions)
+            if liaison.from_liaison(new, event.get("data") or {}):
+                busstate.echo_mark(new, event)   # what the liaison's turn did: is its result only an echo (_merged_into)
         if f is not None or "by" in event or event.get("type") == "core.rejected":
             corewrite.folded(new, event)
         for name in new.pop("_wake", []):
@@ -1890,6 +1892,8 @@ def _apply(st, ev, actions):
             mcpwatch.connected(st, ev, ev.get("entity"), data["server"], actions)
         return
     if kind in ("core.rejected", "cli.gave_up"):
+        if kind == "core.rejected":
+            busstate.echo_refused(st, data)   # a refused request of the liaison: its turn's result is new (_merged_into)
         return _late_reject(st, ev, data)
     if kind == "spool.refused":   # a core.* fact from the spool (daemon.spooled)
         raise Rejected(T("core.reducer.spool_core_only",
@@ -2722,6 +2726,7 @@ def _session_event(st, ev, data, actions):
         if fresh:
             # which turn is running: whether the gist (session.gist) and the result to the owner (out_turn) come from one
             sess["turn_seq"] = ev["seq"]
+            sess.pop("turn_echo", None)   # what the liaison's previous turn sent and passed on (busstate.echo_of)
         if data.get("marker") or data.get("also"):
             # whose message started this turn's chain (core/chain.py): the result goes where the owner asked
             root = chain.of_turn(st, data.get("marker"), data.get("also"))
@@ -3083,7 +3088,9 @@ def _merged_into(st, sess, did, data, now):
     on a task would only retell it; a task that broke off or has no answer yet the hub speaks about itself, and so
     does what it learned from others on its own task. Only what reached that session is folded into it (_told), and
     only if it can speak (awake): otherwise nobody would say it to the owner. The hub's retelling is folded into the one
-    who answered even if it has gone to sleep since, but only if that answer reached the owner (owner_out)."""
+    who answered even if it has gone to sleep since, but only if that answer reached the owner (owner_out). The
+    liaison's echo — the core sent a session's words or passed an item to it, and that was all the turn did
+    (busstate.echo_of) — is folded into that session: it wrote the words or got the item."""
     if not sess:
         return None
     name, marker = sess["name"], st["messages"].get(_head(sess) or "") or {}
@@ -3093,6 +3100,7 @@ def _merged_into(st, sess, did, data, now):
     if his or (d and d["session"] == name and _set_by_him(d)):
         return None   # his own task: the assigner is the owner
     who, told, root, replied = None, False, sess.get("turn_root"), 0   # replied: the hub retells an answer given at that seq
+    gone = ("removed", "closed", "failed")
     note = _terminal_note(st, sess) if sess.get("kind") == "hub" and not root else None
     if note:
         # a task from his terminal has no chain (no root), so the hub finds it by the note it is working on
@@ -3103,6 +3111,12 @@ def _merged_into(st, sess, did, data, now):
         who, told = d["for_session"], delegations.reply_lands(sess, d, data, now)
     elif minihub.runner(sess) and sess.get("raised_by"):
         who = sess["raised_by"]
+    elif liaison.is_liaison(st, name) and (echo := busstate.echo_of(st, sess)):
+        # the liaison only says what the core did: the words of a session went out, an item went to a session. That
+        # session knows it (it wrote the words, it got the item) and tells the owner itself — every one of them awake
+        who, told = echo[0], True
+        if any((st["sessions"].get(w) or {}).get("state", "removed") in (*gone, *SLEEP) for w in echo[1:]):
+            who = None
     elif root:
         mine = [x for x in st["delegations"].values() if x.get("for") == root]
         if sess.get("kind") == "hub":
@@ -3128,8 +3142,7 @@ def _merged_into(st, sess, did, data, now):
     # the one who gave the answer may have gone to sleep since (the hub closed the task on REPLIED): the hub retells what
     # that session has already said, so it only needs a feed; any other result needs a session that is awake to say it
     # (not any of SLEEP: a parked one is raised by a message as an asleep one is)
-    if not who or who == name or not up or up["state"] in (
-            ("removed", "closed", "failed") if replied else ("removed", "closed", "failed", *SLEEP)):
+    if not who or who == name or not up or up["state"] in (gone if replied else (*gone, *SLEEP)):
         return None
     if replied and (up.get("owner_out") or 0) < replied:
         return None   # its answer did not reach the owner (a mini-hub's executor answers on the bus, or it was folded): the hub says it

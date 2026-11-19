@@ -97,18 +97,66 @@ test("characterOf: the icon's character, else the raiser's, else one by the name
   assert.equal(typeof of("a"), "string", "a cycle ends");
 });
 
+// a picture request answered as the script says: true — loaded, false — failed
+const images = (outcomes) => {
+  const asked = [];
+  globalThis.Image = class { set src(v) { asked.push(v); const ok = outcomes.shift(); setTimeout(() => (ok ? this.onload() : this.onerror()), 0); } };
+  return asked;
+};
+// made-up time: the timers set while it runs go off in their order at once, nothing is waited for (a slow machine — winstand —
+// let the real ones run past the end of a test, and a 100 s ask of a missing picture held node --test to its time limit)
+const later = (ms, run) => {
+  const real = globalThis.setTimeout;
+  const due = [];
+  let now = 0;
+  globalThis.setTimeout = (fn, wait = 0) => { due.push({ at: now + wait, fn }); return due.length; };
+  try {
+    run();
+    for (;;) {
+      due.sort((a, b) => a.at - b.at);
+      if (!due.length || due[0].at > ms) break;
+      const t = due.shift();
+      now = t.at;
+      t.fn();
+    }
+  } finally { globalThis.setTimeout = real; delete globalThis.Image; }
+};
+
 test("the characters did not load: no picture is drawn, the emoji and the letters stay", async () => {
   const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href + "?missing");
   assert.ok(f.loaded() && f.faceOf("\u{1F3A8}") && f.faceByName("x") && Object.keys(f.kitFaces()).length);
+  const asked = images([false, false, false, false]);
   let told = 0;
-  globalThis.Image = class { set src(v) { this.src_ = v; setTimeout(() => this.onerror(), 0); } };
-  try { f.probe(() => told++); await new Promise((r) => setTimeout(r, 20)); } finally { delete globalThis.Image; }
+  later(60, () => f.probe(() => told++, [5, 5], 100000));   // the next ask of a missing picture, at 100 s, is not waited for
+  assert.equal(asked.length, 3, "asked again twice before it is believed");
   assert.equal(told, 1);
   assert.equal(f.loaded(), false);
   assert.equal(f.faceOf("\u{1F3A8}"), "");
   assert.equal(f.faceByName("x"), "");
   assert.deepEqual(f.kitFaces(), {});
   assert.equal(f.characterOf({ name: "x" }, new Map()), "");
+});
+
+test("one failed request does not take the characters away for the life of the page", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href + "?blip");
+  const asked = images([false, true]);
+  let told = 0;
+  later(60, () => f.probe(() => told++, [5, 5], 100000));
+  assert.equal(asked.length, 2);
+  assert.equal(told, 0, "the page was never told they were gone");
+  assert.equal(f.loaded(), true);
+  assert.ok(f.faceOf("\u{1F3A8}"));
+});
+
+test("the characters come back when a picture loads after they were missing", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href + "?back");
+  const asked = images([false, false, false, false, true]);
+  let told = 0;
+  later(150, () => f.probe(() => told++, [5, 5], 20));
+  assert.equal(asked.length, 5, "it keeps asking while they are missing");
+  assert.equal(told, 2, "gone, then back");
+  assert.equal(f.loaded(), true);
+  assert.ok(f.faceOf("\u{1F3A8}") && Object.keys(f.kitFaces()).length);
 });
 
 test("the Hub and Core bylines in the feed show the hub's icon, the other authors a character", () => {
@@ -118,7 +166,7 @@ test("the Hub and Core bylines in the feed show the hub's icon, the other author
 });
 
 test("the icon picker: characters first, large; the search, the owner's own emoji field and the rest of the page's list stay", () => {
-  assert.match(css, /\.gpop\.palette > \.pal-grid \{ grid-template-columns: repeat\(4, 56px\);/);
+  assert.match(css, /\.gpop\.palette > \.pal-grid \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);[^}]*scrollbar-gutter: stable;/);   // room for a classic scrollbar
   // nothing of the core's picker is hidden: the emoji without a character are in the grid, the own field is under it
   assert.doesNotMatch(css, /\.pal-own\)? \{ display: none/);
   assert.doesNotMatch(css, /\.pal-find\) \{ display: none/);

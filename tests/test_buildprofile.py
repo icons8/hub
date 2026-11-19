@@ -165,6 +165,44 @@ class Compose(Trees):
         self.assertIn("embed/acme/tests/test_x.py: the core's own file", str(e.exception))
         self.assertFalse(os.path.exists(out))
 
+    def programs(self, top, *rels, ignored=()):
+        """rels committed as programs (0755 in git: chmod is no bit on Windows), ignored ones forced past .gitignore."""
+        for rel in (*rels, *ignored):
+            os.chmod(write(top, rel, "#!/bin/sh\n"), 0o755)
+        git(top, "add", "-A")
+        if ignored:
+            git(top, "add", "-f", *ignored)
+        git(top, "update-index", "--chmod=+x", *rels, *ignored)
+        git(top, "commit", "-qm", "programs")
+
+    def modes(self, out):
+        return {line.split("\t")[1]: line.split()[0] for line in git(out, "ls-files", "-s").splitlines()}
+
+    def test_the_archives_programs_stay_programs_on_a_disk_without_the_bit_and_none_is_ignored(self):
+        write(self.core, ".gitignore", "/dist/\n")
+        self.programs(self.core, "bin/run", ignored=["dist/tool"])   # a program a .gitignore matches, committed anyway
+        git(self.core, "tag", "v1.0.1")
+        out = os.path.join(self.tmp, "out")
+        excludes = write(self.tmp, "excludes", "bin/\n")   # the builder's own global excludes
+        config = write(self.tmp, "gitconfig", f"[core]\n\texcludesFile = {pathlib.Path(excludes).as_posix()}\n")
+        with mock.patch("tarfile.TarFile.chmod", lambda *a, **k: None), \
+                mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": config}):   # the disk keeps no bit (Windows)
+            self.compose.compose(self.p, self.core, "v1.0.1", out)
+        modes = self.modes(out)
+        self.assertEqual((modes.get("bin/run"), modes.get("dist/tool"), modes.get("core/x.py")),
+                         ("100755", "100755", "100644"))
+
+    def test_a_program_of_the_cores_copy_of_an_embed_is_no_mode_of_the_embeds_own(self):
+        self.programs(self.core, "embed/acme/tests/run")   # the core's tree carries an acme of its own; the profile's is acme's
+        git(self.core, "tag", "v1.0.1")
+        write(self.acme, "tests/run", "#!/bin/sh\n")         # a plain file in acme's repository
+        git(self.acme, "add", "-A")
+        git(self.acme, "commit", "-qm", "run")
+        git(self.acme, "tag", "-f", "v3")
+        out = os.path.join(self.tmp, "out")
+        self.compose.compose(self.p, self.core, "v1.0.1", out)
+        self.assertEqual(self.modes(out).get("embed/acme/tests/run"), "100644")
+
     def test_an_address_is_named_without_a_sign_in(self):
         self.assertEqual(self.compose.plain("https://user:tok@git.example.test/a/b.git"), "https://git.example.test/a/b.git")
         self.assertEqual(self.compose.plain("git@git.example.test:a/b.git"), "git.example.test:a/b.git")

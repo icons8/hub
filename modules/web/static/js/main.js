@@ -55,6 +55,7 @@ const readHash = () => {
 // what has already been asked from the board: the header is redrawn on every snapshot, and the "Asked" label on a button
 // would be lost
 const recapAsked = new Map();   // "session|button" → {text, failed} after a press; an error can be retried
+const resuming = new Set();   // sessions whose "Resume" request is on its way
 // The "Board" of a direction session (the list shows just a task counter, and inside is a dedicated direction recap):
 // how many are open, what is in progress, what it is waiting for; if silent — ask it; if there are no tasks — finishing is up to you
 function directionRecap(s, dir) {
@@ -216,6 +217,17 @@ function head(s) {
   } else stoppedExecutor(s);   // asleep: a woken one gets a working button at once
   // dangerous actions go into the "More" menu, not next to "Stop" with the same weight; chips that did not fit go there too
   const menu = [...more.map((x) => x.item)];
+  // its turn was cut by a limit (core limit_cut): "Resume" continues it now, before the planned time; while the window is
+  // still closed the core says so (409) and the session keeps waiting. A server without "session.resume" in its features
+  // (older than API 1.36) has no such endpoint: no item. A second press while the first one is on its way posts nothing
+  if (s.limit_cut && (S.snap.features || []).includes("session.resume")) menu.unshift({ label: t("web.main.resume"), title: t("web.main.resume_hint"), onClick: async () => {
+    if (resuming.has(s.name)) return;
+    resuming.add(s.name);
+    try {
+      const r = await post("/api/session/resume", { session: s.name });
+      if (r.error) banner(r.error);
+    } finally { resuming.delete(s.name); }
+  } });
   // a system agent always exists: it cannot be fired, put to sleep or deleted
   const fixed = s.kind === "hub" || s.system;
   if (menu.length && (!fixed || s.trains)) menu.push({ sep: true });

@@ -3481,6 +3481,36 @@ class PageInChrome(test_web.WebTest):
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "!!document.querySelector('main')"}, {"eval": probe})
         self.assertEqual(got[-1]["eval"], "none")
 
+    def test_a_session_cut_by_a_limit_has_resume_in_its_menu(self):
+        # owner request, as in the apps: a session whose turn was cut by a limit waits for the reset; its menu has "Resume",
+        # which asks the core to continue the cut turn now. A session without a cut has no such item.
+        # The reset is far ahead of the real clock: the outcome does not depend on when the test runs
+        for n in ("maps", "docs"):
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w", channel="cli", owner=True)
+            self.ev("session.started", n, session_id=f"s-{n}")
+        e = self.j.append("message.received", None, {"to": "maps", "text": "do it", "channel": "web", "owner": True})
+        self.ev("turn.started", "maps", marker=f"m{e['seq']}", prompt_head="do it")
+        self.j.append("account.limits", None, {"status": "rejected", "type": "five_hour", "channel": "cli", "owner": True,
+                                               "windows": {"five_hour": {"used": 1, "resets": 4_000_000_000}}})
+        self.ev("turn.result", "maps", text="You've hit your session limit · resets 6:20am (Asia/Almaty)", is_error=True)
+        self.ev("turn.stopped", "maps")
+        items = "JSON.stringify([...document.querySelectorAll('.menu [role=menuitem]')].map((b) => b.textContent.trim()))"
+        spy = ("(() => { window.__sent = []; const f = window.fetch; window.fetch = (u, o) => { window.__sent.push([String(u), o?.body || '']); "
+               "return f(u, o); }; return 1; })()")
+        btn = "document.querySelector('.menu-btn[data-key=\"head:%s\"]')"   # the ⋯ of this session's header
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/maps"}, {"until": f"!!{btn % 'maps'}"}, {"eval": spy},
+                        {"eval": f"({btn % 'maps'}.click(), 1)"}, {"until": "!!document.querySelector('.menu [role=menuitem]')"},
+                        {"eval": items},
+                        {"eval": "([...document.querySelectorAll('.menu [role=menuitem]')].find((b) => b.textContent.trim() === 'Resume').click(), 1)"},
+                        {"until": "window.__sent.some((x) => x[0].endsWith('/api/session/resume'))"},
+                        {"eval": "JSON.stringify(window.__sent.find((x) => x[0].endsWith('/api/session/resume')))"})
+        self.assertEqual(json.loads(got[5]["eval"])[0], "Resume")
+        self.assertEqual(json.loads(json.loads(got[-1]["eval"])[1]), {"session": "maps"})
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/docs"}, {"until": f"!!{btn % 'docs'}"},
+                        {"eval": f"({btn % 'docs'}.click(), 1)"},
+                        {"until": "!!document.querySelector('.menu [role=menuitem]')"}, {"eval": items})
+        self.assertNotIn("Resume", json.loads(got[-1]["eval"]))
+
     def test_more_menu_is_a_real_menu_with_keyboard(self):
         self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
         self.ev("session.started", "a", session_id="s-a")
@@ -15128,6 +15158,27 @@ class PageInChrome(test_web.WebTest):
                                           {"key": "Escape"}, {"eval": f"[document.querySelector('.palette .pal-find input').value, ({self.FOUND}).length]"},
                                           {"key": "Escape"}, {"eval": "document.querySelector('.palette') === null"})
                 self.assertEqual([g["eval"] for g in got if "eval" in g][1:], ["Nothing found", 0, True, ["", self.PAL_GRID[look]], True], (look, got))
+
+    def test_clean_palette_has_room_for_a_classic_scrollbar(self):
+        # Windows, Linux and a Mac set to "always show scrollbars": the bar of the grid (44 cells scroll) takes 15 px of its width, and
+        # it used to push the last column out under a horizontal scrollbar. Chrome here draws an overlay bar, so the 15 px are taken
+        # by padding (a bar of its own, if there is one, counts)
+        self.fleet()
+        bar = ("(() => { const g = document.querySelector('.palette .pal-grid'), have = g.offsetWidth - g.clientWidth; "
+               "if (have < 15) g.style.paddingInlineEnd = `${15 - have}px`; return g.scrollHeight > g.clientHeight; })()")
+        measure = ("(() => { const g = document.querySelector('.palette .pal-grid'), c = [...g.querySelectorAll('.pal-e')], "
+                   "edge = g.getBoundingClientRect().left + g.clientWidth - parseFloat(getComputedStyle(g).paddingInlineEnd); "
+                   "return [g.scrollWidth > g.clientWidth, c.slice(0, 4).every((b) => b.getBoundingClientRect().right <= edge + 0.5), "
+                   "Math.round(c[0].getBoundingClientRect().width)]; })()")
+        got = self.page({"go": "about:blank", "look": None}, {"go": f"http://127.0.0.1:{self.port}/#/", "look": None},
+                        {"until": f"!!document.querySelector('{self.PAL}')"},
+                        {"eval": f"document.querySelector('{self.PAL}').click(), 1"},
+                        {"until": "document.querySelectorAll('.palette .pal-grid .pal-e').length > 40"}, {"eval": bar}, {"eval": measure})
+        self.assertTrue(got[-2]["eval"], got)   # the grid scrolls, the bar is the case
+        scrolls, inside, cell = got[-1]["eval"]
+        self.assertFalse(scrolls, got)
+        self.assertTrue(inside, got)
+        self.assertGreaterEqual(cell, 48, got)
 
     def test_palette_search_speaks_the_hubs_language_and_always_english(self):
         from unittest import mock
