@@ -1,9 +1,8 @@
 <h1 align="center"><img src="media/logo.svg" alt="Hub by Icons8 logo" width="44" align="absmiddle">&nbsp;Hub by Icons8</h1>
 
 <p align="center">
-  <b>Run a team of Claude Code or Codex agents from your browser and your phone.</b><br>
-  Dozens of sessions work in parallel in your repositories. One feed, answers from Telegram,
-  and you step in only where a human decision is needed.
+  <b>Run 100 Claude Code or Codex sessions like 5.</b><br>
+  The hub keeps them in order, hands the work out and brings you only the decisions, in your browser or in Telegram.
 </p>
 
 <p align="center">

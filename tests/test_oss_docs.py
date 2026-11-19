@@ -94,8 +94,9 @@ class Docs(unittest.TestCase):
         # the name and the phrase come above the picture: a picture above the heading pushes the heading and badges
         # below the fold
         en = read("README.md")
-        self.assertIn("Run a team of Claude Code or Codex agents from your browser and your phone.", en)
+        self.assertIn("<b>Run 100 Claude Code or Codex sessions like 5.</b>", en)
         head = en.index("Hub by Icons8")
+        self.assertLess(head, en.index("Run 100 Claude Code or Codex sessions like 5."))
         self.assertLess(head, en.index("media/hero.png"))
         self.assertLess(en.index("media/hero.png"), en.index("## Quick start"))
         self.assertLess(en.index("## Quick start"), en.index("## Security"))
