@@ -1,0 +1,57 @@
+{
+ "channels": {
+  "stable": {
+   "version": "1.9.9",
+   "commit": "b9c843996ca55b2f8488c2a1eff45276d6a08c71",
+   "runtime_min": 1,
+   "notes": "",
+   "published_at": "2026-11-19T12:42:17Z",
+   "layer": {
+    "url": "/v1/layer/code-1.9.9-open.tar.gz",
+    "sha256": "a158c9e1dadd962db1cd24590a817f59450c1670b00eb6045c887cb6aaf49993",
+    "size": 15293377
+   }
+  }
+ },
+ "runtime": {
+  "current": 2,
+  "shells": {
+   "linux-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-linux-arm64.tar.gz",
+    "sha256": "7bfe93dc8c0da1f399b08b93289d16e701444c4d4bde370fc9be69016f3b0ed4",
+    "size": 193109360,
+    "runtime": 2
+   },
+   "linux-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-linux-x64.tar.gz",
+    "sha256": "6c9d7380408c6e34aa04278a954eedf26fde45cfcdead73d092bb03f8d536db8",
+    "size": 208713607,
+    "runtime": 2
+   },
+   "mac-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-mac-arm64.tar.gz",
+    "sha256": "260ada86d749e45dd94b7aa143613437cf58eed14aa818a8222bf88c865b7c0d",
+    "size": 199079064,
+    "runtime": 2
+   },
+   "mac-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-mac-x64.tar.gz",
+    "sha256": "328c9f14c67d38507d7638b2a11cb943aa1e9d28df9f1c6aeca2e5bdb6e12c4e",
+    "size": 210865939,
+    "runtime": 2
+   },
+   "windows-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-windows-arm64.tar.gz",
+    "sha256": "2b6162ddaeb732d92c2bb1b99cebcf4d5ea5319a3182140b9d2a39c88ba17337",
+    "size": 287914553,
+    "runtime": 2
+   },
+   "windows-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.9.9/agents-hub-v1.9.9-open-windows-x64.tar.gz",
+    "sha256": "c186a5c343b977284932bc3a0e57ae684c5ce7925effea74040cc0fb3482f6fb",
+    "size": 272540278,
+    "runtime": 2
+   }
+  }
+ }
+}
