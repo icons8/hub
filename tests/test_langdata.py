@@ -78,6 +78,7 @@ RECOGNISED = {
     "ru.letters.own": "0d33dbe1eba51a9034683760fd6551743c70898971fe8fc2c12e9568e7cfe103",
     "ru.letters.own_not_south": "4500c4712912e18458e7e1c251e37aafe8fbb015e3a967808d04b25da34f33c1",
     "ru.letters.south": "139c6c2f56231b4fef195b6f6301a39f624c55ec408d00a0704857070b252836",
+    "ru.keyboard.keys": "9c2161f95b1f16332eff50aa1f57f11d6736964d10e86009ec87b7e56b90ec49",
     "ru.letters.south_hard_sign": "690f459a30b94f300fe5a9b35abb995cd581a978ba1bad379c6bd7b09a58cf11",
     "ru.runner.lines": "9ed92abcfa8c35dbe3217267e317f728521a2e19c3564dbc3aeaf293ed369f3a",
     "ru.self_name.name": "6d5ee05ec656b8bf8a94af00d48cd39ea588dfdf97852042c5d8ebcc5414f0d3",
@@ -192,6 +193,23 @@ class Files(unittest.TestCase):
         for key in ("lessons_head", "lessons_none", "lessons_none_claude", "lessons_word", "lessons_but", "lessons_no",
                     "topic_label", "recommended", "no_data"):
             re.compile(langdata.alt("words", key))
+
+    def test_the_keyboard_layouts_are_whole_and_one_letter_per_key(self):
+        # the page's list search reads a query typed in the wrong layout through them (GET /api/keyboards, names.js)
+        got = langdata.keyboards()
+        self.assertEqual(set(got), {lang for lang in langdata.LANGS if "keyboard" in langdata.load(lang)})
+        self.assertIn("ru", got)
+        for lang, keys in got.items():
+            with self.subTest(lang=lang):
+                self.assertEqual(keys, langdata.get(lang, "keyboard", "keys"), "a pair the page would not get")
+                self.assertEqual(set(keys), set("qwertyuiop[]asdfghjkl;'zxcvbnm,.`"))
+
+    def test_a_broken_keyboard_layout_is_left_out(self):
+        two = {"q": "\u0439", "w": "\u0439"}   # one letter on two keys: which key was meant is unknown
+        data = {"ru": {"keyboard": {"keys": two}}, "uk": {"keyboard": {"keys": {"q": "qq", "w": "w", "e": "\u0443"}}},
+                **{lang: {} for lang in langdata.LANGS if lang not in ("ru", "uk")}}
+        with mock.patch.dict(langdata._cache, data, clear=True):
+            self.assertEqual(langdata.keyboards(), {"uk": {"e": "\u0443"}})
 
     def test_the_files_are_utf8_without_a_bom(self):
         for lang in langdata.LANGS:

@@ -30,7 +30,8 @@ test("no [style] inside a :has(): the core writes style on every key", () => {
 });
 
 test("the rules moved off main/aside keep their meaning: the dock, the search row", () => {
-  assert.match(css, /html\.th-clean aside:has\(> :where\(\.search-row\) #filter:not\(:placeholder-shown\)\) #list \.g-tools \{ display: none; \}/);
+  // a plugin view holding the field (data-view, set on entering and leaving the view, not per key) keeps the tools
+  assert.match(css, /html\.th-clean aside:has\(> :where\(\.search-row\) #filter:not\(:placeholder-shown, \[data-view\]\)\) #list \.g-tools \{ display: none; \}/);
   assert.match(css, /html\.th-clean main > \.btn\.jumpnew:has\(~ \.dock \.menu-btn\[aria-expanded="true"\]\) \{ opacity: 0;/);
   assert.match(css, /html\.th-clean main > \.feed:has\(~ \.dock > :where\(\.dock-inner\) > form\.composer\) \{ padding-bottom: 56px; \}/);
 });

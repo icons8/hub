@@ -148,6 +148,23 @@ class Core(unittest.TestCase):
         self.assertIsNone(self.ev("session.iconed", "maps", icon="🚀", **FROM_HUB))
         self.assertIsNotNone(self.ev("session.iconed", "nobody", icon="🚀", **OWNER))
 
+    def test_icon_refuses_lone_surrogates_and_replacement_mark(self):
+        # a lone surrogate cannot be written to the journal as UTF-8; the replacement mark is what the spool turns it into
+        for bad in ("\ud800", "\ud800\ud800", chr(0xD83D) + chr(0xDE00), "\udc80", "\ufffd", "\ufffd\ufffd",
+                    "\U0001F680\ud800", "\U0001F680\ufffd"):
+            why = self.ev("session.iconed", "maps", icon=bad, **OWNER)
+            self.assertIsNotNone(why, repr(bad))
+            self.assertNotIn("core failure", why)
+        self.assertNotIn("own_icon", self.st["sessions"]["maps"])
+
+    def test_icon_from_a_lone_surrogate_through_the_spool_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            spool.put(d, "session.iconed", "maps", {"icon": "\ud800", **OWNER})
+            [name] = os.listdir(d)
+            with open(os.path.join(d, name), encoding="utf-8") as f:
+                icon = json.load(f)["data"]["icon"]
+        self.assertIsNotNone(self.ev("session.iconed", "maps", icon=icon, **OWNER), repr(icon))
+
     def test_executor_copies_raisers_icon_at_birth(self):
         """An own icon belongs to the session itself: an executor gets its starter's icon as a value at birth (like the
         previous icon); if the starter changes or removes theirs, already started executors keep the old one, with no

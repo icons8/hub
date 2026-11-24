@@ -86,9 +86,8 @@ function drawTray(slug) {
 }
 
 // what a message to the direction carries: {tasks} for a server that knows the field, otherwise the text with a line in
-// front of the owner's words. No picks — nothing
-export function carry(slug, text) {
-  const items = list(slug);
+// front of the owner's words. No picks — nothing. items — the picks taken earlier (a voice message: when "send" was pressed)
+export function carry(slug, text, items = list(slug)) {
   if (!items.length) return {};
   if ((S.snap?.features || []).includes("send.tasks")) return { tasks: items.map(card) };
   const line = items.map((x) => `${x.id}${x.title ? ` «${short(x.title, 60)}»` : ""}${x.status ? ` (${x.status})` : ""}`).join("; ");

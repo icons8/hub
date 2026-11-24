@@ -549,6 +549,28 @@ class Daemon(unittest.TestCase):
         self.needs(131)
         self.assertIn("- q6 (session hub): Where to put the button?", seen[0])
 
+    def test_the_sessions_the_result_names_are_listed(self):
+        # A result reported an item returned to the session that had set it: "that is item 14 of the session hub; she
+        # asked me to close it, but only she can, so I returned it to her". The model read "only she can" as the owner,
+        # and the owner got a to-do "close the item". The other sessions the result names go with it, as the open cards
+        # do (eval evals/prompts/needs-other-session.json); its own name, a removed session and a word inside another
+        # word are not listed, and a result naming none gets no block
+        journal(self.state, [(30, 112, "session.requested", "maps", {"cwd": "/m", "session_id": "s-m", **OWNER}),
+                             (31, 113, "session.started", "maps", {})])
+        self.w.refresh(114)
+        self.w.state["sessions"]["maps"]["state"] = "removed"
+        seen = []
+        self.w.needs = lambda text: seen.append(text) or {"needs": False, "ask": ""}
+        text = ("The link is already in the profile, that is item 14 of the session hub. She asked me to close the "
+                "item itself, but only she can close it, so I returned it to her. Not the hubs list, not maps, not a.")
+        self.result(text, seq=7, ts=130)
+        self.needs(131)
+        self.assertIn("SESSIONS: hub - the text names these sessions of the hub; they are agents", seen[0])
+        self.assertTrue(seen[0].endswith(text))
+        self.result("The panel matches the mock-up, no remarks. " * 3 + "Nothing is needed from you.", seq=8, ts=140)
+        self.needs(141)
+        self.assertNotIn("SESSIONS", seen[1])
+
     def test_the_cards_the_result_names_are_capped(self):
         journal(self.state, [(30, 112, "session.requested", "zz", {"cwd": "/z", "session_id": "s-z", **OWNER}),
                              (31, 113, "session.started", "zz", {})])

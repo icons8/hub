@@ -26,6 +26,12 @@ function errorLine() { const e = el("p", "error-text"); e.setAttribute("role", "
 // a second time: the answer used to arrive on the first click while the card hung there with an active button, and 7
 // more clicks became 7 core refusals. Keys match the card cache's (dock.js ownerCards)
 export const answered = new Set();
+// request_id → what the card on this page sent: { answers, marks } — the labels picked for each question, null for the
+// owner's own words (the feed tells what was not chosen only from picks it knows: an own answer "Yes — later" is not
+// the pick "Yes"). Set only when the answer really went out, dropped when the core refused it, and used by the feed
+// only when the recorded answer is this one (a tap refused with 409, then an answer from Telegram: not our pick)
+export const picked = new Map();
+const PICKED_MAX = 200;
 
 // The answer goes out of a queue and does not wait for a receipt: the server replies once the core has recorded the
 // answer (decide_wait, up to 3 s; under load it took 4–5 s from the click until the card went away), and a
@@ -348,12 +354,17 @@ export function askCard(s, req) {
   // the line with the answer shows the button label in the page language, not the words meant for the session (MORE_CONTEXT)
   const said = (answers) => [...new Set(Object.values(answers).map((a) => (a === MORE_CONTEXT ? t("web.cards.more_context") : a)))].join("; ");
   // lost(why) — the core refused: the words of a comment from the session's field go back there (deliver)
-  const send = (answers, lost = null) => {
-    if (f.dataset.sending || f.dataset.frozen) return;   // an answer already on its way keeps its own lost
+  // marks — the labels picked per question (null — own words); none for "more context"
+  const send = (answers, lost = null, marks = null) => {
+    if (f.dataset.sending || f.dataset.frozen) return;   // an answer already on its way keeps its own lost (and its picks)
     f.__done?.();   // the session's field is no longer aimed at it (dock.js)
-    f.__lost = lost;
-    deliver(f, asker === s.name ? `${s.name}:req:${req.request_id}` : `${s.name}:shown:${asker}:${req.request_id}`,
-      "/api/answer", { session: asker, request_id: req.request_id, answers }, said(answers), (e) => {
+    const rid = req.request_id;
+    picked.delete(rid);
+    if (marks) picked.set(rid, { answers, marks });
+    if (picked.size > PICKED_MAX) picked.delete(picked.keys().next().value);
+    f.__lost = (why, open) => { picked.delete(rid); lost?.(why, open); };   // refused: not what the core recorded
+    deliver(f, asker === s.name ? `${s.name}:req:${rid}` : `${s.name}:shown:${asker}:${rid}`,
+      "/api/answer", { session: asker, request_id: rid, answers }, said(answers), (e) => {
         err.textContent = e;
         // tapping an option is the answer: the selection is cleared so that the same option can be tapped again (change)
         if (instant) for (const x of f.querySelectorAll("input[type=radio]:checked")) x.checked = false;
@@ -379,25 +390,27 @@ export function askCard(s, req) {
   f.addEventListener("submit", (e) => {
     e.preventDefault();
     if (f.dataset.frozen) return;
-    const answers = {};
+    const answers = {}, marks = {};
     qs.forEach((q, i) => {
       const own = f.elements["other" + i].value.trim();
-      const picked = [...f.querySelectorAll(`input[name="q${i}"]:checked`)].map((x) => x.value);
-      answers[q.question] = own || picked.join(", ");
+      const labels = [...f.querySelectorAll(`input[name="q${i}"]:checked`)].map((x) => x.value);
+      answers[q.question] = own || labels.join(", ");
+      marks[q.question] = own ? null : labels;
     });
     if (Object.values(answers).some((v) => !v)) { err.textContent = t("web.cards.pick_each"); return; }
-    send(answers);
+    send(answers, null, marks);
   });
   // a comment written in the session's field while the field is aimed at this card (dock.js): it is the answer to
   // every question left without a pick; picks (and own answers typed in the card, as its own submit takes them) stay
   // as they are, and with every question picked it goes after the first one's. false — the card no longer takes an answer (sent, frozen); lost(why) — a later refusal of the core
   f.__comment = (text, lost) => {
     if (f.dataset.frozen || f.dataset.sending) return false;
-    const picks = qs.map((q, i) => f.elements["other" + i].value.trim()
-      || [...f.querySelectorAll(`input[name="q${i}"]:checked`)].map((x) => x.value).join(", "));
+    const own = qs.map((q, i) => f.elements["other" + i].value.trim());
+    const labels = qs.map((q, i) => [...f.querySelectorAll(`input[name="q${i}"]:checked`)].map((x) => x.value));
+    const picks = qs.map((q, i) => own[i] || labels[i].join(", "));
     const answers = Object.fromEntries(qs.map((q, i) => [q.question, picks[i] || text]));
     if (qs.length && picks.every(Boolean)) answers[qs[0].question] = `${picks[0]} — ${text}`;
-    send(answers, lost);
+    send(answers, lost, Object.fromEntries(qs.map((q, i) => [q.question, own[i] || !labels[i].length ? null : labels[i]])));
     return true;
   };
   return f;

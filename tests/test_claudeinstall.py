@@ -194,8 +194,8 @@ class Installs(unittest.TestCase):
 
     def test_a_download_broken_on_every_try_is_kept_and_the_next_run_continues(self):
         self.srv.drop_after = [50_000] * claudeinstall.TRIES
-        with self.assertRaises(claudeinstall.Failed) as e:
-            self.fetch()
+        with mock.patch.object(fetch, "ATTEMPTS_MAX", claudeinstall.TRIES), self.assertRaises(claudeinstall.Failed) as e:
+            self.fetch()   # a run's attempts are over (with bytes each time they would go on: tests/test_fetch_resume)
         self.assertEqual(e.exception.why, "broken")
         part = os.path.join(self.state, "claude-code", ".part-2.1.400", os.path.basename(self.own()) + ".part")   # claude.exe.part on Windows
         self.assertEqual(os.path.getsize(part), 50_000 * claudeinstall.TRIES)
@@ -265,7 +265,7 @@ class Installs(unittest.TestCase):
         self.assertIn(f"{(len(self.binary) + ownclaude.SPARE) / 1e6:.0f}", str(e.exception))
         self.assertFalse(any(p.endswith("/claude") for p in self.paths()))
         self.srv.drop_after = [100_000] * claudeinstall.TRIES   # 300 KB there: the check and the message need less
-        with self.assertRaises(claudeinstall.Failed):
+        with mock.patch.object(fetch, "ATTEMPTS_MAX", claudeinstall.TRIES), self.assertRaises(claudeinstall.Failed):
             self.fetch(free=lambda path: free + 1)
         have = 100_000 * claudeinstall.TRIES
         with self.assertRaises(claudeinstall.Failed) as e:

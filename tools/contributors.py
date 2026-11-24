@@ -38,6 +38,15 @@ THANKS = re.compile(rf"thanks:\s+(@{LOGIN}(?:\s*,\s*@{LOGIN})*)(?:\s+\(([^()]*)\
 REF = re.compile(r"\b(PR|issue)\s+#(\d+)((?:\s*(?:,|\band\b)\s*#\d+)*)(\s+of\s+the\s+modules)?", re.I)
 HEADING = "## Contributors"
 FILE = "CONTRIBUTORS.md"
+# a GitHub login renamed since its thanks were written: old (lowered) -> new. The old thanks of CHANGES.md stay as they
+# are (the updater shows hubs the items new by the difference of CHANGES.md); every list and co-author line built from
+# them says the new login, and the two spellings are one contributor
+RENAMED = {"dnnaumov99": "DeValar"}
+
+
+def current(login):
+    """login as GitHub calls it now."""
+    return RENAMED.get(login.lower(), login)
 
 
 def clauses(text):
@@ -54,7 +63,7 @@ def clauses(text):
             kind = "modules-pr" if r.group(4) else r.group(1).lower()
             for n in [r.group(2)] + re.findall(r"#(\d+)", r.group(3)):
                 refs.add(("pr" if kind == "pr" else kind, int(n)))
-        out.append((re.findall(rf"@({LOGIN})", m.group(1)), refs))
+        out.append(([current(x) for x in re.findall(rf"@({LOGIN})", m.group(1))], refs))
     return out
 
 
@@ -214,7 +223,7 @@ def credited(history):
     got = set()
     for name, mail in TRAILER.findall(history):
         m = NOREPLY.match(mail.strip())
-        got.add((m.group(1) if m else name).lower())
+        got.add(current(m.group(1) if m else name).lower())
     return got
 
 
@@ -239,7 +248,7 @@ def coauthors(new, old=None, author=None, ids=None, fetch=None, history=None, ex
 
 def listed(text):
     """The logins of a CONTRIBUTORS.md list, in its order (the author line is not one of the list)."""
-    return re.findall(rf"(?m)^- \[@({LOGIN})\]\(https://github\.com/\1\)", text)
+    return [current(x) for x in re.findall(rf"(?m)^- \[@({LOGIN})\]\(https://github\.com/\1\)", text)]
 
 
 def ids_path():

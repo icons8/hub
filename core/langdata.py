@@ -8,6 +8,8 @@ A file is JSON {section: {key: value}}:
 - `watch` — the phrases the watcher's rules look for (regex fragments);
 - `translit` — letters to Latin for executor names; `letters` — what tells the language apart by its letters;
 - `self_name` — the language's name in itself;
+- `keyboard` — `keys`: the letter each key of the US layout types in the language's own layout ({"q": <letter>, …}); the
+  page's list search reads a query typed in the wrong layout through it (`keyboards()`, GET /api/keyboards);
 - `secrets` — `labels`: the words that name a key or a password in a text ("password: …" in the language), plain lowercase
   phrases, not regexes (core/redact.py masks the value after one);
 - `comms` — what tools/comms_stats.py asks the journal for (follow-up phrases, regexes) and `runner` — the line forms the
@@ -53,6 +55,22 @@ def get(lang, section, key, default=None):
     or default."""
     part = load(lang).get(section)
     return copy.deepcopy(part[key]) if isinstance(part, dict) and key in part else default
+
+
+def keyboards():
+    """The keyboard layouts the page's list search reads a query typed in the wrong layout through: {language: {US key:
+    letter}} for each language whose data has one. A pair that is not one US key to one letter outside ASCII is left out
+    (the page tells the layouts apart by ASCII), and so is a layout that types one letter on two keys."""
+    out = {}
+    for lang in LANGS:
+        keys = get(lang, "keyboard", "keys")
+        if not isinstance(keys, dict):
+            continue
+        pairs = {k: v for k, v in keys.items() if isinstance(k, str) and isinstance(v, str) and len(k) == len(v) == 1
+                 and k.isascii() and not v.isascii()}
+        if pairs and len(set(pairs.values())) == len(pairs):
+            out[lang] = pairs
+    return out
 
 
 def legacy(key):

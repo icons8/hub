@@ -6,6 +6,7 @@
 // "Copy" are not there. A session may put a value in itself (`hub secret add`, spec d2441132): the card names it and the
 // file, and "Change" lists the previous values with "Return" — the boxes move sealed, so that works everywhere.
 import { el } from "./dom.js";
+import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { copyText } from "./markdown.js";
 import { confirmDlg } from "./dialogs.js";
@@ -83,7 +84,7 @@ async function copy(name, field) {
 function ago(ts) {
   const d = new Date(typeof ts === "number" ? ts * 1000 : ts);   // the fold keeps the event's time in seconds
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return clock(d.getTime() / 1000, locale, { day: "numeric", month: "short" });
 }
 
 function lastLine(last) {
@@ -121,7 +122,7 @@ function previous(m) {
   box.append(el("p", "ac-note", t("web.secrets.prev_title")));
   for (const p of m.prev) {
     const when = ago(p.changed), who = whoName(p.by && p.by.who);
-    const row = el("div", "page-key-row");
+    const row = el("div", "sec-row");
     row.append(el("span", "ac-muted", p.by && p.by.source ? t("web.secrets.prev_row_from", { when, who, source: sourceText(p.by) })
       : t("web.secrets.prev_row", { when, who })));
     row.append(button(t("web.secrets.restore"), "", () => {
@@ -155,7 +156,7 @@ function card(m) {
   const by = byLine(m);
   if (by) c.append(by);
   c.append(el("p", "ac-note ac-muted", m.value ? lastLine(m.last) : t("web.secrets.no_value")));
-  const row = el("div", "page-key-row");
+  const row = el("div", "sec-row");
   if (m.value && info.values) {
     const again = (f) => held && held.name === m.name && held.field === f;
     row.append(button(again("password") ? t("web.secrets.copy_again") : t("web.secrets.copy"), again("password") ? "primary" : "",
@@ -220,7 +221,7 @@ function editor() {
   const save = el("button", "btn small primary", t("web.secrets.save"));
   save.type = "submit";
   const cancel = button(t("web.secrets.cancel"), "", () => { form = null; error = ""; draw(); });
-  const row = el("div", "page-key-row");
+  const row = el("div", "sec-row");
   row.append(save, cancel);
   f.append(row);
   if (error) f.append(el("p", "hint warn", error));
@@ -253,7 +254,7 @@ function draw() {
                  broken: "web.secrets.broken" }[info.state];
   if (!info.on) sec.append(el("p", "hint warn", t("web.secrets.off")));
   if (warn) {
-    const p = el("div", "page-key-more");
+    const p = el("div", "sec-more");
     p.append(el("p", "hint warn", t(warn)));
     if (info.state === "no_lib") p.append(button(t("web.secrets.install"), "primary", async (b) => {
       b.textContent = t("web.secrets.installing");
@@ -277,7 +278,7 @@ function draw() {
     sec.append(p);
   }
   if (info.state === "ok" || info.state === "lost") {
-    const top = el("div", "page-key-row");
+    const top = el("div", "sec-row");
     if (!form && info.state === "ok") top.append(button(t("web.secrets.add"), "primary", () => { form = { isNew: true }; error = said = ""; draw(); }));
     if (said) top.append(el("span", "ac-muted", said));
     sec.append(top);

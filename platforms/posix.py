@@ -960,6 +960,10 @@ def nested(shim, state_dir):
     return os.path.dirname(shim), {}
 
 
+def nested_args():
+    """Nothing to put back: no Git Bash wrapper here (windows.nested_args)."""
+
+
 def job_shell(command, env, state_dir, shell):
     """A schedule command job or pre-check (a shell string) -> (what to start, shell=, env): /bin/sh, as is. hub.json
     `schedule.shell` is for Windows only."""

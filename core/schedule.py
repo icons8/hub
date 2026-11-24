@@ -961,6 +961,9 @@ def _queued(st, job):
     the same wait (09.10: 14 checks of two waits queued for a session busy all night). Returns that message or None."""
     m = next((m for m in st["messages"].values()
               if m["state"] == "queued" and m.get("schedule") and kin(m["schedule"]) == kin(job["id"])), None)
+    if m is None:   # or its wake of a handed-in executor waits for a place (reducer._job_wakes): text and l10n as a message's
+        m = next((w for w in ((r.get("wake") or {}) for r in (st.get("runs") or {}).values())
+                  if w.get("schedule") and kin(w["schedule"]) == kin(job["id"])), None)
     if m is not None:
         job["skipped"] = job.get("skipped", 0) + 1
     return m
@@ -969,9 +972,11 @@ def _queued(st, job):
 def _wake(st, job, ev, slot, ctx, extra=""):
     late = int((ev["ts"] - slot) // 60)
     note = " " + LATE.format(minutes=late) if late >= 5 else ""
-    ctx["new_message"](st, f"m{ev['seq']}", job["session"],
-                       coretext.join(f"[⏰ schedule {job['id']}]", note, " " + job["prompt"], extra),
-                       ev["ts"], origin=forms.ORIGIN_SCHEDULE, schedule=job["id"])
+    text = coretext.join(f"[⏰ schedule {job['id']}]", note, " " + job["prompt"], extra)
+    if ctx.get("executor") and ctx["executor"](st, ev, job, text):   # a handed-in executor's own job wakes it (reducer)
+        return
+    ctx["new_message"](st, f"m{ev['seq']}", job["session"], text, ev["ts"], origin=forms.ORIGIN_SCHEDULE,
+                       schedule=job["id"])
 
 
 def _check_note(job, data, st=None, more_at=None):

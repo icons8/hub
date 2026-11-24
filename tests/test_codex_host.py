@@ -697,6 +697,10 @@ class ReviewFixes(unittest.TestCase):
             "type": "userMessage", "content": [{"type": "text", "text": "x"}]}}})
         host._line("a", {"method": "item/started", "params": {"threadId": "t", "turnId": "u1",
                                                                "item": {"type": "contextCompaction"}}})
+        # Codex's own: its end ends the page's mark, though the core's compaction is still pending (review)
+        self.assertIn(("session.compacting", "a", {"on": False}),
+                      host._line("a", {"method": "item/completed", "params": {"threadId": "t", "turnId": "u1",
+                                                                              "item": {"type": "contextCompaction"}}}))
         facts = host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
                                                                          "turn": {"id": "u1", "status": "completed"}}})
         self.assertIn("turn.result", [f[0] for f in facts])

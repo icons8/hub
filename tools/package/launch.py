@@ -588,9 +588,10 @@ def alive(pid):
 def _outside(cmd):
     """Windows: cmd started by WMI (Win32_Process.Create), outside every job of this process — as platforms/windows
     popen_outside (this file imports nothing of the hub). True when WMI started it."""
-    script = ("$ErrorActionPreference = 'Stop'; $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-              "-Arguments @{CommandLine = $env:HUB_OUTSIDE_CMD}; if ($null -eq $r -or $null -eq $r.ProcessId) "
-              "{ exit 9 }; exit [int]$r.ReturnValue")
+    script = ("$ErrorActionPreference = 'Stop'; $si = New-CimInstance -CimClass (Get-CimClass Win32_ProcessStartup) "
+              "-ClientOnly -Property @{ShowWindow = [uint16]0}; $r = Invoke-CimMethod -ClassName Win32_Process "
+              "-MethodName Create -Arguments @{CommandLine = $env:HUB_OUTSIDE_CMD; ProcessStartupInformation = $si}; "
+              "if ($null -eq $r -or $null -eq $r.ProcessId) { exit 9 }; exit [int]$r.ReturnValue")
     try:
         r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                            env={**os.environ, "HUB_OUTSIDE_CMD": subprocess.list2cmdline(cmd)}, capture_output=True,

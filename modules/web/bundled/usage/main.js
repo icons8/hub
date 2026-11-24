@@ -42,7 +42,7 @@ function winName(name) {
 }
 function when(ts) {
   const d = new Date(ts * 1000), now = new Date();
-  const hm = d.toLocaleTimeString(hub.locale, { hour: "2-digit", minute: "2-digit" });
+  const hm = hub.clock?.(ts) ?? d.toLocaleTimeString(hub.locale, { hour: "2-digit", minute: "2-digit" });   // a page not reloaded after an update has no hub.clock: the old format
   if (d.toDateString() === now.toDateString()) return hub.t("web.usage.at_time", { time: hm });
   return d.toLocaleDateString(hub.locale, { weekday: "short", day: "numeric", month: "short" }) + `, ${hm}`;
 }

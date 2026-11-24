@@ -74,6 +74,7 @@ EXCLUSIVE = set()
 FIELDS = {"name", "version", "api", "description", "requires", "optional", "provides", "capabilities", "env", "run",
           "default_off", "budget", "commands", "http",
           "web",   # a page plugin from the module (core/modstate.py): the main .js relative to the module folder
+          "css",   # its stylesheets, in the page's <head> from the first byte (2.11; vetted and dropped by core/modstate.py)
           "fold", "fold_state", "actions",   # intercepting core event handling (core/corewrite.py)
           "snapshot"}   # its own keys and flags in the snapshot (core/modclaims.py)
 # the http field — the module's routes on the page (modules/web/modproxy.py): limits on the request body and the duration of one reply, its own paths

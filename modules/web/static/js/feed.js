@@ -1,9 +1,9 @@
 // The session feed is a document, like a Claude Code transcript: › you, ● model, ● Tool(argument) ⎿ result.
-import { variants } from "./quotefind.js";
+import { fileNames, quotedBy } from "./quotefind.js";
 import { $, el, icon, time, kb, elapsed, SPIN, REASONS, CHANNELS, stamp, kit, avatarNode, stepNode, chevron, OWN } from "./dom.js";
 import { S, render, renderLive, foldOn, runningStep } from "./state.js";
 import { banner, post } from "./api.js";
-import { fileLink, md, linkAbsPaths, linkAll } from "./markdown.js";
+import { copyText, fileLink, md, linkAbsPaths, linkAll } from "./markdown.js";
 import { diffEl, langOf, pre, readEl } from "./code.js";
 import { byline, memberOf, nameOf, paint, whoOf, whoOfMember } from "./who.js";
 import { t, CLOSED, TO, isolate } from "./i18n.js";
@@ -11,6 +11,7 @@ import "./lightbox.js";   // click on a feed image — enlarge it
 import { chipRow } from "./mention.js";
 import { castOf, castClock } from "./cast.js";
 import { busRow, joinBus } from "./busthread.js";
+import { picked } from "./cards.js";
 
 // a session reply with file paths — links into "Files"; relative ones resolve from this session's folder; task numbers link to Jira
 const cwdOf = (name) => (S.snap.sessions.find((s) => s.name === name) || {}).cwd;
@@ -294,14 +295,59 @@ function row(cls, glyph, body) {
   return r;
 }
 
+// a long paste that went as a text file: the field names it pasted-<N>.txt (attachments.js), as the apps' Attachment.pasted;
+// any other name, a session's paste-config.txt too, stays a file line with its name
+const pastedFile = (f) => /^pasted-\d+\.txt$/.test(f.name || "") && !String(f.mime || "").match(/^(image|audio|video)\//);
+// its first words, as the apps' PasteTile.title: whitespace folded, up to 80 characters (whole characters, not halves of an
+// emoji); only a text answer becomes a title. A definite answer is kept, a refusal too (404 for a deleted file, 416 for an
+// empty one, 401): the feed is rebuilt on every live event, and each draw would ask again. Only a network error or a 5xx
+// (the hub restarting) is tried again, at most once per MISS_RECHECK, as a missed picture
+const pasteTitles = new Map();   // href → the fetch in flight, the title ("" — keep the caption) or the time of a failed try
+const pasteTitle = (s) => Array.from(Array.from(s).slice(0, 400).join("").split(/\s+/).filter(Boolean).join(" ")).slice(0, 80).join("");
+function pasteHead(href) {
+  const known = pasteTitles.get(href);
+  if (typeof known === "number" && Date.now() - known < MISS_RECHECK) return Promise.resolve("");
+  if (known !== undefined && typeof known !== "number") return Promise.resolve(known);
+  const got = fetch(href, { headers: { Range: "bytes=0-4095" } }).then(async (r) => {
+    if (r.status >= 500) return null;
+    if (!r.ok || /^(image|audio|video)\//.test(r.headers.get("content-type") || "")) return "";
+    const s = await r.text();
+    return s.includes("\0") ? "" : pasteTitle(s);
+  }).catch(() => null).then((s) => {
+    pasteTitles.set(href, s === null ? Date.now() : s);
+    return s || "";
+  });
+  pasteTitles.set(href, got);
+  if (pasteTitles.size > 500) pasteTitles.delete(pasteTitles.keys().next().value);
+  return got;
+}
+// the paste in the feed is a card of the apps' FeedTile: its first words and its size on a fill, a click gets the file;
+// aria-busy while its words are read
+function pasteTile(a, f) {
+  a.classList.add("paste-tile");
+  const head = el("span", "pt-title", t("web.feed.pasted_text")), size = el("span", "pt-size", kb(f.size || 0));
+  const name = (words) => a.setAttribute("aria-label", `${t("web.feed.pasted_text")}: ${words ? words + ", " : ""}${kb(f.size || 0)}`);
+  a.title = f.name || "";
+  a.append(head, size);
+  name("");
+  const show = (s) => { a.removeAttribute("aria-busy"); if (s) { head.textContent = s; name(s); } };
+  const known = pasteTitles.get(a.href);
+  if (typeof known === "string") return show(known);
+  a.setAttribute("aria-busy", "true");
+  pasteHead(a.href).then(show);
+}
+
 export function attachList(files, ver) {
-  const box = el("div", "attach-list");
+  // the paste cards go first, in a row of their own; the other files (lines and pictures) start a line under them, as on a
+  // phone: beside the cards a file line stuck to their top
+  const box = el("div", "attach-list"), cards = el("div", "paste-row");
   for (const f of files || []) {
     const a = el("a");
     a.href = "/api/file?path=" + encodeURIComponent(f.path) + verQuery(ver);
     a.target = "_blank";
     a.rel = "noopener";
-    if (String(f.mime || "").startsWith("image/")) {
+    if (pastedFile(f)) pasteTile(a, f);
+    else if (String(f.mime || "").startsWith("image/")) {
       a.append(pic("att:" + f.path, ver, () => {
         const img = el("img");
         img.src = a.href;
@@ -311,8 +357,9 @@ export function attachList(files, ver) {
     } else {
       a.append(icon("attach"), document.createTextNode(`${f.name} · ${kb(f.size || 0)}`));
     }
-    box.append(a);
+    (a.classList.contains("paste-tile") ? cards : box).append(a);
   }
+  if (cards.children.length) box.prepend(cards);
   return box;
 }
 
@@ -412,10 +459,25 @@ function subSteps(it) {
 // "Reply": the target is remembered together with the feed where it was pressed (view) — that feed's input field will show what is being replied to
 // a reply takes the field off a question card (dock.js S.cardAim): the words go where the owner pointed last
 export function replyTo(target) { S.replyTarget = { ...target, view: S.cur?.name }; S.cardAim = null; render(); $("msg")?.focus(); }
-function replyBtn(label, target) {
-  const btn = el("button", "linkbtn reply-btn", label);
+function replyBtn(label, target, cls = "reply-btn") {
+  const btn = el("button", `linkbtn ${cls}`, label);
   btn.type = "button";
   btn.addEventListener("click", () => replyTo(target));
+  btn.__reply = target;   // ⌘↑/⌘↓ pick a row to reply to by its button (js/msgkeys.js)
+  return btn;
+}
+// "Copy" next to "Reply": the whole message; for a moment it says it copied (a theme shows its own sign), as the app's row does
+function copyBtn(text) {
+  const label = t("web.quote.copy"), btn = el("button", "linkbtn copy-btn", label);
+  btn.type = "button";
+  btn.title = label;
+  let back = 0;
+  btn.addEventListener("click", () => copyText(text).then(() => {
+    btn.textContent = btn.title = t("web.markdown.copied");
+    btn.classList.add("done");
+    clearTimeout(back);
+    back = setTimeout(() => { btn.textContent = btn.title = label; btn.classList.remove("done"); }, 1400);
+  }, () => banner(t("web.markdown.copy_failed"))));
   return btn;
 }
 
@@ -445,8 +507,18 @@ export async function react(session, target, emoji, quote, part = false) {
   if (r.error) banner(r.error);
   return !r.error;
 }
+// the core's 👍 under the owner's message leads to the row that answered it (reactions.links), in this feed only
+function answerOf(it) {
+  const link = it.kind === "in" && ((S.snap.reactions || {}).links || {})[it.id];
+  return link && link.session === S.cur?.name && badgeOf(it) === "👍" && S.jumpAnswer ? link.seq : null;
+}
+// the targets whose 👍 already led to the answer: when the link arrives (👀 → 👍), a picker left open on the 👀 closes once —
+// the chip is now the way to the answer, not the picker's switch ("Reaction" opens it again)
+const linked = new Set();
 function reactions(it, target, quote) {
-  const cur = badgeOf(it), key = "r" + target, open = S.openSteps.has(key);
+  const cur = badgeOf(it), key = "r" + target, answer = answerOf(it);
+  if (answer && !linked.has(key)) { linked.add(key); S.openSteps.delete(key); }
+  const open = S.openSteps.has(key);
   // onto a selected fragment — only for a badge that is currently set (removed or displaced — the fragment is not its)
   const part = cur && it.kind !== "in" ? ((S.snap.reactions || {}).quotes || {})[String(target)] : null;
   const box = el("span", "reactions");
@@ -457,11 +529,18 @@ function reactions(it, target, quote) {
     render();
   };
   if (cur) {
-    const chip = emojiBtn("react-chip", cur, part ? t("web.feed.react_on", { quote: part }) : t("web.feed.react_change"));
-    if (part) chip.setAttribute("aria-label", chip.title);   // and for screen readers: what the reaction is on
-    chip.setAttribute("aria-expanded", String(open));
-    chip.addEventListener("click", () => flip(key));
+    const chip = emojiBtn("react-chip" + (answer ? " to-answer" : ""), cur, part ? t("web.feed.react_on", { quote: part })
+      : answer ? t("web.feed.react_answer") : t("web.feed.react_change"));
+    if (part || answer) chip.setAttribute("aria-label", chip.title);   // and for screen readers: what the reaction is on / where it leads
+    if (!answer) chip.setAttribute("aria-expanded", String(open));
+    // one press, one action: such a 👍 always goes to the answer; the reaction changes with "Reaction", as anywhere.
+    // The link is read at the press: a row whose markup did not change keeps its node across snapshots (main.js), and
+    // the link's row number is not in the markup
+    chip.addEventListener("click", () => { const to = answerOf(it); return to ? S.jumpAnswer(it, to) : flip(key); });
     box.append(chip);
+    // next to such a 👍 "Reaction" changes the reaction (the press on the 👍 is taken): here, beside the badge, so it never
+    // wraps the time row on a phone. Classic only: Clean hides it (clean.css), there an own message carries the badge alone
+    if (answer) box.append(reactBtn(target));
   }
   for (const e of open ? REACTIONS : []) {
     const b = emojiBtn("react-pick", e, e === cur ? t("web.feed.react_remove") : t("web.feed.react_pick", { emoji: e }));
@@ -528,6 +607,19 @@ function toolRow(it) {
 // gray, two lines: so there is no guessing whether the owner has replied to it
 const FOLD = 140;
 const cuts = new Map();   // message key → the height it is cut to, px; 0 — shown whole
+// a second "Reply" under a message taller than the feed's visible area: there is no wish to scroll back up having read it to
+// the end. It is not drawn until the page has measured the message (foldTall, together with the fold): the text node is marked
+// data-tall and carries what the button needs. Once the message was taller it keeps the button; one that was not is measured
+// again at the next render
+const talls = new Set();   // keys of the messages that were taller than the feed
+function replyBottom(it, body, label, target, after) {
+  const id = it.id ?? it.seq, key = "t" + it.kind + id;
+  if (id == null) return null;
+  if (talls.has(key)) return replyBtn(label, target, "reply-btn-bottom");
+  body.dataset.tall = key;
+  body.lowReply = { label, target, after };
+  return null;
+}
 function clamped(it, body, fold = false) {
   const text = String(it.text || ""), lines = text.split("\n").length;
   // short — below the bar on any screen, not measured
@@ -575,7 +667,10 @@ function cutAt(box, budget) {
 export function foldTall(feed) {
   if (!feed?.clientHeight) return;
   const bar = Math.max(feed.clientHeight, window.innerHeight / 2) * 2 / 3;
-  const todo = [];
+  const todo = [], tall = [];
+  for (const body of feed.querySelectorAll(`[data-tall]${OWN}`)) {
+    if (body.getClientRects().length) tall.push([body, body.getBoundingClientRect().height > feed.clientHeight]);
+  }
   for (const wrap of feed.querySelectorAll(`[data-cut]${OWN}`)) {
     const box = wrap.firstElementChild;
     if (!box.getClientRects().length) continue;   // in a closed step: measured when shown
@@ -588,6 +683,13 @@ export function foldTall(feed) {
     if (!cut) continue;
     if (!S.openSteps.has(key)) box.style.maxHeight = cut + "px";
     wrap.lastElementChild.hidden = false;
+  }
+  for (const [body, high] of tall) {
+    if (!high) continue;   // not tall now: stays marked and is measured again at the next render (the feed may have changed its size)
+    const { label, target, after } = body.lowReply;
+    talls.add(body.dataset.tall);
+    delete body.dataset.tall;
+    after.after(replyBtn(label, target, "reply-btn-bottom"));
   }
 }
 
@@ -690,10 +792,12 @@ export function groupRuns(list) {
 // `hub wait` check — "Check: waiting for a reply — <what>" without the instruction; the job and what is awaited come
 // from the core (core/views.py), the text is not parsed. In "Detailed" — as is
 function shownText(it) {
-  // the core's "REPLIED dN: …" for the hub (sender ":core", core/views.py CORE_SENDER): the service tag is not for the owner,
-  // in the text as well as in the translated line (label)
+  // label — a short feed line (a button, a reply to a card), or the core's line as the owner reads it: "REPLIED dN: …"
+  // without the tag and the numbers, in the hub's language (core/views.py row_label); text is raw, for "Send again".
+  // The core's "REPLIED dN: …" (sender ":core", core/views.py CORE_SENDER) still has its tag in a row an earlier server
+  // folded — an archive not parsed again yet, no label in an English hub: the tag is cut here, it is not for the owner
   const untagged = (x) => it.sender === ":core" ? x.replace(/^REPLIED\s+d\d+(?:\s*[(（][^)）]*[)）])?\s*[:：]\s*/, "") : x;
-  if (it.label) return untagged(it.label);   // a short feed line (a button, a reply to a card); text is raw, for "Send again"
+  if (it.label) return untagged(it.label);
   const text = untagged(String(it.text || ""));
   if (text !== String(it.text || "")) return text;
   if (!S.compact || S.brief.schedule || it.channel !== "schedule" || !it.job) return text;
@@ -766,15 +870,67 @@ export const jump = { flash: null, until: 0, arrive: null, arriveAt: 0, reveal: 
 export const keyOf = (it) => `${it.seq}${it.kind}${it.id || ""}`;   // feed row key (item: data-key)
 const textsOf = new WeakMap();
 // a row's text variants for matching a quote (js/quotefind.js): its raw text, what is on screen (a label), for an
-// answer to a card — what was chosen; computed once per entry: the search walks the feed after every page
+// answer to a card — what was chosen, for a file — its caption and name; computed once per entry: the search walks the
+// feed after every page
 export function textsIn(it) {
   let v = textsOf.get(it);
-  if (!v) textsOf.set(it, v = variants(it.text, it.label, it.kind === "answer" ? answerWhat(it) : ""));
+  if (!v) textsOf.set(it, v = quotedBy(it, it.kind === "answer" ? answerWhat(it) : ""));
   return v;
 }
 // what the owner chose on a card: the answers, or "allowed"/"denied" for a permission
 const answerWhat = (it) => (it.answers ? Object.values(it.answers).join(", ") : (it.behavior === "allow" ? t("web.feed.allowed") : t("web.feed.denied")));
+const cards = new Map();   // request_id → { labels, multi } of a card with one question (the last CARDS_MAX cards seen)
+const CARDS_MAX = 200;
+function remember(ask) {
+  const qs = ask.input?.questions;
+  if (!Array.isArray(qs) || qs.length !== 1 || cards.has(ask.request_id)) return;
+  const labels = (qs[0]?.options || []).map((o) => o?.label).filter(Boolean);
+  if (!labels.length) return;
+  cards.set(ask.request_id, { labels, multi: !!qs[0].multiSelect });
+  if (cards.size > CARDS_MAX) cards.delete(cards.keys().next().value);
+}
+// the options of a one-question card the owner did not choose, as a colleague tells it: "chose X; not chosen: Y, Z".
+// Unknown (nothing) when the page has not seen the card, it has several questions, or the answer is not made of its
+// labels: own words typed in the card, or an answer with a comment after " — " this page did not send. The page's own
+// pick (cards.js picked) counts only when the recorded answer is the one it sent: a refused tap, or a tap that lost
+// to the one in flight, is not what the core recorded
+function notChosen(it) {
+  const card = cards.get(it.request_id);
+  if (!card || !it.answers) return [];
+  const got = String(Object.values(it.answers)[0] ?? "");
+  const mine = picked.get(it.request_id);
+  const same = mine && Object.values(mine.answers).length === 1 && String(Object.values(mine.answers)[0]) === got;
+  const chosen = same ? Object.values(mine.marks)[0]
+    : (got.includes(" — ") ? null : picks(got, [...card.labels].sort((a, b) => b.length - a.length)));
+  if (!chosen || (!card.multi && chosen.length !== 1)) return [];   // "Yes, No" to a single pick: own words
+  return card.labels.filter((l) => !chosen.includes(l));
+}
+// the labels an answer is made of (cards.js): picks joined with ", ", read as a whole from the start, longest label
+// first, so "Yes, today" is one pick; null — the answer is not made of the labels. Each start is tried once (memo), so a
+// contrived answer does not take exponential time
+function picks(got, labels, i = 0, memo = new Map()) {
+  if (memo.has(i)) return memo.get(i);
+  let out = null;
+  for (const l of labels) {
+    if (!got.startsWith(l, i)) continue;
+    const j = i + l.length;
+    if (j === got.length) { out = [l]; break; }
+    const more = got.startsWith(", ", j) ? picks(got, labels, j + 2, memo) : null;
+    if (more) { out = [l, ...more]; break; }
+  }
+  memo.set(i, out);
+  return out;
+}
 const NOTES = { seek: "web.feed.quote_seeking", none: "web.feed.quote_none", limit: "web.feed.quote_limit", fail: "web.feed.quote_failed" };
+// the same for the way from the core's 👍 to the answer (main.js S.jumpAnswer: its mark is "answer:" + the message id, apart
+// from the message's own quote); the key is dropped when the answer is found or the link is gone
+const ANSWER_NOTES = { seek: "web.feed.answer_seeking", none: "web.feed.answer_none", limit: "web.feed.quote_limit", fail: "web.feed.quote_failed" };
+function answerNote(it) {
+  const key = "answer:" + it.id, note = jump.note.get(key);
+  if (!note) return null;
+  if (!answerOf(it)) { jump.note.delete(key); return null; }   // the link went away (the owner changed the badge): nothing to say
+  return el("div", "hint quote-note", t(ANSWER_NOTES[note]));
+}
 
 // what the owner replied to: in "Brief" — one line "↩ "start…"", the whole quote as a tooltip; in "Detailed" and with
 // the "quotes" checkbox — in full, like a session reply (otherwise it looks as if just a plain message was sent). A
@@ -847,25 +1003,38 @@ const KINDS = {
       const files = cast ? cast.files : it.attachments || [];
       if (files.length) b.append(attachList(files, it.seq));
       // "Reply" on the owner's own words too: the quote is what is on screen, the reply goes to the session of this feed.
-      // Files without words — no button, as on a file a session sent: a fragment of a caption can still be selected
-      if (mine && S.cur && words) b.append(replyBtn(t("web.feed.reply"), { session: S.cur.name, quote: words }));
+      // Files without words — the quote is their names, as on a file a session sent; "Copy" — only where there are words
+      const said = words || fileNames(files);
+      if (mine && S.cur && said) b.append(replyBtn(t("web.feed.reply"), { session: S.cur.name, quote: said }));
+      if (mine && S.cur && words) b.append(copyBtn(words));
       if (mine && !it.relayed && reactOn()) {   // a reaction goes to the session that got the message
         // own message: 👀 → 👍 from the core, can be changed; a badge the owner removed (empty) is not brought back by the
         // core — "Reaction" sets it again. With no badge by the core's decision (failure, question) — no "Reaction":
-        // on a phone it would sit on every old message
+        // on a phone it would sit on every old message. Next to a 👍 that leads to the answer it stands beside the badge
+        // (reactions())
         if (badgeOf(it) === "") b.firstChild.append(reactBtn(it.id));   // in the time row: same height
         const rx = reactions(it, it.id, null);
         if (rx) b.append(rx);
+        const note = answerNote(it);   // the way to the answer: "looking further back" / why it was not found
+        if (note) b.append(note);
       }
     });
     if (!mine) paint(r, member !== null ? whoOfMember(member) : whoOf(it.sender || "hub"));
     return !S.cur ? r : quotable(r, mine ? quoteTo() : quoteTo(it.sender));
   },
   out: (it) => quotable(row("out" + (it.error ? " err" : "") + (it._resolved ? " resolved" : ""), "●", (b) => {
-    b.append(it._resolved ? clamped(it, mdIn(it.text, S.cur?.name, it.seq), true) : mdIn(it.text, S.cur?.name, it.seq));
+    const text = mdIn(it.text, S.cur?.name, it.seq);
+    b.append(it._resolved ? clamped(it, text, true) : text);
     if (it.ts) b.append(meta("", it.ts));  // when it replied — under the reply
     // a reply to this message: the recipient will see in the label what was replied to
-    if (!it.error && S.cur) b.append(replyBtn(t("web.feed.reply"), { ...replyOf(it), quote: it.text }));
+    if (!it.error && S.cur) {
+      const target = { ...replyOf(it), quote: it.text };
+      const top = replyBtn(t("web.feed.reply"), target);
+      b.append(copyBtn(it.text), top);
+      // a tall one, not folded to two lines — a second "Reply" under it, after the first in the block
+      const low = it._resolved ? null : replyBottom(it, text, t("web.feed.reply"), target, top);
+      if (low) top.after(low);
+    }
     if (!it.error && S.cur && it.seq && reactOn()) {
       if (!badgeOf(it)) b.append(reactBtn(it.seq));
       const rx = reactions(it, it.seq, it.text);
@@ -881,9 +1050,12 @@ const KINDS = {
     const who = it.by || S.cur?.name;
     b.append(meta(it.by ? t("web.feed.sent_you_by", { from: nameOf(it.by) }) : t("web.feed.sent_you"), it.ts));
     if (it.caption) b.append(mdIn(it.caption, who, it.seq));
+    // "Reply" on a file too: the quote is its caption, or its name
+    const reply = () => S.cur && b.append(replyBtn(t("web.feed.reply"), { ...quoteTo(it.by).reply, quote: it.caption || it.name }));
     // an image opens as the image itself (/raw), a document opens in the "Files" viewer: markdown is rendered there, not shown as raw text
     if (it.video) {   // a video plays in a player right here; the page serves exactly the sent file with Range
       b.append(player(it));
+      reply();
       return;
     }
     // a document opens its source in "Files" (comments on it live there); if the source was deleted — its copy in the attachments (alt)
@@ -909,6 +1081,7 @@ const KINDS = {
     } else a.append(icon("attach"), document.createTextNode(it.name));
     box.append(a);
     b.append(box);
+    reply();
   }), S.cur && quoteTo(it.by)),
   notify: (it) => quotable(row("out notify" + (it.urgent ? " err" : ""), it.urgent ? "⛔" : "🔔", (b) =>
     b.append(meta(it.title, it.ts), md(it.text))), S.cur && quoteTo()),
@@ -917,8 +1090,9 @@ const KINDS = {
     : el("div", null, describeAsk(it)))), S.cur && quoteTo()),
   // the owner's answer to a card: "Reply" quotes what he chose, like on his own message
   answer: (it) => quotable(row("sys answer", "↳", (b) => {
-    const what = answerWhat(it);
-    b.append(el("span", "own-text", t("web.feed.answer", { what, channel: CHANNELS[it.channel] || it.channel, time: time(it.ts) })));
+    const what = answerWhat(it), rest = notChosen(it), where = { channel: CHANNELS[it.channel] || it.channel, time: time(it.ts) };
+    if (rest.length) b.append(el("span", "own-text", t("web.feed.answer_rest", { what, rest: rest.join(" · "), ...where })));
+    else b.append(el("span", "own-text", t("web.feed.answer", { what, ...where })));
     if (S.cur) b.append(replyBtn(t("web.feed.reply"), { session: S.cur.name, quote: what }));
   }), S.cur && quoteTo()),
   terminal: (it) => {
@@ -933,12 +1107,16 @@ const KINDS = {
   reply: (it) => quotable(row("out", "●", (b) => {
     const box = el("div", "reply-box");
     // not the first result for a task — no quote of its message: a row of the same session, labeled with the task it belongs to
+    const target = { ...replyOf(it), quote: it.text };
     const head = meta(it.again ? (it.task ? t("web.feed.replied_again", { from: nameOf(it.from), task: it.task }) : nameOf(it.from))
       : t("web.feed.replied", { from: nameOf(it.from) }), it.ts);
-    head.append(document.createTextNode(" · "), replyBtn(t("web.feed.reply_to", { from: nameOf(it.from) }), { ...replyOf(it), quote: it.text }));
+    head.append(document.createTextNode(" · "), copyBtn(it.text), replyBtn(t("web.feed.reply_to", { from: nameOf(it.from) }), target));
     box.append(head);
     if (it.quote && (!S.compact || S.brief.quote)) box.append(el("div", "quote", t("web.feed.quote", { text: it.quote })));
-    box.append(mdIn(it.text, it.from, it.seq));
+    const text = mdIn(it.text, it.from, it.seq);
+    box.append(text);
+    const low = replyBottom(it, text, t("web.feed.reply_to", { from: nameOf(it.from) }), target, text);
+    if (low) box.append(low);
     b.append(box);
   }), { reply: replyOf(it) }),
   summary: (it) => quotable(row("out", "●", (b) => {
@@ -961,12 +1139,27 @@ const KINDS = {
     };
     // the hub's answers to cards for the owner (spec d2549241): first, and only when there are some (older summaries have none)
     if ((it.hub || []).length) sec(t("web.feed.hub_decided"), it.hub);
+    // the deputies (spec d2679763): what they decided, and the cards at them with no answer — when there are some
+    if ((it.deputies || []).length) sec(t("web.feed.deputies_decided"), it.deputies);
+    if ((it.deputies_waiting || []).length) sec(t("web.feed.deputies_waiting"), it.deputies_waiting);
     sec(t("web.feed.waiting"), it.waiting || []);
     sec(t("web.feed.decided"), it.decided || []);
     sec(t("web.feed.done"), it.done || []);
     b.append(d);
   }), S.cur && quoteTo()),
 };
+// A page-side kind, not a journal record: the owner's voice message before the core has it (outgoing.js): on the right like his words, "Recognizing…" until
+// the words are known; the core's row takes its place
+KINDS.outgoing = (it) => row("me mine outgoing", "", (b) => {
+  const quiet = S.compact && !S.brief.meta;   // the same head as the row that takes its place: no jump
+  b.append(quiet ? meta("", it.ts) : meta(t("web.feed.you_via", { channel: CHANNELS.web }), it.ts));
+  if (it.text != null) b.append(el("span", "own-text", it.text));
+  else {
+    const wait = el("span", "outgoing-wait");
+    wait.append(el("span", "spin-dot"), el("span", null, t("web.voice.recognizing_dots")));
+    b.append(wait);
+  }
+});
 
 // Several service rows in a row (restarts, "in the schedule…") form one dense block, not a string of dots
 function detailed(list) {
@@ -1088,6 +1281,7 @@ function unidle(list, running) {
 export function items(list, compact = S.compact, running = false) {
   list = joinBus(list);
   markResolved(list, compact);
+  for (const x of list) if (x.kind === "ask" && x.request_id) remember(x);   // what an answer row chose from
   if (!compact) return detailed(list);
   const out = [];
   let mid = [];

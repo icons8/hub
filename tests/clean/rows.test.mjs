@@ -110,6 +110,16 @@ test("the second line: a working or waiting session shows the core caption, the 
   assert.equal(liveLine({ name: "a", state: "asleep", waiting: { text: "a reply" } }, "x"), "", "asleep — the result, as the owner asked");
   assert.equal(liveLine(null, "x"), "");
   assert.equal(liveLine(w, ""), "Checking invoices");
+  // compacting its conversation: free but busy — the core caption ("Compacting…"), not the result it ended with
+  assert.equal(liveLine({ name: "c", state: "idle", status: "working", compacting: 150, since: 1, out_head: "Done" }, "Compacting…"), "Compacting…");
+  assert.equal(liveLine({ name: "c", state: "idle", status: "working", compacting: 150, since: 1, attention: { ask: "Deploy?" } }, "Deploy?"), "Deploy?",
+    "a question to the owner is still what the row says");
+  // a new process that waits for its MCP servers: free, but it reads no input — the caption, not the result it ended with
+  assert.equal(liveLine({ name: "m", state: "idle", status: "idle", mcp_wait: { servers: ["a"], until: Date.now() / 1000 + 60 }, since: 1, out_head: "Done" }, "Waiting for MCP…"),
+    "Waiting for MCP…");
+  assert.equal(liveLine({ name: "m", state: "idle", status: "idle", mcp_wait: null, since: 1, out_head: "Done" }, "x"), "", "no wait — as before");
+  assert.equal(liveLine({ name: "m", state: "idle", status: "idle", mcp_wait: { servers: [], until: 9 }, since: 1, out_head: "Done" }, "x"), "",
+    "a wait whose time ran out is an old snapshot's: as before");
 });
 
 test("the preview is regular sans in the preview token, one line with an ellipsis; the token keeps 4.5:1 or more", () => {

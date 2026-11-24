@@ -19,6 +19,10 @@ from core import i18n, journal, spool
 from modules.web.server import Web
 from tests.fakes import exe, lang, tz
 from tests.fakes import cut
+from core import cutout
+
+# the Claude account pool features: listed only where the pool is in the tree (not on the open flavor)
+POOL = ["accounts", "accounts.use"] if cutout.present("profile") else []
 
 
 def write_decided(j, ev, why):
@@ -865,6 +869,9 @@ class WebTest(unittest.TestCase):
                 ("/api/session/effort", {"session": "a", "level": "high"}, "session.effort_set", "a", {"level": "high"}),
                 ("/api/away", {"hours": 2}, "owner.away", None, {"hours": 2}),
                 ("/api/away", {}, "owner.away", None, {"hours": None}),
+                # /away deputies [<person> …] (core/deputies.py, spec d2679763)
+                ("/api/away", {"deputies": ["Anna"]}, "owner.away", None, {"hours": None, "deputies": ["Anna"]}),
+                ("/api/away", {"deputies": True}, "owner.away", None, {"deputies": True}),
                 ("/api/restart", {"parts": ["web"]}, "hub.restart_requested", None, {"parts": ["web"]}),
                 ("/api/restart", {"parts": []}, "hub.restart_requested", None, {"parts": []})):
             self.assertEqual(self.req("POST", path, body)[0], 202, path)
@@ -872,7 +879,8 @@ class WebTest(unittest.TestCase):
             self.assertEqual((ev["type"], ev["entity"], ev["data"]["channel"], ev["data"]["owner"]), (kind, entity, "web", True))
             self.assertEqual({k: ev["data"][k] for k in data}, data)
         for path, body in (("/api/session/effort", {"session": "a", "level": "huge"}), ("/api/away", {"hours": -1}),
-                           ("/api/away", {"hours": "2"}), ("/api/restart", {"parts": ["nope"]})):
+                           ("/api/away", {"hours": "2"}), ("/api/away", {"deputies": "Anna"}),
+                           ("/api/away", {"deputies": [""]}), ("/api/restart", {"parts": ["nope"]})):
             code, out = self.req("POST", path, body)
             self.assertEqual(code, 400, path)                               # with a reason, nothing into the mailbox
             self.assertTrue(json.loads(out)["error"])
@@ -886,6 +894,29 @@ class WebTest(unittest.TestCase):
         snap = json.loads(self.req("GET", "/api/snapshot")[1])   # the lists for /model and /effort come from the core
         self.assertIn("default", snap["commands"]["models"])
         self.assertIn("xhigh", snap["commands"]["efforts"])
+
+    def test_away_from_the_page_answers_with_what_telegram_says_and_a_repeat_says_it_is_already_away(self):
+        # owner report: /away deputies typed four times, the page showed nothing. The core decides (core_decides), the answer is
+        # the line Telegram sends — until when — and the deputies' lines; a repeat while away says so, with the new end
+        self.seed()
+        self.core_decides()
+        code, out = self.req("POST", "/api/away", {"deputies": True})
+        first = json.loads(out)["text"].split("\n")
+        self.assertEqual(code, 202)
+        self.assertIn("you are away until /back", first[0])
+        self.assertIn("No deputy is active for this away", first[1])
+        code, out = self.req("POST", "/api/away", {"deputies": True, "hours": 2})
+        again = json.loads(out)["text"].split("\n")
+        self.assertEqual(code, 202)
+        self.assertRegex(again[0], r"^Already away \(since (\d\d\.\d\d )?\d\d:\d\d\), now until (\d\d\.\d\d )?\d\d:\d\d$")   # a date when it is not today
+        self.assertIn("No deputy is active for this away", again[1])
+        self.assertEqual(self.req("POST", "/api/owner/back", {})[0], 202)
+        self.settle()   # the page's reader folds the return
+        code, out = self.req("POST", "/api/away", {"hours": 1})   # a new away, no deputies asked: the line alone
+        text = json.loads(out)["text"]
+        self.assertRegex(text, r"you are away until \d\d:\d\d\.")
+        self.assertNotIn("\n", text)
+        self.assertNotIn("Already", text)
 
     def test_the_snapshot_lists_the_core_commands_a_client_can_call(self):
         # a client outside the page builds the "/" menu and the session menu's "Compact"/"Restart" from
@@ -1107,7 +1138,7 @@ class WebTest(unittest.TestCase):
         snap = json.loads(self.req("GET", "/api/snapshot")[1])
         # folding what is answered is the page's checkbox (2026-10-14): which event is answered up to — always, no
         # icons
-        self.assertEqual((snap["reactions"], snap["features"]), ({"taken": {"a": e["seq"] + 1}}, ["upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"]))
+        self.assertEqual((snap["reactions"], snap["features"]), ({"taken": {"a": e["seq"] + 1}}, ["upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"]))
         self.assertNotIn("reaction", snap["messages"][f"m{e['seq']}"])
         code, _ = self.req("POST", "/api/react", {"session": "a", "target": "5", "emoji": "👍"})
         self.assertEqual(code, 409)

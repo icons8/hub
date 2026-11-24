@@ -122,6 +122,8 @@ def status(st, ev, data, actions, ctx):
     info = sess.setdefault("info", {})
     info["mcp_failed"] = sorted(n for n, s in servers.items() if s == "failed")
     info["mcp_auth"] = sorted(n for n, s in servers.items() if s == "needs-auth")
+    if sess.get("mcp_init"):   # a new process still connects them: what it waits for is shown (parking.mcp_wait)
+        sess["mcp_pending"] = sorted(n for n, s in servers.items() if s == "pending")
     watch = sess.setdefault("mcp_watch", {})
     fix = watch.setdefault("fix", {})
     for server, state in servers.items():

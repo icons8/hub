@@ -8,6 +8,7 @@
 // themselves: the owner connects and disconnects them with a command, the page only displays them. Page code is
 // "full access to the page" wherever it exists.
 import { el } from "./dom.js";
+import { clock } from "./clock.js";
 import { S } from "./state.js";
 import { post } from "./api.js";
 import { problems } from "./ext.js";
@@ -532,7 +533,7 @@ function marketsBlock() {
       title.append(el("h4", null, c.name), el("span", "chip" + (c.official ? " ok" : ""), c.official ? t("web.plugins.official") : t("web.plugins.third_party_short")));
       main.append(title);
       if (c.description) main.append(el("p", "plugin-what clamp-2", c.description));
-      const when = c.updated ? new Date(c.updated * 1000).toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+      const when = c.updated ? clock(c.updated, locale, { day: "numeric", month: "short" }) : "";
       main.append(el("p", "plugin-meta", [c.source, t("web.plugins.entries", { count: c.entries || 0 }),
         c.skipped && t("web.plugins.skipped", { count: c.skipped }), when && t("web.plugins.updated", { when })].filter(Boolean).join(" · ")));
       for (const bad of [c.problem, c.error && t("web.plugins.not_updated", { error: c.error })].filter(Boolean)) main.append(el("p", "plugin-warn", `⚠ ${bad}`));

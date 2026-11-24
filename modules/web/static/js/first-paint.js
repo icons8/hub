@@ -21,4 +21,15 @@
   }
   scale = OLD[scale] || scale;
   if (STEPS.includes(scale)) root.style.setProperty("--ui-scale", scale);
+  // a plugin's stylesheet (the css field, in <head> above this script) that its code turned off or narrowed in this
+  // browser by media — a look the person switched off — keeps that media from the first frame: the code that sets it
+  // runs only after the page is drawn. ext.js keeps the record (hub.sheetMedia: href → media) for what the plugin asked
+  // through hub.addStyle(file, { on }); a sheet the plugin's code no longer speaks for goes back on once it registered
+  try {
+    const media = JSON.parse(localStorage.getItem("hub.sheetMedia") || "null") || {};
+    for (const link of document.querySelectorAll("link[rel=stylesheet][data-plugin]")) {
+      const m = media[link.getAttribute("href")];
+      if (typeof m === "string") link.media = m;
+    }
+  } catch { /* no storage or a broken record: the sheets as the page has them */ }
 })();

@@ -138,10 +138,13 @@ def popen_outside(cmd):
     not be left, probe A0): created by WMI (Win32_Process.Create), as the same user, without a window. -> True when
     WMI started it; False — it did not (the caller falls back to popen_detached). The new process has the user's own
     environment and folder, not the caller's: what it needs goes on its command line."""
-    # a failed call is non-terminating and leaves $r empty ([int]$null is 0): any error, or no answer, is not a start
-    script = ("$ErrorActionPreference = 'Stop'; $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create "
-              "-Arguments @{CommandLine = $env:HUB_OUTSIDE_CMD}; if ($null -eq $r -or $null -eq $r.ProcessId) "
-              "{ exit 9 }; exit [int]$r.ReturnValue")
+    # a failed call is non-terminating and leaves $r empty ([int]$null is 0): any error, or no answer, is not a start.
+    # ShowWindow 0 (SW_HIDE, STARTUPINFO.wShowWindow): a console program (python.exe) gets a console of its own from
+    # WMI, and without it the console window showed on the owner's desktop at every start (18.11)
+    script = ("$ErrorActionPreference = 'Stop'; $si = New-CimInstance -CimClass (Get-CimClass Win32_ProcessStartup) "
+              "-ClientOnly -Property @{ShowWindow = [uint16]0}; $r = Invoke-CimMethod -ClassName Win32_Process "
+              "-MethodName Create -Arguments @{CommandLine = $env:HUB_OUTSIDE_CMD; ProcessStartupInformation = $si}; "
+              "if ($null -eq $r -or $null -eq $r.ProcessId) { exit 9 }; exit [int]$r.ReturnValue")
     try:
         r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
                            env={**os.environ, "HUB_OUTSIDE_CMD": subprocess.list2cmdline(cmd)}, capture_output=True,
@@ -679,6 +682,17 @@ def owner_env(env):
     return env
 
 
+# the start of both Git Bash wrappers (nested): text that starts with "/" is not converted, the paths of the call are
+_ARGS = ('# Git Bash: an argument that starts with / is a path if its first folder is there, else text: one more\n'
+         '# exclusion (a prefix) for MSYS, which converts the rest of the call as always\n'
+         't=\npath() { r=${1#/}; [ -e "/${r%%/*}" ]; }\n'
+         'excl=${MSYS2_ARG_CONV_EXCL-}\n'
+         'for a; do case "$a" in /*) path "$a" || { t=1; excl=${excl:+$excl;}$a; };; esac; done\n'
+         'if [ "$t" ]; then\n'
+         '  export HUB_NESTED_ARGS="${MSYS2_ARG_CONV_EXCL-}" MSYS2_ARG_CONV_EXCL="$excl"\n'
+         'fi\n')
+
+
 def nested(shim, state_dir):
     """The `claude` wrapper for a session (hosts/nested/claude) -> (a folder first in PATH, the session's environment
     variables). A `python3` shebang is no support here: most often it is a Microsoft Store stub, not Python. A folder of its
@@ -687,14 +701,26 @@ def nested(shim, state_dir):
     console code page and expands %...% in it (review: a folder with a Cyrillic name or a "%" in it, and the wrapper
     did not start). The HUB_NESTED_FLAGS marker lets the wrapper look for the real claude past this folder. `hub` and
     `hub.cmd` are there too: the `bin/hub` shebang is the same python3, and `hub` from a session's Bash exited with code
-    49 (2026-10-06, test bench: a hub session could neither write nor look at the status)."""
+    49 (2026-10-06, test bench: a hub session could neither write nor look at the status). Git Bash turns an argument
+    that starts with "/" into a Windows path on the way to Python, a text too: `hub slash "/ship X-12"`, `hub send s
+    "/ship X-12"`, the task of `hub session new … --cwd DIR` reached the hub as "C:/Program Files/Git/ship X-12" (18.11).
+    A list of commands does not help: a path and a text come in one call (--cwd, --repo, send-file's caption). So per
+    argument: one whose first folder is there (/tmp, /c, /usr) is a path, any other is text. Each text of the call,
+    whole, is added to the caller's MSYS2_ARG_CONV_EXCL (prefixes, ";"): MSYS leaves it as typed and converts the rest
+    as without it (a path glued to an option, "//x", the caller's own MSYS_NO_PATHCONV and exclusions; review of the
+    first take, which turned MSYS off for the call and converted whole path arguments itself). Without a text,
+    everything goes as before. A bare "/tmp" or "/dev" stays a path, as it was; a text that is the start of a path of
+    the same call ("/t" and /tmp/x) keeps that path from MSYS too. `claude -p "/ship X-12"` the same: both Git Bash
+    wrappers start with _ARGS. MSYS reads the exclusions from the environment of the program it starts, so they go on
+    to it: HUB_NESTED_ARGS keeps the caller's value, and nested_args() puts it back first thing (else the nested
+    claude's Bash would keep these texts unconverted in its programs' calls too)."""
     d = os.path.join(state_dir, "nested")
     os.makedirs(d, exist_ok=True)
-    files = {"claude": ('#!/bin/sh\n# hosts/nested/claude (HUB_NESTED_FLAGS)\n'
+    files = {"claude": ('#!/bin/sh\n# hosts/nested/claude (HUB_NESTED_FLAGS)\n' + _ARGS +
                         'exec "$HUB_NESTED_PYTHON" "$HUB_NESTED_SHIM" "$@"\n'),
              "claude.cmd": ('@rem hosts/nested/claude (HUB_NESTED_FLAGS)\r\n'
                             '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_SHIM%" %*\r\n'),
-             "hub": '#!/bin/sh\nexec "$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" "$@"\n',
+             "hub": '#!/bin/sh\n' + _ARGS + 'exec "$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" "$@"\n',
              "hub.cmd": '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_HUB%" %*\r\n'}
     for name, text in files.items():
         path = os.path.join(d, name)
@@ -709,6 +735,17 @@ def nested(shim, state_dir):
         replace(path + ".tmp", path)
     hub = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "hub")
     return d, {"HUB_NESTED_PYTHON": sys.executable, "HUB_NESTED_SHIM": os.path.abspath(shim), "HUB_NESTED_HUB": hub}
+
+
+def nested_args():
+    """First thing in what a Git Bash wrapper starts (bin/hub, hosts/nested/claude): the caller's MSYS2_ARG_CONV_EXCL
+    back (nested), so the switch for the wrapper's own call does not reach the programs started further on."""
+    if "HUB_NESTED_ARGS" in os.environ:
+        was = os.environ.pop("HUB_NESTED_ARGS")
+        if was:
+            os.environ["MSYS2_ARG_CONV_EXCL"] = was
+        else:
+            os.environ.pop("MSYS2_ARG_CONV_EXCL", None)
 
 
 def exec_instead(argv):

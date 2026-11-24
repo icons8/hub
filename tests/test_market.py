@@ -175,20 +175,86 @@ class Market(unittest.TestCase):
         asked.clear()
         return m, asked, path
 
-    def test_a_folder_that_cannot_be_moved_leaves_the_installed_plugin_as_it_was(self):
-        # Windows: the folder of a running plugin cannot be renamed — we do not stop the process, the update refuses
-        m, asked, path = self.installed_with_update()
-        before = self.cfg()["extensions"]["alice:stats"]
+    def busy_folder(self, path, asked, alive):
+        """Windows: the folder of a running plugin cannot be renamed while its process lives; the process dies when the
+        hub is asked to restart the part with the plugin switched off in the settings."""
         real = os.rename
 
         def rename(a, b):
-            if a == path:
+            if a == path and alive[0]:
                 raise PermissionError(13, "The process cannot access the file because it is being used")
             real(a, b)
-        with mock.patch.object(market.os, "rename", rename), self.assertRaises(market.Error) as e:
+
+        def restart(parts):
+            asked.append((parts, bool(self.cfg()["extensions"]["alice:stats"].get("disabled"))))
+            if asked[-1][1] and "die" in alive:
+                alive[0] = False
+        return mock.patch.object(market.os, "rename", rename), restart
+
+    def test_an_update_stops_the_process_that_holds_the_folder_and_starts_it_again(self):
+        # Windows, WinError 32: the install of a plugin with `run` failed in the swap, the owner had to switch the plugin
+        # off by hand. Now the install switches it off, restarts the part, swaps and brings it back
+        m, asked, path = self.installed_with_update()
+        alive = [True, "die"]
+        patch, m.restart = self.busy_folder(path, asked, alive)
+        with patch, mock.patch.object(market.time, "sleep"):
+            m.update("stats", reviewed=True)
+        self.assertEqual(asked[0], (["ext:alice:stats"], True))     # stopped with the flag on
+        self.assertEqual(asked[-1], (["ext:alice:stats"], False))   # started after the swap, flag off
+        self.assertNotIn("disabled", self.cfg()["extensions"]["alice:stats"])
+        with open(os.path.join(path, "main.py")) as f:
+            self.assertIn("print(2)", f.read())
+
+    def test_a_failed_request_to_stop_the_part_does_not_leave_the_plugin_switched_off(self):
+        # the hub could not take the request (the flag was already written): the plugin must not stay off for good
+        m, asked, path = self.installed_with_update()
+
+        def restart(parts):
+            raise OSError("the hub does not answer")
+        m.restart = restart
+        patch, _ = self.busy_folder(path, asked, [True])
+        with patch, mock.patch.object(market.time, "sleep"), self.assertRaises(OSError):
+            m.update("stats", reviewed=True)
+        self.assertNotIn("disabled", self.cfg()["extensions"]["alice:stats"])
+        self.assertFalse(os.path.exists(path + market.NEW))   # the downloaded copy does not stay next to the plugin
+
+    def test_a_swap_that_cannot_put_either_copy_in_place_keeps_both(self):
+        # the old copy is set aside, the new one cannot go in and the old one cannot come back: the folder is gone and
+        # the two copies next to it are all there is, so neither is deleted
+        m, asked, path = self.installed_with_update()
+        real = os.rename
+
+        def rename(a, b):
+            if b == path:
+                raise PermissionError(13, "held")
+            real(a, b)
+        with mock.patch.object(market.os, "rename", rename), self.assertRaises(OSError):
+            m.update("stats", reviewed=True)
+        for tail in (market.NEW, market.OLD):
+            self.assertTrue(os.path.isdir(path + tail), tail)
+
+    def test_the_retries_outlast_the_time_hub_up_gives_a_stopped_part(self):
+        # 10 s of retries were shorter than the stop grace: a plugin slow to exit failed the swap all the same
+        self.assertGreater(market.SWAP_TRIES * 0.5, market.platforms.current.stop_grace(False))
+
+    def test_a_plugin_without_run_is_not_stopped(self):
+        asked = []
+        m = self.m(restart=asked.append)
+        self.put(m, "alice/hub-mascot")
+        self.commit("alice", "hub-mascot", files={"main.js": "// 2\n"})
+        self.again(m, "mascot", "alice/hub-mascot")
+        self.assertEqual(asked, [])
+
+    def test_a_folder_that_still_cannot_be_moved_leaves_the_plugin_as_it_was_and_starts_it(self):
+        m, asked, path = self.installed_with_update()
+        before = self.cfg()["extensions"]["alice:stats"]
+        alive = [True]   # the process does not die
+        patch, m.restart = self.busy_folder(path, asked, alive)
+        with patch, mock.patch.object(market.time, "sleep"), self.assertRaises(market.Error) as e:
             m.update("stats", reviewed=True)
         self.assertIn("turn the plugin off", str(e.exception))
-        self.assertEqual(asked, [])
+        self.assertEqual(asked[0], (["ext:alice:stats"], True))
+        self.assertEqual(asked[-1], (["ext:alice:stats"], False))   # brought back even on failure
         self.assertEqual(self.cfg()["extensions"]["alice:stats"], before)
         with open(os.path.join(path, "main.py")) as f:
             self.assertNotIn("print(2)", f.read())
@@ -344,13 +410,13 @@ class Market(unittest.TestCase):
         self.reviewed(m, "alice/hub-mascot")
         real = market._swap
 
-        def slow(new, path):
+        def slow(new, path, **kw):
             with open(self.cfg_path) as f:
                 cfg = json.load(f)
             cfg["title"] = "owl"   # while cloning, the page changed the hub's name
             with open(self.cfg_path, "w") as f:
                 json.dump(cfg, f)
-            return real(new, path)
+            return real(new, path, **kw)
         with mock.patch.object(market, "_swap", slow):
             m.install("alice/hub-mascot", reviewed=True)
         self.assertEqual(self.cfg()["title"], "owl")

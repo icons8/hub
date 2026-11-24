@@ -37,6 +37,21 @@ class SentFileInTheFeed(unittest.TestCase):
                          ("/w/shots/map.png", "the map — looks like this", "map.png", True))
         self.assertFalse([x for x in self.r.timelines.get("hub") or [] if x["kind"] == "file"])
 
+    def test_a_file_from_a_schedule_job_is_also_a_row_of_the_hub_feed(self):
+        # 20.11: a command job of a sleeping session sent a file: it landed only in that session's feed — no turn, no
+        # mark, nobody to read it. A job's file is the owner's news like `hub notify` from a job: the hub feed has it
+        # too, marked whose it is (the "sent you by" line)
+        self.ev("owner.file", None, path="/w/invoice.xlsx", caption="ready", channel="session", owner=False,
+                sender="maps", schedule_job="monthly")
+        (own,) = [x for x in self.r.timelines.get("maps") or [] if x["kind"] == "file"]
+        (row,) = [x for x in self.r.timelines.get("hub") or [] if x["kind"] == "file"]
+        self.assertEqual((own["path"], own.get("by")), ("/w/invoice.xlsx", None))
+        self.assertEqual((row["path"], row["caption"], row["by"], row["name"]), ("/w/invoice.xlsx", "ready", "maps", "invoice.xlsx"))
+
+    def test_a_file_of_the_hubs_own_job_is_one_row(self):
+        self.ev("owner.file", None, path="/w/a.pdf", channel="session", owner=False, sender="hub", schedule_job="tidy")
+        self.assertEqual(len([x for x in self.r.timelines.get("hub") or [] if x["kind"] == "file"]), 1)
+
     def test_a_file_from_outside_a_session_goes_to_the_hub_feed(self):
         self.ev("owner.file", None, path="/w/report.pdf", caption=None, **OWNER)
         (it,) = [x for x in self.r.timelines.get("hub") or [] if x["kind"] == "file"]

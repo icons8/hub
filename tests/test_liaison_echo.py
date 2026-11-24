@@ -2,7 +2,9 @@
 accepted the liaison's sending (core.bus_out) or its passing on (bus.pass_requested), there was no refusal and no card to
 the owner, and the turn is not on the owner's words: the session whose words went out, or the one the item was passed to,
 tells the owner itself (reducer._merged_into, `merged`). The result stays in the liaison's own feed. A refusal, a card,
-the owner's words in the turn, a turn without a sending and a sleeping addressee keep the result "new" as before."""
+the owner's words in the turn, a turn without a sending and a sleeping addressee keep the result "new" as before.
+A session's letter the liaison refuses with nothing sent or passed (it cannot read a file, no such contact) is answered by
+its result: the core brings it to the session as a message and folds it into it, the session tells the owner."""
 import tests  # noqa: F401 — do not see the machine's settings
 import unittest
 
@@ -11,6 +13,8 @@ from core import busstate, liaison, reducer, views
 CONTACT, FP, THREAD = "maps-hub", "hb1-abcdefghijklmnopqrstuvwxyz", "0e157fdd8b36c16f825af069b1b2842a"
 S = {"channel": "session", "owner": False}
 L = {**S, "sender": liaison.NAME}
+ASK = "hub send liaison --to maps-hub \"the text verbatim from the file /home/x/tiles/note.md\""
+REFUSAL = "Not sent: I cannot read files, the text of /home/x/tiles/note.md is not in the message"
 
 
 class LiaisonEcho(unittest.TestCase):
@@ -314,6 +318,212 @@ class LiaisonEcho(unittest.TestCase):
         self.signed(self.send(text="PNG, 256 px"))   # the liaison answers the other hub itself: no session's words
         result = self.end(liaison.NAME, "Answered maps-hub: PNG, 256 px")
         self.assertTrue(self.new(liaison.NAME, result))
+
+    # --- a refusal with nothing sent: the answer to the asking session ---------------------------------------------------
+    def told(self, name="maps"):
+        """The messages the liaison's results brought to a session."""
+        return [m for m in self.st["messages"].values()
+                if m["session"] == name and m.get("relay") and (m.get("from") or {}).get("name") == liaison.NAME]
+
+    def test_a_refusal_with_nothing_sent_reaches_the_asking_session(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.seen_all()
+        self.turn(liaison.NAME, m)
+        result = self.end(liaison.NAME, REFUSAL)
+        got = self.told()
+        self.assertEqual([x["text"] for x in got], [REFUSAL])
+        self.assertIn(m, got[0]["origin"])
+        self.assertFalse(self.new(liaison.NAME, result))
+        self.assertEqual(self.st["sessions"][liaison.NAME]["merged"], {"seq": result, "into": "maps"})
+
+    def test_the_same_in_the_owners_chain(self):
+        word = f"m{self.ev('message.received', None, src='web', to='maps', text='Ask the other hub', channel='web', owner=True)}"
+        self.turn("maps", word)
+        m = self.letter(text=ASK)
+        self.end("maps", "Asked the other hub, will tell you its answer")
+        self.turn(liaison.NAME, m)
+        result = self.end(liaison.NAME, REFUSAL)
+        self.assertEqual([x["text"] for x in self.told()], [REFUSAL])
+        self.assertFalse(self.new(liaison.NAME, result))
+
+    def test_a_short_refusal_is_delivered_too(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.end(liaison.NAME, "No file access")
+        self.assertEqual([x["text"] for x in self.told()], ["No file access"])
+
+    def test_a_request_the_core_refused_is_delivered_too(self):
+        self.turn("maps", (m := self.letter(text="Tell nobody-hub: hello")))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.ev("bus.send_requested", None, ok=False, contact="nobody-hub", text="hello", **{"channel": "session", "owner": False, "sender": liaison.NAME})
+        self.end(liaison.NAME, "Not sent: no such contact nobody-hub")
+        self.assertEqual(len(self.told()), 1)
+
+    def test_a_sent_letter_stays_an_echo(self):
+        self.turn("maps", (m := self.letter()))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.signed(self.send(m))
+        result = self.end(liaison.NAME, "The words of maps went to the hub maps-hub")
+        self.assertEqual(self.told(), [])
+        self.assertEqual(self.st["sessions"][liaison.NAME]["merged"], {"seq": result, "into": "maps"})
+
+    def test_a_passed_item_stays_an_echo(self):
+        got, bid = self.incoming()
+        self.turn(liaison.NAME, got)
+        self.pass_on(bid)
+        self.end(liaison.NAME, "Passed the news of maps-hub to maps")
+        self.assertEqual(self.told(), [])
+
+    def test_a_fyi_letter_is_not_asked_an_answer(self):
+        self.turn("maps", (m := f"m{self.ev('message.received', None, to=liaison.NAME, text=ASK, fyi=True, channel='session', owner=False, sender='maps')}"))
+        self.end("maps", "Told")
+        self.turn(liaison.NAME, m)
+        result = self.end(liaison.NAME, REFUSAL)
+        self.assertEqual(self.told(), [])
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_the_owners_words_stay_with_the_owner(self):
+        word = f"m{self.ev('message.received', None, src='web', to=liaison.NAME, text='Tell maps-hub the tiles are late', channel='web', owner=True)}"
+        self.turn(liaison.NAME, word)
+        result = self.end(liaison.NAME, "Not sent: no such contact")
+        self.assertEqual(self.told(), [])
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_a_session_that_is_gone_gets_nothing(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.st["sessions"]["maps"]["state"] = "closed"
+        result = self.end(liaison.NAME, REFUSAL)
+        self.assertEqual(self.told(), [])
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_a_sleeping_session_is_woken_and_the_owner_still_sees_it(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.st["sessions"]["maps"]["state"] = "asleep"
+        result = self.end(liaison.NAME, REFUSAL)
+        self.assertEqual(len(self.told()), 1)
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_an_error_result_is_not_delivered(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.ev("turn.result", liaison.NAME, src="hook", text="API error", is_error=True)
+        self.assertEqual(self.told(), [])
+
+    def test_a_later_turn_does_not_repeat_it(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.end(liaison.NAME, REFUSAL)
+        got, bid = self.incoming()
+        self.turn(liaison.NAME, got)
+        self.pass_on(bid)
+        self.end(liaison.NAME, "Passed to maps")
+        self.assertEqual(len(self.told()), 1)
+
+    def test_a_decision_on_an_item_beside_the_letter_keeps_the_result_with_the_owner(self):
+        self.ev("chat.connected", None, service="telegram", reply=True, user={"id": "1001", "name": "Owner"},
+                channel="telegram", owner=False)
+        for kind, extra in (("chat.send_requested", {"text": "tomorrow"}), ("chat.done_requested", {}),
+                            ("bus.done_requested", {"why": "a greeting"})):
+            with self.subTest(kind):
+                self.ev("chat.received", None, service="telegram", conv="2002", msg=self.seq, text="when is the call?",
+                        **{"from": {"id": "2002", "name": "Pat"}}, channel="telegram", owner=False)
+                person = f"c{self.seq}"
+                self.turn("maps", (m := self.letter(text=ASK)))
+                self.end("maps", "Asked")
+                got, bid = self.incoming()
+                self.turn(liaison.NAME, m)
+                self.ev(kind, None, inbox=bid if kind.startswith("bus") else person, **extra, **L)
+                result = self.end(liaison.NAME, "Not sent: no file access; answered the other one")
+                self.assertEqual(self.told(), [])
+                self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_a_rule_beside_a_refused_letter_still_answers_the_session(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.ev("bus.rule_requested", None, op="add", contact=CONTACT, text="tiles in PNG only", **L)
+        self.end(liaison.NAME, "Not sent (no file access); wrote down the rule")
+        self.assertEqual(len(self.told()), 1)
+
+    def test_two_letters_of_one_session_get_one_answer(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        again = self.letter(text=ASK + " twice")
+        self.ev("turn.started", liaison.NAME, src="hook", marker=m, also=[m, again])   # read together
+        self.end(liaison.NAME, REFUSAL)
+        self.assertEqual(len(self.told()), 1)
+
+    def test_a_refused_letter_beside_a_sent_one_of_another_session(self):
+        self.turn("maps", (a := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn("web", (b := self.letter("web", "Ask the other hub: are the roads ready?")))
+        self.end("web", "Asked")
+        self.ev("turn.started", liaison.NAME, src="hook", marker=a, also=[a, b])   # read together
+        self.signed(self.send(b))
+        result = self.end(liaison.NAME, "The words of web went out; the file of maps I cannot read")
+        self.assertEqual([x["text"] for x in self.told("maps")], ["The words of web went out; the file of maps I cannot read"])
+        self.assertEqual(self.told("web"), [])
+        self.assertEqual(self.st["sessions"][liaison.NAME]["merged"], {"seq": result, "into": "web"})
+
+    def test_a_refused_letter_beside_a_send_not_yet_decided_stays_new(self):
+        self.turn("maps", (a := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn("web", (b := self.letter("web", "Ask the other hub: are the roads ready?")))
+        self.end("web", "Asked")
+        self.ev("turn.started", liaison.NAME, src="hook", marker=a, also=[a, b])   # read together
+        self.send(b)   # no word of the core yet: the owner must hear how it ends
+        result = self.end(liaison.NAME, "Sent the roads, the file of maps I cannot read")
+        self.assertEqual(len(self.told("maps")), 1)
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_a_result_with_no_turn_of_its_own_is_not_relayed_again(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.end(liaison.NAME, REFUSAL)
+        self.ev("turn.result", liaison.NAME, src="hook", text="Compacted")   # `/compact`, `/clear`, a background job's end
+        self.assertEqual(len(self.told()), 1)
+
+    def test_a_question_to_the_owner_keeps_the_result_with_him(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.ev("permission.requested", liaison.NAME, src="hook", request_id="r1", tool="AskUserQuestion",
+                interactive=True, input={"questions": [{"question": "Send it by words?", "options": []}]})
+        result = self.end(liaison.NAME, "I cannot read the file; asked the owner whether to send it by words")
+        self.assertEqual(len(self.told()), 1)   # the session still learns the letter did not go
+        self.assertTrue(self.new(liaison.NAME, result))
+
+    def test_a_waiting_session_does_not_take_the_result_of_a_decided_item(self):
+        self.turn("maps", (m := self.letter(text="Did the tiles arrive?")))
+        self.end("maps", "Asked")
+        self.ev("session.waiting", "maps", text="the liaison's answer", channel="session", owner=False, sender="maps")
+        got, bid = self.incoming()
+        self.ev("turn.started", liaison.NAME, src="hook", marker=m, also=[m, got])
+        self.ev("bus.done_requested", None, inbox=bid, why="a greeting", **L)
+        result = self.end(liaison.NAME, "Closed the greeting; the tiles question is answered by the other hub itself")
+        self.assertEqual(len(self.told()), 1)   # it waits for the answer: it gets it, as before
+        self.assertTrue(self.new(liaison.NAME, result))   # but the closing of the item stays the owner's
+
+
+    def test_the_once_a_turn_guard_holds_without_a_turn_number(self):
+        self.turn("maps", (m := self.letter(text=ASK)))
+        self.end("maps", "Asked")
+        self.turn(liaison.NAME, m)
+        self.st["sessions"][liaison.NAME].pop("turn_seq", None)   # the state of an older core
+        self.end(liaison.NAME, REFUSAL)
+        self.ev("turn.result", liaison.NAME, src="hook", text="Compacted")
+        self.assertEqual(len(self.told()), 1)
 
 
 if __name__ == "__main__":

@@ -379,16 +379,26 @@ def dedup_take(st, ev):
 
 # --- the snapshot of the page and clients ------------------------------------------------------------------------------
 
-_web = {}   # (key want, folder) -> (plugin folder, main file) or None: the manifest is read once per its version
+_web = {}   # (key want, folder) -> (plugin folder, main file, css) or None: the manifest is read once per its version
 
 
 def web_of(want):
-    """A module's page plugin (the web field in module.json): (the folder of its files, the main file relative to it) or None."""
+    """A module's page plugin (the web field in module.json): (the folder of its files, the main file relative to it, its
+    stylesheets relative to it) or None. The css field (2.11) names files relative to the module folder, as web does; a
+    file outside the plugin's folder could not be served at /mod/<name>/web/ and is dropped, as a bad entry is (the field
+    is cosmetic: it costs the module that file, not its load)."""
     k = (want.get("key"), want.get("cwd"))
     if k not in _web:
-        web = modules.read(want.get("cwd") or "", "want")["manifest"].get("web")
-        _web[k] = ((os.path.join(want["cwd"], os.path.dirname(web)), os.path.basename(web))
-                   if isinstance(web, str) and not modules.web_error(web) else None)
+        from core import pluginstyle
+        man = modules.read(want.get("cwd") or "", "want")["manifest"]
+        web = man.get("web")
+        if isinstance(web, str) and not modules.web_error(web):
+            folder = os.path.dirname(web)   # web_error: no backslash, no leading /
+            pre = folder + "/" if folder else ""
+            css = [f[len(pre):] for f in pluginstyle.css_files(man.get("css")) if f.startswith(pre)]
+            _web[k] = (os.path.join(want["cwd"], folder), os.path.basename(web), css)
+        else:
+            _web[k] = None
     return _web[k]
 
 
@@ -396,14 +406,14 @@ def view(mods, state_dir, records=None, now=None):
     """What to add to the snapshot of the page and clients: mods and mod_versions of loaded modules (hubd holds them - the
     want files), plugins - their page plugins, claims - {keys: {key: value}, features: [...]} of the modules that are ready
     now (core/modclaims.py). records - state["modules"] of the same snapshot. No modules - {}: the snapshot as without the Module API."""
-    want = sorted(modpages.pages(state_dir).items(), key=lambda x: (x[1].get("order", 0), x[0]))
+    want = pages_in_order(state_dir)
     if not want:
         return {}
     plugins, keys, features = [], {}, []
     for n, w in want:
         p = web_of(w)
         if p:
-            plugins.append({"name": f"mod:{n}", "main": p[1], "base": f"/mod/{n}/web/"})
+            plugins.append({"name": f"mod:{n}", "main": p[1], "base": f"/mod/{n}/web/", **({"css": p[2]} if p[2] else {})})
         claims = w.get("claims") if isinstance(w.get("claims"), dict) else {}
         launch = ready_launch(state_dir, n, (records or {}).get(n), now) if claims else None
         if not launch:
@@ -428,6 +438,17 @@ def ready_launch(state_dir, name, rec, now=None):
     if not rec.get("ready") or rec["ready"] != run.get("launch"):
         return None
     return rec["ready"] if modrun.status(rec, time.time() if now is None else now) == "ok" else None
+
+
+def web_styles(state_dir):
+    """[(plugin name, address)] of the loaded modules' stylesheets (the css field), in the snapshot's order: the page puts
+    them into its <head> (modules/web/server.py ext_style_links) at the same address hub.addStyle builds."""
+    return [(f"mod:{n}", f"/mod/{n}/web/{f}") for n, w in pages_in_order(state_dir) for f in (web_of(w) or (None, None, []))[2]]
+
+
+def pages_in_order(state_dir):
+    """[(name, want)] of the loaded modules in the snapshot's order (order, then name): view and web_styles walk the same."""
+    return sorted(modpages.pages(state_dir).items(), key=lambda x: (x[1].get("order", 0), x[0]))
 
 
 def web_file(state_dir, name, rel):

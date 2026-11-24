@@ -4,6 +4,7 @@
 // otherwise (a phone, another computer) the address from its bar goes back through the field (POST /api/mcp/callback).
 // A server from hub.json mcp_login_confirm (money, production) — after a confirmation. Model and look — PR #325.
 import { el, icon } from "./dom.js";
+import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { t, locale } from "./i18n.js";
 import { confirmDlg } from "./dialogs.js";
@@ -23,7 +24,7 @@ let rows = [], logins = [], painted = "", timer = null;
 const keyOf = (r) => `${r.server}\n${r.fp ?? ""}`;
 
 function when(ts) {
-  const d = new Date(ts * 1000), hm = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  const d = new Date(ts * 1000), hm = clock(ts, locale);
   if (d.toDateString() === new Date().toDateString()) return hm;
   return `${d.toLocaleDateString(locale, { day: "numeric", month: "short" })}, ${hm}`;
 }

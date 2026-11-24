@@ -21,8 +21,10 @@ const kind = (name) => feed.slice(feed.indexOf(`  ${name}: (it) =>`), feed.index
 test("an own message and an answer to a card get the feed's Reply button with their text as the quote", () => {
   // words: what is on screen as the owner's text — a label, or a screen recording's own text without the app's note
   assert.match(kind("in"), /const words = cast \? cast\.text : shownText\(it\);/);
-  assert.match(kind("in"), /if \(mine && S\.cur && words\) b\.append\(replyBtn\(t\("web\.feed\.reply"\), \{ session: S\.cur\.name, quote: words \}\)\)/,
-    "the quote is what is on screen (a label), a message with only attachments has no button, as a session's");
+  // a message with only attachments is quoted by the names of its files, as a session's file is by its name
+  assert.match(kind("in"), /const said = words \|\| fileNames\(files\);/);
+  assert.match(kind("in"), /if \(mine && S\.cur && said\) b\.append\(replyBtn\(t\("web\.feed\.reply"\), \{ session: S\.cur\.name, quote: said \}\)\)/,
+    "the quote is what is on screen (a label)");
   assert.match(kind("answer"), /replyBtn\(t\("web\.feed\.reply"\), \{ session: S\.cur\.name, quote: what \}\)/);
   assert.doesNotMatch(kind("in"), /return mine \|\| !S\.cur \? r :/, "a selected fragment of an own message can be quoted too");
 });
@@ -49,7 +51,8 @@ test("the text of an own bubble and of an answer to a card is a text block the s
 
 test("the jump from a quote finds own words and answers to cards (quotefind.js), not only sessions' replies", () => {
   const main = fs.readFileSync(path.join(root, "js", "main.js"), "utf8");
-  assert.match(main, /quoteSource\(olderOf\(name, live\)\.concat\(live\), msg, textsIn\)/);
+  assert.match(main, /S\.jumpQuote = .*seekRow\(msg, \(rows\) => quoteSource\(rows, msg, textsIn\)\)/);
+  assert.match(main, /pick\(olderOf\(name, live\)\.concat\(live\)\)/);   // seekRow: the loaded older pages and the live feed
 });
 
 test("the quote mark in a sent bubble is the speech cloud in both sets; the Reply action (button, selection bar) is the arrow", () => {

@@ -120,6 +120,130 @@ class Fold(unittest.TestCase):
         shown = coretext.shown(msg, "ru")
         self.assertEqual(shown, "Logs: look at the errors\n\n" + ru("core.msg.relayed_tail"))
 
+    def test_the_cores_task_lines_are_shown_to_the_owner_without_the_tag_and_the_numbers(self):
+        # the session reads "REPLIED d8: a replied to the owner on m5: "…"": the tag and the numbers are for it (hub show
+        # m5, --about d8); the owner reads only the words — in English too, and the quoted reply as it is (T(shown=…))
+        quote = "see q3 and the d2 branch: done, run the m4 job"
+        owner = delegations.TO_OWNER.format(mid="m5")
+        to_b = delegations.SESSION_WORD.format(name="b")
+        lines = [
+            (delegations.REPLIED.format(id="d8", name="a", target=owner, short=quote),
+             f'a replied to the owner: "{quote}"',
+             ru("core.delegations.replied.shown", name="a", target=ru("core.delegations.to_owner.shown"), short=quote)),
+            (delegations.REPLIED_MORE.format(id="d8", name="a", target=to_b, short="x"),
+             'a replied to session b again: "x"',
+             ru("core.delegations.replied_more.shown", name="a", target=ru("core.delegations.session_word", name="b"),
+                short="x")),
+            (delegations.STOPPED_HUB.format(id="d7", name="b", cut=delegations.CUT_ERROR),
+             "b — the turn broke off with an error, no reply to the owner",
+             ru("core.delegations.stopped_hub.shown", name="b", cut=ru("core.delegations.cut_error"))),
+            (delegations.TIMEOUT_HUB.format(id="d6", name="a", minutes=90),
+             "a has worked on the task longer than 90 minutes",
+             ru("core.delegations.timeout.shown", name="a", minutes=90)),
+        ]
+        for text, english, russian in lines:
+            self.assertRegex(str(text), r"^(REPLIED|STOPPED|TIMEOUT) d\d+", text)   # the session's form stays
+            msg = {"id": "m9", "text": str(text), "l10n": coretext.marks(text)}
+            self.assertEqual(coretext.shown(msg, "en"), english)
+            self.assertEqual(coretext.shown(msg, "ru"), russian)
+            self.assertNotRegex(russian.replace(quote, ""), r"\b[dmq]\d+\b")   # the numbers of the quote are its own
+            self.assertEqual(views.core_row(msg, 9, 109, self.st)["label"], english)   # an English hub has the label too
+        # a line a session acts on keeps its numbers and commands: no shown variant
+        text = delegations.STOPPED_SESSION.format(id="d7", name="a", cut=delegations.CUT_ERROR,
+                                                  how=delegations.HOW_SEND.format(name="a"))
+        msg = {"text": str(text), "l10n": coretext.marks(text)}
+        self.assertIsNone(coretext.shown(msg, "en"))
+        self.assertTrue(coretext.shown(msg, "ru").startswith("STOPPED d7: "), coretext.shown(msg, "ru"))
+        self.assertIn("hub show a", coretext.shown(msg, "ru"))
+
+    def test_every_shown_variant_is_in_the_catalogs_with_no_tag_and_no_number(self):
+        # T(shown=…) registers the variant under <key>.shown: en.json has the text of the code, ru.json a translation,
+        # and neither carries the session's tag or the {id} and {mid} numbers
+        keys = [k for k in coretext.TEMPLATES if k.endswith(coretext.SHOWN)]
+        self.assertGreaterEqual(len(keys), 5)
+        en, rus = catalog("en"), catalog("ru")
+        for key in keys:
+            self.assertIn(key[:-len(coretext.SHOWN)], coretext.TEMPLATES, key)
+            for text in (coretext.TEMPLATES[key], en[key], rus[key]):
+                self.assertNotRegex(text, r"REPLIED|STOPPED|TIMEOUT|\{id\}|\{mid\}", (key, text))
+
+    def test_a_sessions_hub_show_keeps_the_tag_and_the_numbers(self):
+        # the row is one whoever folds it (the live feed, the page's archive parse): the label is the words the owner
+        # reads; a session's own process (HUB_SESSION: `hub show`, `hub show --grep`) prints the text — "REPLIED d8: …
+        # on m5" is what it acts on — and finds the row by the numbers, which only the text has (round three of PR #734)
+        from unittest import mock
+        text = delegations.REPLIED.format(id="d8", name="a", target=delegations.TO_OWNER.format(mid="m5"), short="x")
+        msg = {"id": "m9", "text": str(text), "l10n": coretext.marks(text)}
+        row = views.core_row(msg, 9, 109, self.st)
+        self.assertEqual(row["label"], 'a replied to the owner: "x"')
+        self.assertTrue(views.core_words(row))
+        with mock.patch.dict(os.environ, {"HUB_SESSION": "hub"}):
+            self.assertEqual(views.core_row(msg, 9, 109, self.st), row)   # the same row in a session's process
+            line = views._item_text(row)
+            self.assertIn("REPLIED d8: a replied to the owner on m5: \"x\"", line)
+            self.assertNotIn('the owner: "x"', line.replace('the owner on m5: "x"', ""))
+            # the archive's row (history.grep gives it to views.grep as older): found by the task number, printed
+            # in the session's form
+            self.assertEqual(views.found(row, "d8"), str(text))
+            self.assertEqual(views.found(row, "m5"), str(text))
+            self.assertEqual(list(views.search_texts(row)), [row["label"], str(text)])
+            reader = views.Reader()
+            hits = views.grep(reader, "d8", tz="UTC", older=[("hub", row)])
+            self.assertEqual(len(hits), 1)
+            self.assertIn("REPLIED d8: a replied to the owner on m5", hits[0])
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("HUB_SESSION", None)
+            self.assertTrue(views._item_text(row).endswith(': a replied to the owner: "x"'))   # the owner's terminal
+            self.assertEqual(views.found(row, "replied to the owner"), row["label"])   # the owner's words
+            # the numbers lie only in the text: the owner's search does not find them (the page's own search and the
+            # archive search agree: the first non-empty field, the label), a session's does (above)
+            self.assertIsNone(views.found(row, "d8"))
+            self.assertIsNone(views.found(row, "m5"))
+            self.assertEqual(list(views.search_texts(row)), [row["label"]])
+        # a card answer the core retells in the owner's name keeps its short label in a session's process too
+        answer = views.core_row({"id": "m10", "text": "Answer to question q3: yes", "on_behalf": True,
+                                 "answers_question": "q3", "answer": "yes"}, 10, 110, self.st)
+        self.assertFalse(views.core_words(answer))
+
+    def test_a_plain_phrase_takes_the_plain_target_in_french_spanish_and_portuguese(self):
+        # the target's shown variant (au hub, a la sesión b, à sessão b) is for the phrases that have a variant of their
+        # own; a reminder on a task and the refusal of a spec have none, and their words expect the plain target: "La
+        # tâche d5 de la session b", not "de à la session b" (round three of PR #734)
+        wrong = {"fr": r"\bde à la session\b|\bpar au hub\b", "es": r"\bde a la sesión\b|\ba al hub\b",
+                 "pt-BR": r"\bde à sessão\b|\ba ao hub\b"}
+        want = {"fr": "de la session b", "es": "de la sesión b", "pt-BR": "de sessão b"}
+        for lang in wrong:
+            for phrase in (delegations.NUDGE_TEXT, delegations.NUDGE_LAST):
+                text = phrase.format(id="d5", who=delegations.SESSION_WORD.format(name="b"), mins=10)
+                msg = {"id": "m9", "text": str(text), "l10n": coretext.marks(text)}
+                out = coretext.shown(msg, lang)
+                self.assertNotRegex(out, wrong[lang], (lang, out))
+                self.assertIn(want[lang], out, (lang, out))
+                self.assertIn("d5", out, (lang, out))   # no variant: the task number stays
+            text = delegations.SPEC_WHO.format(id="d5", boss=delegations.TO_HUB)
+            out = coretext.shown({"id": "m9", "text": str(text), "l10n": coretext.marks(text)}, lang)
+            self.assertNotRegex(out, wrong[lang], (lang, out))
+        # while the phrase with a variant keeps the contracted target of its own
+        text = delegations.REPLIED.format(id="d8", name="a", target=delegations.TO_HUB, short="x")
+        self.assertIn("au hub", coretext.shown({"id": "m9", "text": str(text), "l10n": coretext.marks(text)}, "fr"))
+
+    def test_the_owners_line_contracts_the_preposition_in_french_spanish_and_portuguese(self):
+        # "à le", "a al", "para ao" (round two of PR #734): the target carries the contracted preposition (au, al, ao)
+        # and the phrase drops its own — the English variants of the targets exist for that; a session name likewise
+        wrong = r"\bà le\b|\ba al\b|\bpara ao\b|\ba ao\b|\bà la\b.*\bà la\b"
+        want = {"fr": ["au propriétaire", "au hub", "à la session b"],
+                "es": ["al titular", "al hub", "a la sesión b"],
+                "pt-BR": ["ao titular", "ao hub", "à sessão b"]}
+        targets = [delegations.TO_OWNER.format(mid="m5"), delegations.TO_HUB, delegations.SESSION_WORD.format(name="b")]
+        for lang, words in want.items():
+            for phrase in (delegations.REPLIED, delegations.REPLIED_MORE):
+                for target, word in zip(targets, words):
+                    text = phrase.format(id="d8", name="a", target=target, short="x")
+                    out = coretext.shown({"text": str(text), "l10n": coretext.marks(text)}, lang)
+                    self.assertIn(word, out, (lang, out))
+                    self.assertNotRegex(out, wrong, (lang, out))
+                    self.assertNotRegex(out, r"\b[dm]\d+\b", (lang, out))
+
 
 class Text(unittest.TestCase):
     def test_the_word_for_nothing_to_continue_is_the_one_the_core_recognizes(self):

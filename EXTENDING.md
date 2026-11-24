@@ -326,7 +326,7 @@ modules from a folder and an embed's modules (below; not the core's built-in one
   (an experiment, the Codex host) is the points `codex.list`, `codex.decide`, `codex.use`, `codex.add`,
   `codex.remove` and optional points (below, "Codex accounts"), `hubmod.model` without the sessions' model remap
   (below, "Model through the core"), a module without its own process (no `run`, below) and the `task.admit` right with the
-  point `task.admit` (below, "Admitting an executor's launch") and the `message.rush` right (below, "Urgent messages").
+  point `task.admit` (below, "Admitting an executor's launch") and the `message.rush` right (below, "Urgent messages"). 2.11 is the `css` field next to `web`: the page plugin's stylesheets in the page's `<head>` (see the plugins' `css`).
   Each section below states the
   version it applies from.
 - `run` is the process command, started in the module folder. A first word of `python3` or `python` means the hub's own
@@ -1124,6 +1124,22 @@ ignore this callback; keep a fallback inside the view when the capability is abs
 of the view's ☰ item (0, a string, a negative or fractional number or anything else shows nothing). To change it, register
 the view again with the new number. Older hosts ignore it; `hub.capabilities.viewBadge === 1` tells whether this one shows it.
 
+**The page's search field for a view (API 1.39).** A view that searches its own content declares
+`search: { placeholder?, query(text) }` in `addView({...})`. While it is open, the page's search field (the session list's
+one, Cmd+K) is the view's: it shows `placeholder` (a string; without it a neutral "Find…"), typing calls `query(text)` at
+once on every change, Esc and × call `query("")`. The session list is not filtered while the view holds the field, and
+Enter opens no session. The page keeps one text for the session search and one per view: leaving the view gives the field
+back to the session search with its text, and coming back shows the view's text again (the page does not call `query` on
+return — the view keeps its own result). `hub.search({ placeholder?, text? })` changes the field from the open view, for
+example on switching its tabs, without a `query` call — also from `render` of a view being opened, where it acts on that
+view; it returns `false` when this plugin's view with `search` is neither being drawn nor open. On a narrow screen the session list and the view are separate screens, so the field is not on screen with the
+view: `hub.searchField({ placeholder?, text?, onInput(text), mic? })` returns the same search box for the view's own place
+— `{ node, input, set({ text?, placeholder? }), focus() }`, with the magnifier, × while there is text and the microphone
+(`mic: false` — without it; no voice on the hub — no button). Keep the node between snapshots; Cmd+K goes to a visible
+box of the open view (in it or in its `toolbar`) when the shared field is not on screen. Without `search` nothing changes. Older hosts ignore the
+field and have no `hub.search`/`hub.searchField`; `hub.capabilities.viewSearch === 1` tells whether this one has them.
+The example `examples/extension-hello` finds its sessions this way.
+
 Since 1.1 a view also has `show(root)` and `hide(root)`, called when it is opened and left: start and stop animations and
 server polling there; `icon` is the item's icon: a name from the hub's icons (`"flow"`, `"clock"`, `"board"`…) or a
 plugin file (`"icon.svg"`, painted in the text color); `full: true` makes the view fill the whole area with no padding (a
@@ -1198,11 +1214,16 @@ this default; opening/closing the sidebar does not convert the default into a fi
 width. Theme defaults should stay within the supported divider range (200–520px).
 
 **The page language (1.25).** `hub.lang` is the page language code (`ru`, `en`, `de`…; `xx` is a test pseudo-language),
-`hub.locale` is the language for dates and numbers (`toLocaleString(hub.locale, …)`), and `hub.t(key, {substitutions, count})` is a string from the core catalog (`i18n/<language>.json`, `web.*` keys). A plugin keeps its own strings and picks
+`hub.locale` is the language for dates and numbers (`toLocaleString(hub.locale, …)`), `hub.clock(ts, date?)` (API 1.39,
+`hub.capabilities.clock === 1`) writes a time the way the page does — `ts` in seconds or an ISO string (not a time: `""`), `date` the date
+parts before the time (`{day: "numeric", month: "short"}`): a 12-hour locale without a leading zero on the hour ("1:09
+AM"), a 24-hour one with it ("01:09") — and `hub.t(key, {substitutions, count})` is a string from the core catalog (`i18n/<language>.json`, `web.*` keys). A plugin keeps its own strings and picks
 them by `hub.lang`. The hub chooses the language: `language` in hub.json, then the owner's language, then (for a hub whose
 history began before languages existed) Russian, then the browser language, then English (`i18n/README.md`). The same page
 strings are available as `GET /i18n.json` `{lang, dir, messages, fallback}`: the language's strings, and the English ones
-only for what the language lacks.
+only for what the language lacks. `GET /api/keyboards` (API 1.39) is `{layouts: {<language>: {<US key>: <letter>}}}`: the
+keyboard layouts of the language data (`i18n/data/<language>.json`, `keyboard.keys`, Russian for now), through which the
+list search reads a query typed in the wrong layout; a client without it matches only what was typed.
 
 **The plugin channel (1.2)** is posts to the hub journal: a session writes `hub post <plugin> "<text>" [--reply pN]` in its
 own name and reads with `hub feed <plugin> [--last N]`; the plugin process (`run`) writes in the plugin's name
@@ -1383,6 +1404,13 @@ document.addEventListener("contextmenu", (e) => {
 });
 ```
 
+**A whole message outside the feed (API 1.39)**: a plugin or a module that shows messages of its own (letters, a to-do item's
+text) puts the attribute `data-hub-message` on the element holding the text of one message. A triple click inside it then
+selects all of that text, not one paragraph, as in the feed, and a piece selected inside it gets the core's bar over the
+selection with "Copy" (no "Reply": that is the feed's). Only the text belongs inside: buttons and hidden parts are left out
+of a triple click, but a time or a sender's name inside the element would be selected with the words. A core before 1.39
+ignores the attribute (the browser's own triple click), so no check is needed.
+
 **Order in the session list (1.10)**: `hub.addOrder((group, rows, snap) => rows)` lets a plugin reorder a group's rows
 (`"agents"`, `"directions"`, `"workers"`; since 1.16 also the owner's own groups, with ids like `g-…`), for example pinned
 ones on top; it cannot lose, duplicate or add a row, otherwise its order is not used. The owner's own order (drag and drop,
@@ -1462,8 +1490,24 @@ dropped, the rest stays (the install and the catalog check do not refuse the plu
 waits for these files before it paints, as for its own: keep them small. Only for a plugin with a page module (`web`); a theme-only plugin does not take it, a theme
 styles the page only while it is chosen. A page of a core before 1.37 ignores the field, so a plugin that must also work
 there calls `hub.addStyle` as well: for a listed file it adds nothing. A plugin that appears while the page is open
-(an install, an enable) has its files attached before its code runs. A core module's page plugin (`web` in `module.json`)
-has no such field yet: it keeps `hub.addStyle`.
+(an install, an enable) has its files attached before its code runs. A core module's page plugin takes the same field in
+`module.json` (Module API 2.11): `"web": "web/main.js", "css": ["web/look.css"]`, paths relative to the module folder like
+`web`, inside the folder of the `web` file (only that folder is served); `api` must then be `^2.11`.
+
+**A look the person can switch off (API 1.39).** It stays a listed file: the code turns it off with
+`hub.addStyle(file, { on: false })` (the `<link>` gets `media="not all"`) and back on with `{ on: true }`, and the page keeps
+what the plugin asked for in this browser, so the next load has the sheet off from the first frame too. It keeps only that:
+a listed sheet in the record the code did not speak for by the end of its `register()` goes back on and out of the record (a
+version without the switch, a switch the code sets only when the look is off), and a plugin absent for a load (switched off,
+its module stopped) keeps its entry for when it is back, as does a plugin taken off the hub (its entries sit in the record
+until a load of it speaks for the sheet). Ask inside `register()`: an ask later (a click, a timer) comes after the sheet went
+back on, and every load shows the wrong look for a moment. An `async register()` is done when its promise settles: an ask
+after an `await` counts; one that throws is a failed load (its error in "Settings" → "Plugins", as a sync throw) and keeps
+the record as it was — the sheet stays as the last load left it (off, when the record said so), as it does for a plugin
+whose file does not import. `media` the code sets on the `<link>` itself is its own: the page neither keeps it for the
+next load nor takes it off — nor when the code puts it over the value the record set for the first frame. A core before
+1.39 ignores `on` (`hub.addStyle` of a listed file adds nothing there): a plugin that must also work there sets `media` on
+the `<link>` itself as well.
 
 **Themes** are a plugin without code: `"themes": ["nord.json"]` in the manifest and the theme JSON,
 `{"name", "dark", "colors": {"background", "foreground", "primary", …}}` (values of the `tokens.css` variables; ones not
@@ -1519,7 +1563,7 @@ theme), `examples/extension-hello/` (a process and a view).
 
 ### Versions
 
-The hub has a **plugin API version** (`core/version.py`, currently 1.37): the contract with plugins covers the manifest,
+The hub has a **plugin API version** (`core/version.py`, currently 1.40): the contract with plugins covers the manifest,
 `hub.*` on the page, and facts into the spool. The minor number grows when the contract is extended (old plugins keep
 working); the major number grows when something in it is removed or changed. A plugin states in its manifest which version
 it works with: `"hub": "^1.0"`. A plugin for another
@@ -1678,7 +1722,8 @@ held by polling for longer than 15 s, that is also 503 (except `/api/feed`: sinc
 answers with the posts of the latest read-through, like `/api/snapshot`); `/api/usage`, while "Usage" reads the journal archives for the first
 time (after an update, minutes), waits up to 10 s and then answers 503 with `Retry-After`. `/api/snapshot`, `/api/stream` and
 `/api/about` answer with the latest read-through state (until the first read-through the snapshot is empty, and in
-`/api/about` `core_started` and `sessions` are `null`). If the page has more connections than the limit (`core/httpd.py`),
+`/api/about` `sessions` is `null`; `core_started` is read from the journal's end, so the update's watchdog does not wait
+for the read-through). If the page has more connections than the limit (`core/httpd.py`),
 it answers 503 at once and closes; a connection silent for 60 s is closed (with keep-alive, open a new one).
 
 - `GET /api/stream` is an event stream (SSE, gzip-compressed): first a `snapshot`, the whole hub state (sessions and their
@@ -1828,6 +1873,12 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
   the message's `attachments`. The hub supports this if the snapshot has `upload` (`raw` is the path, `max_bytes`,
   `max_inline` is the limit of `/api/upload`) and `upload.raw` in `features`; without them, use `/api/upload` `{name, mime, data}` (base64, up to 20 MB). A drop in the middle of the body means there will be no file.
 - The hub's own addresses (API 1.32, `about.addresses` in `features`): `GET /api/about` → `addresses: [{kind: "ip" | "name", url}]` — the tailnet IP (`http://<ip>:8787`) and the node's tailnet name (`http://<name>:8787`). A client keeps the whole list as fallbacks and tries them in turn: the IP changes when Tailscale is reinstalled on the Mac, the name does not. The list is empty while the tailnet is off. The module also writes `urls_dns` (the same as `urls`, by name) to tailnet.json.
+- A Claude account pool (API 1.39, `accounts` in `features`): the hub has one — the built-in pool, or a login module leads session
+  sign-in. Only then does a client show accounts: "Settings → Accounts", the account name or e-mail in the usage block, the
+  way to all accounts' limits and choosing an account; `accounts.use` comes with it. A hub without a pool (the open flavor
+  with no login module) has neither: its sessions run on the computer's own Claude login, and the usage block shows only
+  that login's limits. Tell it by the feature, not by an empty `account` in the snapshot; a core before 1.39 lists
+  `accounts.use` on every hub, and there `accounts: null` in the snapshot means no pool.
 - Choosing a Claude account (API 1.30, `accounts.use` in `features`): `POST /api/accounts/use {account: <name from the pool>, force?: true}` → 200 `{ok, active}`; 404 means it is not in the pool; 409 `{error, code: paused | busy, why?, until?, forceable?}` (API 1.36: `code`, tell the refusal by it, not by the text; `why` — the cause alone in the hub's language, the window the account waits for: "5-hour limit spent" / "weekly limit spent" at 100%, otherwise its share or the old reason, so a client builds "busy until 15:17 — <why>"; a sign-in module's own `why` as is) means the
   accounts are paused or the account is busy (a limit, the switch threshold, an API refusal), and without `force` it is
   refused with a reason and the reset time; 503 means a sign-in module runs the sign-in (Module API 2.8) and did not answer in
@@ -1873,7 +1924,9 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
   (`mN` → the icon at the owner's message: 👀 taken, 👍 answered, the owner's own, or empty if the owner removed it
   themselves; a session feed
   row's event number → the owner's reaction) and `taken` (session → the number of the turn event begun by the owner's latest word:
-  the rows before it are answered); a reaction is `POST /api/react` `{session, target, emoji, quote}` (an empty `emoji`
+  the rows before it are answered); since API 1.39 also `links` (`mN` → `{session, seq}` while the core's 👍 stands: the feed row
+  of that session, by its event number, that answered the message — the last row the answering turn said; the key is
+  absent when there is none); a reaction is `POST /api/react` `{session, target, emoji, quote}` (an empty `emoji`
   removes it). Without the module `reactions` has only `taken` (folding what was answered is up to the client; on the page it
   is the "Brief" checkbox), and `/api/react` is 409.
 - `waiting` on a session in the snapshot is what it is waiting for now (`hub waiting`: `text`, `ts`); if after that someone
@@ -1884,7 +1937,7 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
   closed (by `state`, even with questions in `pending`); `waiting` means the owner has something to answer (a question as a
   form or card in `pending`, a tool request `needs-owner`, only for a live one: the core does not accept a tool decision for a
   sleeping or parked one), and a question counts for a sleeping one too: an answer will bring it up; `working` means a turn is
-  running, starting, free with background work, or a Claude Code window is open without a form (`terminal`); `idle` means
+  running, starting, free with background work or a compaction (`compacting`), or a Claude Code window is open without a form (`terminal`); `idle` means
   free, parked, in manual mode (`held`: the core does not see its turns in the terminal) or not yet brought up; `asleep` means
   sleeping. The watchdog's guess (`attention`) and `waiting` are not `status`, and have their own fields. Treat an unfamiliar
   value (from future versions) as `idle`; a hub of an earlier version (API below 1.17) has no field. The row icon in the list
@@ -2057,6 +2110,17 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
   stopped turn cut out of the conversation; `back` — done, shown for 24 h; `again` — the filter tripped again within
   24 h of a return: it stays on `got` until something raises it (the owner's reload, a wake), which cuts it too.
   `day` — how many times the filter moved a session of the same account in the last 24 h. A core before has no field.
+- A new process waiting for its MCP servers (API 1.41): a session row in the snapshot has `mcp_wait` — `{servers, since,
+  until}` — while a free (`idle`) session's new Claude Code process has not read its input yet because its MCP servers are
+  still connecting: `servers` — the ones its last status named as pending (empty until the first status), `since` — when the
+  process started, `until` — when Claude Code stops waiting (`MCP_TIMEOUT`); `null` otherwise (the key is absent for a core
+  before 1.41). The state and `status` stay `idle`, delivery is unchanged: a message typed meanwhile waits in its input. The
+  page says "Waiting for MCP…" in the list, `hub status` has a line under the session.
+- A conversation being compacted (API 1.40): a session row in the snapshot has `compacting` — the time (seconds) the compaction
+  began — for as long as the conversation is being compacted, by the core's `/compact` or by Claude Code itself at its
+  threshold; the key is absent otherwise (and for a core before 1.40). `status` is `working` for a free session then. The page
+  says "Compacting the conversation…" above the input and in the list instead of idle or working; the core holds delivery and
+  parking until it ends (a message typed into the session waits), and drops the mark after 10 minutes at the latest.
 - A session's helper agents (API 1.38): an entry of a session row's `background` with `kind: "agent"` has `model` when the
   start of the call named one — the Codex subagent's model, or the `model` of Claude Code's Agent call (without it the agent
   runs on its definition's or the session's model, which Claude Code does not say, and the entry has none). The page's row
@@ -2255,8 +2319,14 @@ it answers 503 at once and closes; a connection silent for 60 s is closed (with 
 - The core's words to a session (API 1.36: "a hub restart cut off your turn", a limit continuation, the executor's
   unmerged branch, the tail of a relayed reply…) go to the session in English; an `in` feed row with such words has
   `label` — the same text in the hub's language, as the page shows it — while `text` stays what the session read. A
-  client shows `label` when there is one; an English hub, an earlier record or a hub of an earlier version has no
-  `label` there. The same for a refusal: `core.rejected` in the journal has `l10n` next to `reason` when the reason is
+  client shows `label` when there is one. The core's lines on a task — "REPLIED d8: a replied to the owner on m5: …",
+  "STOPPED d9: …", "TIMEOUT d7: …" — have as `label` the line as the owner reads it (API 1.39): the words in the hub's
+  language without the tag and the task and message numbers, in an English hub too; `text` keeps the session's form,
+  and a session's own `hub show` prints `text` for such a row (core/views.py core_words); a session's own search
+  finds it by either, the owner's and the page's by `label`. A record of an earlier version has the tag in `label` or, in an
+  English hub, no `label`, until the archive is parsed again (core/history.py PARSE) — a client that cuts the tag
+  itself keeps doing so for those; an earlier record of other
+  core words or a hub of an earlier version has no `label` there. The same for a refusal: `core.rejected` in the journal has `l10n` next to `reason` when the reason is
   made of the core's phrases; the page's `/api` refusals (`error`, the receipt of `/api/send`), Telegram and `hub` in
   the owner's terminal already give the reason in the hub's language, a module reads `reason` as the session does.
 - The label of a message the session reads (API 1.36) is English: `[hub:mN from user]`, `from core`, `from hub`,

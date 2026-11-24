@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+import types
 import unittest
 
 from core import i18n, journal, views
@@ -180,6 +182,256 @@ class Full(unittest.TestCase):
     def test_a_session_named_like_a_record_wins(self):
         self.j.append("session.requested", "m1", {"session_id": "x", "cwd": "/w"})
         self.assertIn("m1 —", self.hub("show", "m1"))
+
+
+class CardState(unittest.TestCase):
+    """`hub show qN` says where the card stands: open, answered or closed without an answer (the owner's x, withdrawn,
+    stale, the session gone). Sessions read it to settle a card they hold: a card the owner closed with the x used to end
+    in "no answer yet" like an open one."""
+
+    Q = {"questions": [{"question": "Rotate the key?", "options": [{"label": "Yes"}, {"label": "No"}]}]}
+    OWNER = {"channel": "web", "owner": True}
+
+    def setUp(self):
+        self.state = tempfile.mkdtemp(prefix="show-card-")
+        self.j = journal.Journal(os.path.join(self.state, "journal.jsonl"))
+        self.j.append("session.requested", "maps", {"session_id": "s", "cwd": "/home/x/maps"})
+        self.j.append("session.started", "maps", {"session_id": "s"})
+        self.env = {**os.environ, "HUB_STATE_DIR": self.state, "PYTHONUTF8": "1"}
+
+    def ask(self, rid, name="maps"):
+        return self.j.append("permission.requested", name, {"request_id": rid, "tool": "AskUserQuestion",
+                                                            "interactive": True, "input": self.Q})["seq"]
+
+    def show(self, seq, now=None):
+        from core import tail
+        return views.entry(self.state, f"q{seq}", tail.cached(self.state), tz="UTC", now=now)
+
+    def test_an_open_card(self):
+        out = self.show(self.ask("r1"))
+        self.assertEqual(out[1], "state: open — waits for the owner's answer")
+        self.assertEqual(out[-1], out[1])
+        self.assertNotIn("no answer yet", "\n".join(out))
+
+    def test_an_answered_card(self):
+        seq = self.ask("r1")
+        self.j.append("permission.answered", "maps", {"request_id": "r1", "behavior": "allow", "answers": {
+            "Rotate the key?": "No"}, **self.OWNER})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: answered")
+        self.assertRegex(out[-1], r"^answer \(.*\): Rotate the key\? → No$")
+
+    def test_a_card_closed_with_the_x(self):
+        seq = self.ask("r1")
+        self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})
+        out = self.show(seq)
+        self.assertRegex(out[1], r"^state: closed without an answer — the owner closed the card \(.*\)$")
+        self.assertEqual(out[-1], out[1])
+        self.assertNotIn("no answer yet", "\n".join(out))
+
+    def test_a_withdrawn_card(self):
+        seq = self.ask("r1")
+        self.j.append("question.withdrawn", "maps", {"id": f"q{seq}", "why": "same as q5", "channel": "session",
+                                                     "owner": False, "sender": "maps"})
+        out = self.show(seq)
+        self.assertRegex(out[1], r"^state: closed without an answer — withdrawn by maps \(.*\): same as q5$")
+        self.assertEqual(out[-1], out[1])
+
+    def test_a_stale_card(self):
+        from core import owner
+        out = self.show(self.ask("r1"), now=time.time() + owner.ASK_TTL + 60)
+        self.assertEqual(out[1], "state: closed without an answer — stale: no answer for over 24 h")
+        self.assertEqual(out[-1], out[1])
+
+    def test_a_card_of_a_removed_session(self):
+        seq = self.ask("r1")
+        self.j.append("session.ended", "maps", {})   # it fell asleep: only a sleeping one is removed
+        self.j.append("session.remove_requested", "maps", {"channel": "cli", "owner": True})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: closed without an answer — the session is gone")
+        self.assertEqual(out[-1], out[1])
+
+    def test_a_card_answered_in_words(self):
+        """The owner's words to the session close the one open card with no permission.answered."""
+        seq = self.ask("r1")
+        self.j.append("message.received", None, {"to": "maps", "text": "yes, rotate it", "channel": "web",
+                                                 "owner": True})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: answered")
+        self.assertIn("yes, rotate it", out[-1])
+
+    def test_the_cli_prints_the_state_after_the_first_line(self):
+        seq = self.ask("r1")
+        self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})
+        r = subprocess.run([sys.executable, HUB, "show", f"q{seq}"], env=self.env, capture_output=True, text=True,
+                           encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertTrue(lines[0].startswith(f"q{seq} ·"))
+        self.assertTrue(lines[1].startswith("state: closed without an answer"))
+
+    def test_a_refused_dismissal_leaves_the_card_open(self):
+        seq = self.ask("r1")
+        self.j.append("question.dismissed", "maps", {"request_id": "r1", "channel": "session", "owner": False,
+                                                     "sender": "maps"})
+        self.j.append("core.rejected", None, {"of": seq + 1, "why": "test"})
+        self.assertEqual(self.show(seq)[1], "state: open — waits for the owner's answer")
+
+    def test_a_tool_permission_card_says_its_state_and_answer(self):
+        seq = self.j.append("permission.requested", "maps", {"request_id": "p1", "tool": "Bash", "interactive": False,
+                                                             "input": {"command": "ls /home/x/maps"}})["seq"]
+        self.assertEqual(self.show(seq)[1], "state: open — waits for the owner's answer")
+        self.j.append("permission.answered", "maps", {"request_id": "p1", "behavior": "deny", **self.OWNER})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: answered")
+        self.assertRegex(out[-1], r"^answer \(.*\): deny$")
+
+    def ask_in_dialog(self, rid):
+        """A form the session holds the turn for (not a card): the owner's words to the session answer it."""
+        return self.j.append("permission.requested", "maps", {"request_id": rid, "tool": "AskUserQuestion",
+                                                              "interactive": False, "input": self.Q})["seq"]
+
+    def test_a_form_answered_with_the_owners_words_is_answered(self):
+        """The core answers the open form with the owner's message: no permission.answered in the journal, only the
+        session's record of the answer (how: answered) and the message."""
+        seq = self.ask_in_dialog("r1")
+        self.assertEqual(self.show(seq)[1], "state: open — waits for the owner's answer")
+        self.j.append("message.received", None, {"to": "maps", "text": "no, leave the key", "channel": "web",
+                                                 "owner": True})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: answered")
+        self.assertIn("no, leave the key", out[-1])
+
+    def test_a_card_that_left_with_no_trace_is_not_said_to_be_unanswered(self):
+        """A form dropped when the session left its dialog: no record, no fact, no words: what happened to it is not
+        known, so the line says only that it no longer waits."""
+        seq = self.ask_in_dialog("r1")
+        self.j.append("session.ended", "maps", {})
+        out = self.show(seq)
+        self.assertEqual(out[1], "state: closed — no longer waits for the owner")
+        self.assertEqual(out[-1], out[1])
+        self.assertNotIn("without an answer", "\n".join(out))
+
+    def bus_card(self, holder):
+        """A card of the bus (busstate._card): its qN is the core's bus event, the card is an ask of the liaison."""
+        seq = self.j.append("core.bus_send_held", None, {"out": "o9", "card": {"input": self.Q,
+                                                                               "labels": {"send": "Send"}}})["seq"]
+        return seq, {"sessions": {"liaison": {"name": "liaison", "state": "idle", **holder(f"q{seq}")}}}
+
+    def test_an_open_card_of_the_bus_is_open(self):
+        """The idle rule names a card in "Waits for you" only while `hub show qN` says open: the liaison's card for the
+        owner's Send used to have no entry at all."""
+        seq, state = self.bus_card(lambda q: {"asks": [{"id": q, "request_id": "bus-o9", "tool": "AskUserQuestion",
+                                                        "input": self.Q, "interactive": True, "since": time.time(),
+                                                        "hubbus": {"kind": "out"}}]})
+        out = views.entry(self.state, f"q{seq}", types.SimpleNamespace(state=state), tz="UTC")
+        self.assertTrue(out[0].startswith(f"q{seq} · "))
+        self.assertIn("liaison", out[0])
+        self.assertEqual(out[1], "state: open — waits for the owner's answer")
+        self.assertIn("Rotate the key?", "\n".join(out))
+
+    def test_an_answered_card_of_the_bus_is_answered(self):
+        seq = self.bus_card(lambda q: {})[0]
+        got = self.j.append("permission.answered", "liaison", {"request_id": "bus-o9", "behavior": "allow",
+                                                               "answers": {"Rotate the key?": "Send"}, **self.OWNER})
+        state = {"sessions": {"liaison": {"name": "liaison", "state": "idle", "asks": [], "answered": [
+            {"request_id": "bus-o9", "seq": got["seq"], "how": "answered", "id": f"q{seq}", "ts": got["ts"],
+             "by": "owner"}]}}}
+        out = views.entry(self.state, f"q{seq}", types.SimpleNamespace(state=state), tz="UTC")
+        self.assertEqual(out[1], "state: answered")
+        self.assertRegex(out[-1], r"^answer \(.*\): Rotate the key\? → Send$")
+
+    def test_a_card_of_the_bus_nobody_holds_no_longer_waits(self):
+        seq, state = self.bus_card(lambda q: {})
+        out = views.entry(self.state, f"q{seq}", types.SimpleNamespace(state=state), tz="UTC")
+        self.assertEqual(out[1], "state: closed — no longer waits for the owner")
+
+    def test_a_contacts_card_is_no_question(self):
+        """core.bus_join carries the other hub's card (its key, its name): not a question card, no entry as before."""
+        seq = self.j.append("core.bus_join", None, {"card": {"fp": "hb1-x", "label": "Other hub"}})["seq"]
+        self.assertEqual(views.entry(self.state, f"q{seq}", types.SimpleNamespace(state={}), tz="UTC"), [])
+
+    def test_a_removed_sessions_answered_card_is_not_said_to_be_unanswered(self):
+        """The session is gone, but its card is no longer among its cards: it was closed some way the state no longer
+        keeps (an answer in words whose record rotated out), so "without an answer" is not said."""
+        seq = self.ask("r1")
+        self.j.append("message.received", None, {"to": "maps", "text": "yes, rotate it", "channel": "web",
+                                                 "owner": True})
+        self.j.append("session.ended", "maps", {})
+        self.j.append("session.remove_requested", "maps", {"channel": "cli", "owner": True})
+        from core import tail
+        state = tail.cached(self.state).state
+        self.assertEqual(state["sessions"]["maps"]["state"], "removed")
+        state["sessions"]["maps"]["answered"], state["messages"] = [], {}   # both rotated out
+        ev = journal.event_at(self.state, seq)
+        self.assertEqual(views.card_state(self.state, ev, state, time.time())["state"], "closed")
+
+    def test_the_note_of_the_x_is_not_the_owners_answer(self):
+        seq = self.ask("r1")
+        self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})
+        from core import tail
+        state = tail.cached(self.state).state
+        state["sessions"]["maps"]["answered"] = []   # the record rotated out: the note of the x is still in messages
+        self.assertTrue(any(m.get("card_dismissed") and m.get("answers_question") == f"q{seq}"
+                            for m in state["messages"].values()))
+        ev = journal.event_at(self.state, seq)
+        self.assertEqual(views.card_state(self.state, ev, state, time.time())["state"], "dismissed")
+
+    def test_no_empty_brackets_and_no_question_mark(self):
+        self.assertEqual(views._card_line({"state": "withdrawn"}, "UTC"), "state: closed without an answer — withdrawn")
+        dep = {"name": "Boris", "state": "asked"}
+        self.assertEqual(views._card_line({"state": "open", "qid": "q7", "deputy": dep}, "UTC"),
+                         "state: open — routed to Boris (deputy), waits for their answer")
+        self.assertEqual(views._card_line({"state": "open", "qid": "q7", "deputy": {**dep, "state": "answered"}}, "UTC"),
+                         'state: answered by Boris (deputy) — close the card: hub decided --card q7 '
+                         '"<what> · Boris, deputy · how to roll back"')
+        self.assertEqual(views._card_line({"state": "dismissed"}, "UTC"),
+                         "state: closed without an answer — the owner closed the card")
+        self.assertEqual(views._card_line({"state": "withdrawn", "by": "hub", "ts": 1795200000, "why": "dup"}, "UTC"),
+                         "state: closed without an answer — withdrawn by hub (20.11.2026 18:40): dup")
+
+    def test_a_refused_closing_is_skipped_for_a_later_accepted_one(self):
+        seq = self.ask("r1")
+        first = self.j.append("permission.answered", "maps", {"request_id": "r1", "behavior": "allow", "owner": False,
+                                                             "channel": "session"})["seq"]
+        self.j.append("core.rejected", None, {"of": first, "why": "test"})
+        self.assertIsNone(journal.closing_of(self.state, seq, "r1"))
+        second = self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})["seq"]
+        self.assertEqual(journal.closing_of(self.state, seq, "r1")["seq"], second)
+
+    def test_a_refusal_in_the_next_file_still_refuses(self):
+        """The core's refusal of the archive's last line is the first line of the next file."""
+        seq = self.ask("r1")
+        bad = self.j.append("question.dismissed", "maps", {"request_id": "r1", "channel": "session", "owner": False})["seq"]
+        self.j.append("core.rejected", None, {"of": bad, "why": "test"})
+        path = os.path.join(self.state, "journal.jsonl")
+        lines = open(path, encoding="utf-8").read().splitlines()
+        cut = next(i for i, x in enumerate(lines) if json.loads(x)["seq"] == bad) + 1   # the archive ends on the fact
+        arc = os.path.join(self.state, journal.ARCHIVE)
+        os.makedirs(arc)
+        with open(os.path.join(arc, f"journal-1-{bad}.jsonl"), "w", encoding="utf-8") as f:
+            f.write("\n".join(lines[:cut]) + "\n")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines[cut:]) + "\n")
+        self.assertIsNone(journal.closing_of(self.state, seq, "r1"))
+        ok = self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})["seq"]
+        self.assertEqual(journal.closing_of(self.state, seq, "r1")["seq"], ok)
+
+    def test_a_withdrawal_read_from_the_archive(self):
+        seq = self.ask("r1")
+        self.j.append("question.withdrawn", "maps", {"id": f"q{seq}", "why": "same as q5", "channel": "session",
+                                                     "owner": False, "sender": "maps"})
+        journal.rotate(self.state, {"sessions": {}}, keep=1, per_session=0)
+        self.assertRegex(self.show(seq)[1], r"^state: closed without an answer — withdrawn by maps")
+
+    def test_a_dismissal_read_from_the_archive(self):
+        """The session's record keeps the last cards only; an older one is found in the journal."""
+        seq = self.ask("r1")
+        self.j.append("question.dismissed", "maps", {"request_id": "r1", **self.OWNER})
+        for i in range(20):   # more closed cards than the session's record keeps
+            self.ask(f"x{i}")
+            self.j.append("question.dismissed", "maps", {"request_id": f"x{i}", **self.OWNER})
+        self.assertRegex(self.show(seq)[1], r"^state: closed without an answer — the owner closed the card")
 
 
 class Cache(unittest.TestCase):

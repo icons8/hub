@@ -60,6 +60,8 @@ export function liveLine(s, caption) {
   const own = s.state === "busy" || s.state === "starting";
   // the watchdog's "reply?" is "Waiting for you" in "Now": its line is the action (the caption), not the result
   const waits = s.status === "waiting" || s.state === "dialog" || (s.state === "idle" && !!s.waiting) || !!s.attention;
+  if (s.compacting && !waits) return caption || "";   // "Compacting the conversation…": the caption the core drew, not the last result
+  if (s.mcp_wait?.until > Date.now() / 1000 && s.state === "idle" && !waits) return caption || "";   // "Waiting for MCP…": a free "idle" would be untrue
   if (!waits && !own && !(s.state === "idle" && (s.background || []).length)) return "";
   const gist = own && !waits && s.gist?.text && s.gist.ts >= (s.since || 0) ? s.gist.text : "";
   return gist || caption || "";

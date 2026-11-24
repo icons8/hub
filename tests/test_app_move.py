@@ -131,6 +131,19 @@ class Base(unittest.TestCase):
         return out
 
 
+class RunReadsOemOutput(unittest.TestCase):
+    """`schtasks /Run` of a Russian Windows answers in cp866: text=True read it as UTF-8 (UnicodeDecodeError, byte 0x93)."""
+
+    def test_output_in_the_console_code_page_does_not_fail_and_is_decoded_by_the_platform(self):
+        threads = []
+        child = [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\x93\\xe1'); sys.stderr.buffer.write(b'\\x93\\xe1'); sys.exit(1)"]
+        with mock.patch.object(platforms.current, "output_text", lambda raw: "oem:" + raw.hex()), \
+                mock.patch("threading.excepthook", threads.append):
+            r = appmove._run(child)
+        self.assertEqual((threads, r.returncode, r.stdout, r.stderr), ([], 1, "oem:93e1", "oem:93e1"))
+        self.assertEqual(appmove._not_started(r), [f"{sys.executable} -c: oem:93e1oem:93e1"])
+
+
 class Find(Base):
     def test_a_service_with_a_settings_folder_of_its_own_is_not_offered(self):
         path = self.unit()

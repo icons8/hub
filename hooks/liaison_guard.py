@@ -12,13 +12,13 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.liaison import COMMANDS   # noqa: E402 — the same list bin/hub holds for the liaison
+from core.liaison import COMMANDS, closes_form   # noqa: E402 — the same list bin/hub holds for the liaison
 
 OPEN = ("Bash", "AskUserQuestion", "Skill", "ToolSearch")
 WHY = ("The liaison may run only hub bus, hub chats and hub gist commands — one at a time, with no ;, &, |, redirections, "
        "$, \\, * ? [ ~ or backticks outside single quotes (the text goes in single quotes): hub bus "
-       "send/pass/done/note/decline, hub bus contact ls, hub chats pass/send/done. Files, code, the network and executors "
-       "are closed.")
+       "send/pass/done/note/decline, hub bus contact ls, hub chats pass/send/done, hub decided --card qN (its form a "
+       "deputy answered). Files, code, the network and executors are closed.")
 
 
 def plain_hub(command, commands=COMMANDS):
@@ -28,7 +28,8 @@ def plain_hub(command, commands=COMMANDS):
         return False
     text = command.strip()
     words = text.split()
-    if len(words) < 2 or words[0] != "hub" or commands is not None and words[1] not in commands:
+    if len(words) < 2 or words[0] != "hub" or commands is not None and words[1] not in commands \
+            and not (commands is COMMANDS and closes_form(words[1:])):
         return False
     quote = None
     for c in text:

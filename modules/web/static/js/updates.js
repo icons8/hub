@@ -2,13 +2,14 @@
 // it has been looked at; the view shows the code version and the update history from the shared repository with
 // the CHANGES.md entries; for the shared hub, what is not published yet.
 import { el, icon } from "./dom.js";
+import { clock } from "./clock.js";
 import { S, render } from "./state.js";
 import { confirmDlg, toList } from "./dialogs.js";
 import { post } from "./api.js";
 import { locale, t } from "./i18n.js";
 
 const WHY = { conflict: t("web.updates.why_conflict"), tests: t("web.updates.why_tests"), blocked: t("web.updates.why_blocked") };
-const when = (ts) => new Date(ts * 1000).toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const when = (ts) => clock(ts, locale, { day: "numeric", month: "short" });
 
 // the hub is not running the latest version: the new code is already on disk and waits for a restart, or the update
 // did not take. New code is checked by tests in a separate copy (the update.testing fact until the check finishes):

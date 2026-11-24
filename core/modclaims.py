@@ -25,7 +25,7 @@ FEATURE = re.compile(r"[a-z][a-z0-9_.-]{0,63}")
 # complete by a test (tests/test_modapi_claims.CoreList): every /api/… path in the page code must be here.
 CORE_PATHS = frozenset("/api/" + p for p in (
     "about", "accounts/probe", "app/restore", "app/undo", "accounts/use", "answer", "codex/add", "codex/login", "codex/logout", "away", "backlog", "bus/act", "bus/job", "bus/start", "dismiss", "feed", "feed/post", "file", "history", "history/search", "hold", "inject", "instances",
-    "interrupt", "layout", "marketplaces", "marketplaces/icon", "mcp/callback", "mcp/dismiss", "mcp/link", "mcp/login", "mod", "module-model", "modules", "modules/toggle", "modules/enable", "modules/model", "modules/reset", "modules/forget", "owner/back", "page-key", "signin", "signout", "paths", "permission", "plugins/fix",
+    "interrupt", "keyboards", "layout", "marketplaces", "marketplaces/icon", "mcp/callback", "mcp/dismiss", "mcp/link", "mcp/login", "mod", "module-model", "modules", "modules/toggle", "modules/enable", "modules/model", "modules/reset", "modules/forget", "owner/back", "page-key", "signin", "signout", "paths", "permission", "plugins/fix",
     "plugins/icon", "plugins/install", "plugins/remove", "plugins/review", "plugins/toggle", "plugins/update",
     "push/register", "question/dismiss", "queue/cancel", "react", "restart", "schedule", "secrets", "secrets/fill", "seen", "send",
     "send/receipt", "session/close", "session/compact", "session/effort", "session/fire", "session/icon", "session/kit", "session/model",
@@ -44,7 +44,7 @@ CORE_KEYS = frozenset((
     "files_port", "hub_title", "hub_name", "directions", "direction_tasks", "version", "features", "upload", "context_limit",
     "extensions", "plugins", "plugin_api", "accounts", "codex", "settings", "commands", "code", "_gone", "_delta", "_n", "alerts",
     "alerts_rev", "bus", "app_code", "app_move"))
-CORE_FEATURES = frozenset(("push", "push.alerts", "reactions", "modules", "upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "setup.app", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "voice.raw", "file.thumb"))
+CORE_FEATURES = frozenset(("push", "push.alerts", "reactions", "modules", "upload.raw", "accounts", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "setup.app", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "voice.raw", "file.thumb"))
 
 
 def core_path(path):

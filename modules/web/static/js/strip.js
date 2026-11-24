@@ -6,6 +6,7 @@ import { el, btn, stepNode } from "./dom.js";
 import { S, render, isRunner, runningStep } from "./state.js";
 import { interrupt, stopping, stopExecutor, stoppingUntil } from "./dialogs.js";
 import { post } from "./api.js";
+import { inBubble } from "./outgoing.js";
 import { t, CLOSED } from "./i18n.js";
 import { needsOwner } from "./sidebar.js";
 import { isFolded, foldable, foldToggle, openAsks } from "./askfold.js";
@@ -110,7 +111,7 @@ function undoCancel(id) {
 
 function queueRow(s, it, first, total) {
   const m = stateOf(it), e = cancels.get(it.id), fyi = m.state === "aside";
-  const label = first ? `${fyi ? HEAD_FYI : HEAD_QUEUE} · ${total}` : "";
+  const label = first ? (fyi ? HEAD_FYI : HEAD_QUEUE) + (total > 1 ? ` · ${total}` : "") : "";   // one row: the heading alone, no "· 1"
   if (e) {
     return e.failed
       ? line("fail", label, t("web.strip.not_removed", { text: clip(textOf(it), 60) }), "", btn(t("web.strip.retry"), () => sendCancel(it.id), "quiet"))
@@ -182,7 +183,7 @@ function queueRows(s, queued, head = HEAD_QUEUE) {
   const base = `q${head}${sig}|${s.state}|${open}`;
   if (phone()) {
     // on a phone the queue must not cover the feed: one row "In queue · N ▸" that expands in place when tapped
-    const sum = { sig: base + "p", make: () => { const r = el("div", "strip-row strip-sum"); r.dataset.k = "queue"; r.append(toggle(key, `${head} · ${n}`, open)); return r; } };
+    const sum = { sig: base + "p", make: () => { const r = el("div", "strip-row strip-sum"); r.dataset.k = "queue"; r.append(toggle(key, n > 1 ? `${head} · ${n}` : head, open)); return r; } };
     return open ? [sum, ...queued.map((it, i) => ({ sig: base + "p" + i, make: () => queueRow(s, it, false, n) }))] : [sum];
   }
   const shown = open ? queued : queued.slice(0, SHOWN_QUEUE);
@@ -249,7 +250,7 @@ function rows(s) {
   // the core refused (a refusal comes not as a reply to the request but as silence) — the row returns as "Not removed"
   for (const e of cancels.values()) if (e.done && Date.now() - e.at > REFUSED_AFTER) { e.done = false; e.failed = true; }
   // what was typed is already with the session: a command (/compact) runs for minutes — that is not a queue
-  for (const it of live.filter((x) => x.kind === "in" && stateOf(x).state === "typing")) {
+  for (const it of live.filter((x) => x.kind === "in" && stateOf(x).state === "typing" && !inBubble(x, s.name))) {
     const label = stateOf(it).command ? t("web.strip.running") : t("web.strip.sending");
     out.push({ sig: "run" + it.id + label, make: () => line("queue", label, clip(textOf(it), 90), "") });
   }

@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 const ROOT = path.join(import.meta.dirname, "..", "..");
 const DIR = path.join(ROOT, "modules", "web", "static", "clean");
 const { usageModel, emailSteps, left, WORDS } = await import(pathToFileURL(path.join(DIR, "usage.js")).href);
+const { clock } = await import(pathToFileURL(path.join(DIR, "..", "js", "clock.js")).href);
 const css = fs.readFileSync(path.join(DIR, "clean.css"), "utf8").replace(/\r\n/g, "\n");   // a Windows checkout: CRLF
 const main = fs.readFileSync(path.join(DIR, "clean.js"), "utf8");
 // the page's words come from the catalogs (web.clean.usage_*, web.limits.name_*): here the Russian ones, as clean.js builds them
@@ -106,7 +107,7 @@ test("the text line: yellow only while the core says economy (budget.mode), grey
     const el = (tag, cls, text) => { const n = { cls, text, dataset: {}, kids: [], classList: { add() {} }, append(...k) { this.kids.push(...k); },
       querySelectorAll: () => [], addEventListener() {} }; if (cls === "clean-lim") line = n; return n; };
     const root = { replaceChildren() {} };
-    new Function("hub", "on", "T", `${code}; return limitsLine;`)({ el }, () => true, (k, fb) => fb)(root, s);
+    new Function("hub", "on", "T", "clock", `${code}; return limitsLine;`)({ el }, () => true, (k, fb) => fb, clock)(root, s);
     return line.kids.filter((k) => k.cls === "limseg").map((k) => k.dataset.tone);
   };
   assert.deepEqual(run(snap({ five: 0.4, week: 0.2, eco: true })), ["eco", "eco"], "economy — yellow");

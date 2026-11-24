@@ -206,9 +206,9 @@ class QuietPage(PageInChrome):
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/hub", "init": SPY, "look": None},
                         {"until": f"{face}.includes('/static/clean/a/')", "ms": 15000}, {"eval": face})
         self.assertTrue(got[1]["until"], got)
-        self.assertNotIn("clay-teal-donut", got[-1]["eval"])   # no icon: a character by the name
+        self.assertNotIn("clay-mustard-headset", got[-1]["eval"])   # no icon: a character by the name
         self.ev("session.iconed", "w", icon="🧭", channel="web", owner=True)   # the icon of a character: that character
-        got = self.page({"until": f"{face}.includes('clay-teal-donut')", "ms": 6000}, {"eval": face})
+        got = self.page({"until": f"{face}.includes('clay-mustard-headset')", "ms": 6000}, {"eval": face})
         self.assertTrue(got[0]["until"], got)
 
     def test_an_emoji_of_ones_own_stays_an_emoji_and_the_character_follows_the_icon_in_clean(self):
@@ -234,7 +234,7 @@ class QuietPage(PageInChrome):
         self.assertTrue(got[1]["until"], got)
         self.assertEqual(got[-1]["eval"], ["🦊", "", "🦊", ""], got[-1])   # the emoji, no character anywhere
         self.ev("session.iconed", "w", icon="🎨", channel="web", owner=True)   # a character's icon
-        got = self.page({"until": f"({look})[1].includes('fuzzy-lime-star') && ({look})[3].includes('fuzzy-lime-star')", "ms": 6000}, {"eval": look})
+        got = self.page({"until": f"({look})[1].includes('clay-tomato-glasses') && ({look})[3].includes('clay-tomato-glasses')", "ms": 6000}, {"eval": look})
         self.assertTrue(got[0]["until"], got)
         self.ev("session.iconed", "w", icon="🦊", channel="web", owner=True)   # back: the kept nodes lose the character
         got = self.page({"until": f"({look})[0] === '🦊' && ({look})[1] === '' && ({look})[3] === ''", "ms": 6000}, {"eval": look})
@@ -263,7 +263,7 @@ class QuietPage(PageInChrome):
         self.assertTrue(got[0]["until"], got)
         self.assertEqual(got[-1]["eval"][1], "", got[-1])   # an emoji of one's own is not covered by a character
         self.ev("session.iconed", "w", icon="🎨", channel="web", owner=True)
-        got = self.page({"until": f"({by})?.[2].includes('fuzzy-lime-star')", "ms": 6000}, {"eval": by})
+        got = self.page({"until": f"({by})?.[2].includes('clay-tomato-glasses')", "ms": 6000}, {"eval": by})
         self.assertTrue(got[0]["until"], got)
         self.assertEqual(got[-1]["eval"][1], "", got[-1])
         self.ev("session.iconed", "w", icon="", channel="web", owner=True)

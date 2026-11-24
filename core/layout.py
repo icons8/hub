@@ -44,12 +44,13 @@ def who_may(st, data):
 
 def icon_ok(icon):
     """A custom icon: an emoji or a sign, not text — up to 16 code points (a family emoji — up to 11), no spaces, control
-    characters, Latin letters or digits."""
+    characters, Latin letters or digits. A lone surrogate (it cannot be written to the journal as UTF-8) and U+FFFD (what
+    the spool turns a lone surrogate into) are refused."""
     if not isinstance(icon, str) or not icon or len(icon) > ICON_MAX:
         return False
     for ch in icon:
-        if ch.isspace() or (ch.isascii() and ch.isalnum()) or (unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cn")
-                                                                and ch not in "\u200d"):
+        if ch.isspace() or ch == "\ufffd" or (ch.isascii() and ch.isalnum()) \
+                or (unicodedata.category(ch) in ("Cc", "Cf", "Co", "Cs", "Cn") and ch not in "\u200d"):
             return False
     return True
 

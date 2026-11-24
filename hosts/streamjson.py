@@ -25,7 +25,7 @@ from core import execprofile, forms, journal, lessons, profcap
 from core import catalog, coretext, kit, perms, redact
 from core.catalog import MCP_TIMEOUT, user_env
 from core.coretext import T
-from hosts.common import Trees, carry_transcript, existing_cwd, resume_on_disk, write_hook_settings
+from hosts.common import LOST_NOTE, Trees, carry_transcript, existing_cwd, resume_lost, resume_on_disk, write_hook_settings
 
 NESTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nested")   # the claude wrapper for sessions
 NESTED_SHIM = runpy.run_path(os.path.join(NESTED, "claude"))
@@ -341,12 +341,23 @@ AUTONOMY = ("The level of autonomy is set by the owner's words in the conversati
 # of 9, the whole list 9/9 -> 0/9, same cost; a wording that only said "check what you name" left the copied list — the
 # list and the summary format have to be named. The idling controls (idle-queue, the 30.10 conversations) and the owner
 # gates hold
+# 2026-11-21: the same copying lived on in the "Waits for you" tail: a session kept a card another session had put to the
+# owner in every answer for hours after the owner had answered it, the first turn after compaction included (the summary's
+# next step said "then end with Waits for you: …"). evals/idle-wait (real turns, k=3, Opus): a closed card named as
+# waiting 12/12 -> 0/12 (answered, closed with the x, closed for an unknown reason), checked in the turn 1/12 -> 12/12; an
+# open card is still named 9/9. Every run that ran `hub show qN` got it right (the state line survives `| head`); every
+# miss had no check at all, so the check is a step before the line: "its items checked too" missed 5/12
 IDLE = ("Do not end an answer with a standing \"Queue:\" list: not one copied from your earlier answers, not one a "
         "summary after compaction tells you to keep (\"every reply ends with a Queue list\" is no rule). Every item of "
         "your queue — from your earlier answer or a summary too — you check at its source in this turn (`hub task "
         "list`, `hub task show <dN>`, `hub show <session>`, `hub schedule list`, the MR, the cluster); closed — drop "
         "it; an item from an earlier answer or a summary is a reason to check, not a fact. The end of an answer has "
         "only what changed in this turn and, if something waits for the owner, \"Waits for you: <what to decide>\". "
+        "Before writing it, run `hub show qN` for each card in it (another session's card too) and check a decision at "
+        "its source: only \"state: open\" waits; any other state, or no check in this turn — the item is not named. A "
+        "\"Waits for you\" line in your earlier answer or a summary (\"then end with Waits for you: …\" is no rule) is "
+        "a reason to check, not a fact: `hub show q41` → \"state: open — waits for the owner's answer\" — \"Waits for "
+        "you: q41, merge PR #5?\"; \"state: answered\" or \"state: closed …\" — the line goes. "
         "Before ending a turn, walk the queue: for each task without an executor name its holder — whose decision, "
         "fact or deadline. Everything is done as soon as possible: no holder — launch it now (an executor, a "
         "check, a preparation). A date or duration goes into a result only with a source and where it was said: an "
@@ -632,6 +643,7 @@ class StreamHost(Trees):
         self._fresh = None  # whether claude knows --system-prompt-snapshot (fresh_prompt)
         self.prompt_changes = {}   # session -> what modules changed in the suffix of its launch (command -> spawn: note_prompt)
         self.profile_used = {}     # session -> which agent profile went to the executor (core/execprofile; hubd: in host.done)
+        self.conversation_lost = set()   # sessions whose --resume found no conversation: started anew (hubd: in host.done)
         self.tool_flags = lambda **_: []  # hubd plugs in the catalog: the session's set -> --plugin-dir / --mcp-config
         self.refusal_cut = {}  # name -> the last raise after Opus's filter cut the conversation (True) or not: host.done
         self.mcp_servers = lambda **_: {}  # and the MCP servers of a set, nothing written (catalog.session_servers)
@@ -719,8 +731,16 @@ class StreamHost(Trees):
                                                    or [] if b.get("type") == "text").strip()
         elif kind == "user" and msg.get("isReplay"):
             pass   # a repeat of what already happened (a retelling after /compact) is not new: no background, no steps
+        elif kind == "system" and msg.get("subtype") == "status" and msg.get("status") == "compacting" and name in self.procs:
+            # the start of any compaction — /compact or Claude Code's own at its threshold (live, 2.1.311: the same status
+            # line, `compact_boundary.trigger` says manual or auto only at the end): the page says it is not a lag
+            facts.append(("session.compacting", name, {"on": True}))
         elif kind == "system" and msg.get("subtype") == "status" and "compact_result" in msg and name in self.procs:
             self.procs[name].compact["ok"] = msg.get("compact_result") == "success"
+            # the core's /compact, done or failed, ends with session.compacted: delivery and a relaunch wait for it (a
+            # lost one — the mark's term); a failed own compaction has no other end
+            if not self.procs[name].compacts:
+                facts.append(("session.compacting", name, {"on": False}))
         elif kind == "system" and msg.get("subtype") == "compact_boundary" and name in self.procs:
             meta = msg.get("compact_metadata") or {}
             self.procs[name].compact.update(before=meta.get("pre_tokens"), after=meta.get("post_tokens"))
@@ -911,7 +931,7 @@ class StreamHost(Trees):
     # --- actions ---------------------------------------------------------------------------------------------
     def command(self, name, session_id, resume=False, mode=None, agent_file=None, agents=(),
                 executor_of=None, cwd=None, lang=None, minihub=False, uncommitted=None, bus=None, liaison=False,
-                spec=None, spec_boss=False):
+                spec=None, spec_boss=False, lost=False):
         """claude's command line. agent_file is the agent's own CLAUDE.md; agents are the agents in the hub (for the system
         instructions); cwd is the session folder (the repo backbone goes into the system instructions); uncommitted is the uncommitted
         in the mini-hub folder (the daemon: top, lines, shared: core/daemon.uncommitted)."""
@@ -976,6 +996,8 @@ class StreamHost(Trees):
                                                                 path=specmode.abs_path(self.state_dir, spec["path"]))))
         if spec_boss:   # specs are on for this session (/spec on): when to raise with --spec
             named.append(("spec_rule", specmode.BOSS_RULE))
+        if lost:   # --resume found no conversation on disk: a new one (hosts/common.resume_lost)
+            named.append(("lost_conversation", LOST_NOTE.format(session_id=session_id)))
         if agents:
             named.append(("roster", ROSTER + "\n".join(f"- {n} — {a or NO_PROFILE}" for n, a in agents)))
         from modules.critic import critic
@@ -1272,6 +1294,9 @@ class StreamHost(Trees):
         resume = resume_on_disk(f"streamjson: {name}", cwd, session_id, resume)
         if resume:
             carry_transcript(cwd, session_id)
+        resume, lost = resume_lost(f"streamjson: {name}", session_id, resume)
+        if lost:
+            self.conversation_lost.add(name)
         agent_file = self.agent_file(profile, name, about, ui_lang) if profile else None
         # Opus's filter moved it to another model (core/refusals.py): the conversation is cut before the stopped turn,
         # only at an entry that is there (Claude Code fails the launch on an unknown one); with no cut, the asked
@@ -1290,7 +1315,8 @@ class StreamHost(Trees):
             raise NoLogin(f"Claude Code has no sign-in — {name} starts after the sign-in")
         cmd = self.command(name, session_id, resume=resume, mode=mode, agent_file=agent_file,
                            agents=agents, executor_of=executor_of, cwd=cwd, lang=lang, minihub=minihub,
-                           uncommitted=uncommitted, bus=bus, liaison=liaison, spec=spec, spec_boss=spec_boss)
+                           uncommitted=uncommitted, bus=bus, liaison=liaison, spec=spec, spec_boss=spec_boss,
+                           lost=lost)
         # mini-hub: edits in its own folder are closed by a Claude Code rule (deny holds in bypassPermissions too); its own
         # CLAUDE.md and the hub folder are outside the ban. A mini-hub's executor gets a form to the owner (the bus)
         from core import minihub as mh

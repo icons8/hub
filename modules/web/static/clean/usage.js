@@ -6,6 +6,8 @@
 // words): clean.js draws it and passes the words from the catalogs (web.clean.usage_*); tests/clean/usage-bars.test.mjs runs it
 // without a browser. The weekly Opus and Sonnet windows, when the core sends them, are extra rows of the expanded view.
 
+import { clock } from "../js/clock.js";
+
 export const SPAN = { five_hour: 5 * 3600, seven_day: 7 * 86400, seven_day_opus: 7 * 86400, seven_day_sonnet: 7 * 86400 };
 export const ORDER = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"];
 const MAIN = ["five_hour", "seven_day"];   // the two bars of the compact view
@@ -87,10 +89,9 @@ export function usageModel(snap, { now, words = WORDS, locale, linkDown = false,
   let stale = null;
   if (old) {
     const why = ageWhy(active, linkDown, sinceSnap);
-    const clock = (ts) => new Date(ts * 1000).toLocaleTimeString(locale || undefined, { hour: "2-digit", minute: "2-digit" });
     const lines = [];
-    if (why !== "cache") lines.push(fill(words.at, { time: clock(measured) }));
-    lines.push(fill(words[why], { time: clock(sinceSnap != null ? now - sinceSnap : measured) }));
+    if (why !== "cache") lines.push(fill(words.at, { time: clock(measured, locale) }));
+    lines.push(fill(words[why], { time: clock(sinceSnap != null ? now - sinceSnap : measured, locale) }));
     stale = { why, text: lines.join("\n") };
   }
   // the account line of the expanded view: the e-mail, or the account name as the core gives it when there is no e-mail

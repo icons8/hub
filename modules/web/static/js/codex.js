@@ -4,6 +4,7 @@
 // core: account.limits). The Codex account pool (core/codexslot.py): a row per account — its sign-in, limits, busy or
 // lost, the active one; "Add a Codex account" and a row's "Sign in" give the same link and code.
 import { el } from "./dom.js";
+import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { S } from "./state.js";
 import { locale, t } from "./i18n.js";
@@ -11,7 +12,7 @@ import { locale, t } from "./i18n.js";
 const WIN = { five_hour: () => t("web.codex.win_five_hour"), seven_day: () => t("web.codex.win_week") };
 
 function when(ts) {
-  return new Date(ts * 1000).toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return clock(ts, locale, { day: "numeric", month: "short" });
 }
 
 function codeBox(url, code, account) {

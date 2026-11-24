@@ -129,7 +129,7 @@ class Flow(unittest.TestCase):
             self.cli("session.effort_set", "a", level=effort, channel="web", owner=True)
         self.until(lambda: self.hub.host.host_of("a") == "codex" and self.sess("a").get("state") == "idle"
                    and self.sess("a").get("model") == self.MODEL and (self.sess("a").get("info") or {}).get("host")
-                   == "codex" and self.sent("model/list"))
+                   == "codex" and codex_cmds.KNOWN)   # the listing is read (not only asked for): /model checks against it
 
     def test_effort_the_model_lacks_is_refused_in_words_and_never_reaches_codex(self):
         self.codex_session()

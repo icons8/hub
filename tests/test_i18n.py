@@ -244,6 +244,30 @@ class Translate(unittest.TestCase):
             for lang in ("de", "fr", "es"):
                 self.assertEqual(i18n.tr(lang, "web.settings.tab.general"), "Settings", lang)
 
+    def test_a_running_process_keeps_a_phrase_whose_key_left_its_catalog(self):
+        # 12.11: an update moved the pool's phrases from the core's catalog into an embed's; hubd, still on the previous
+        # code until its restart a minute later, reread the core's catalog without them and told the owner
+        # "conduit: core.accounts.limit_pct". A process keeps every phrase it has read (a new text of it is taken)
+        root = tempfile.mkdtemp()
+        self.addCleanup(platforms.current.rmtree, root)
+        write(root, "en", {"a.kept": "kept", "a.moved": "limit {pct}%"})
+        write(root, "stage", {"translated": ["en"], "ready": ["en"]})
+        path = os.path.join(root, "en.json")
+        now = [1000.0]
+        with mock.patch.object(i18n, "ROOT", root), mock.patch.dict(i18n._cache, clear=True), \
+                mock.patch.object(i18n.time, "monotonic", lambda: now[0]):
+            self.assertEqual(i18n.tr("en", "a.moved", pct=97), "limit 97%")
+            write(root, "en", {"a.kept": "kept, new text"})   # the update: the key is in another file now
+            os.utime(path, ns=(10 ** 18, 10 ** 18))   # a new mtime even where the clock is coarse
+            now[0] += i18n.FRESH
+            self.assertEqual(i18n.tr("en", "a.kept"), "kept, new text")
+            self.assertEqual(i18n.tr("en", "a.moved", pct=97), "limit 97%")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"a.kept": "half wri')   # a file caught in the middle of the update's write
+            os.utime(path, ns=(2 * 10 ** 18, 2 * 10 ** 18))
+            now[0] += i18n.FRESH
+            self.assertEqual(i18n.tr("en", "a.kept"), "kept, new text")
+
     def test_a_run_of_texts_resolves_the_language_and_merges_the_catalogs_once(self):
         # a snapshot of a hub with a long schedule asks for some 8 thousand texts in a row: every one used to resolve the
         # language again (stage.json, the folder listing) and check every catalog file — half of the snapshot's build.
@@ -584,6 +608,16 @@ class Page(test_web.WebTest):
         self.assertTrue(set(got["fallback"]).isdisjoint(got["messages"]))
         self.assertEqual(set(got["fallback"]) | set(got["messages"]),
                          {k for k in i18n.catalog("en") if k.startswith(i18n.PAGE)})
+
+    def test_the_page_gets_the_keyboard_layouts_of_the_language_data(self):
+        # the list search reads a query typed in the wrong layout through them (static/js/names.js): the layout is language
+        # data, not page code, so the page asks the server for it
+        from core import langdata
+        code, body = self.req("GET", "/api/keyboards")
+        self.assertEqual(code, 200)
+        got = json.loads(body)
+        self.assertEqual(got, {"layouts": langdata.keyboards()})
+        self.assertEqual(len(got["layouts"]["ru"]), 33)
 
     def test_the_language_does_not_wait_for_a_journal_reread(self):
         # a language change re-reads the feeds under the journal lock (tens of seconds on a large journal): the page, its

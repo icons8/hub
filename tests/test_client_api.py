@@ -3,8 +3,12 @@ the owner's language and the list of optional things (features) in the snapshot.
 import tests  # noqa: F401 — hide the machine's settings (~/.config/hub-core), see tests/__init__.py
 import tempfile
 import unittest
+from unittest import mock
 
-from core import langdata, reducer, views
+from core import cutout, langdata, reducer, views
+
+# the Claude account pool features: listed only where the pool is in the tree (not on the open flavor)
+POOL = ["accounts", "accounts.use"] if cutout.present("profile") else []
 
 
 class OwnerLanguage(unittest.TestCase):
@@ -26,15 +30,34 @@ class Features(unittest.TestCase):
         from modules.web.server import Web
         web = Web(tempfile.mkdtemp(prefix="hubweb-"))
         web.config = lambda: {}
-        self.assertEqual(web.with_clock({})["features"], ["upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
+        self.assertEqual(web.with_clock({})["features"], ["upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
         key = {"key_file": "/k.p8", "key_id": "K", "team_id": "T", "topic": "app.x"}
         web.config = lambda: {"push": key}                       # key present, module off — same as absent
-        self.assertEqual(web.with_clock({})["features"], ["upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
+        self.assertEqual(web.with_clock({})["features"], ["upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
         web.config = lambda: {"push": {**key, "enabled": True}}
         # push.alerts (API 1.26): the snapshot carries alerts with push keys and alerts_rev — the client reconciles banners by them
-        self.assertEqual(web.with_clock({})["features"], ["push", "push.alerts", "upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
+        self.assertEqual(web.with_clock({})["features"], ["push", "push.alerts", "upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
         from core import modclaims
         self.assertIn("push.alerts", modclaims.CORE_FEATURES)
+
+    def test_accounts_are_listed_only_on_a_hub_with_an_account_pool(self):
+        """A hub without a Claude account pool (the open flavor, no login module) offers no account to its clients."""
+        from core import cutout
+        from modules.web.server import Web
+        real = cutout.present
+        with mock.patch.object(cutout, "present", lambda name, repo=None: name != "profile" and real(name, repo)):
+            web = Web(tempfile.mkdtemp(prefix="hubweb-"))   # the open flavor: no built-in pool in the tree
+            web.config = lambda: {}
+            got = web.with_clock({})
+            self.assertNotIn("accounts", got["features"])
+            self.assertNotIn("accounts.use", got["features"])   # choosing an account needs a pool
+            self.assertIsNone(got["accounts"])
+            with mock.patch.object(web.profiles, "sign_in", lambda cfg=None: "logins"), \
+                    mock.patch.object(web.profiles, "listing", lambda ttl=None: None):
+                got = web.with_clock({})   # a login module leads session sign-in: the pool is its
+                self.assertEqual([f for f in got["features"] if f.startswith("accounts")], ["accounts", "accounts.use"])
+        from core import modclaims
+        self.assertIn("accounts", modclaims.CORE_FEATURES)   # a module cannot claim it
 
 
 class PushEndpoint(unittest.TestCase):

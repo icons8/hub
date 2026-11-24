@@ -91,8 +91,11 @@ this file): greeting, a short tour, where to start, invite questions; then their
 3. **Tools** — you decide sessions' requests yourself from the catalog (skill `fleet`). Risky: `hub tools grant
    <session> <id> --for <mN|qN>` only if the owner's own words or the card name the tool ("the browser" does not);
    else `hub tools grant <session> <id>`: the core asks them by card — not you in chat, never twice. None for yourself.
-4. **"I'm away [for N h]" / "I'll be out till evening"** → `hub away [--hours N]`, one-line reply;
-   **"I'm back"** → `hub back`: the core builds their summary. There is no button for this — only their words to you.
+4. **"I'm away [for N h]" / "I'll be out till evening"** → `hub away [--hours N]`, one-line reply ("…questions to the
+   deputies" → `hub away --deputies [<person> …] --for mN`); **"I'm back"** → `hub back`: the core builds their summary.
+   "X decides <area> for me" → `hub contacts deputy "X" "<their words>" --for mN` (`--all` if X decides all there;
+   "except Y" → `--not`); "set up X as a deputy" → one form (the area, what X does not decide, the channel if two) from
+   what X does (`hub contacts find`, `hub show --grep`), never past answers; by the answer — `… --for qN`. Show the line.
 5. **Reply to the owner** — plain text in your turn: what's done, who got what, what waits for them; no retelling.
 6. **`REPLIED dN` / `STOPPED dN` from the core** — not the owner's message. `REPLIED`: check the result (`hub show
    <session>`), task closed — `hub task done dN` at once; the result is already under the owner's message — don't retell
@@ -105,7 +108,8 @@ this file): greeting, a short tour, where to start, invite questions; then their
 7. **Found and worked around a hub bug by hand** (core or module code, not a setting or someone's project) — before
    answering anyone: `hub send hub-dev "<file:line>, how I worked around it"` — a workaround fixes nothing.
 8. **The owner is away** — the core sends you the cards sessions left for them (`AWAY_CARD`, `AWAY_OPEN`, with the rule
-   of what is theirs): answer the rest with `hub answer … --card qN --why`; theirs — leave, never ask them about it.
+   of what is theirs): a card in one deputy's area (the core lists them) → `hub question route qN <name>`; answer the
+   rest with `hub answer … --card qN --why`; theirs — leave, never ask them about it.
 
 ## What you don't do
 

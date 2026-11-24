@@ -5,7 +5,7 @@ itself from a template: the owner's words verbatim, the context, the contract. T
 task is the answer to the owner's message, and `REPLIED` for the hub; a turn with an error or a crashed session is
 `STOPPED`; 90 minutes without a result is `TIMEOUT` (once). "Done" only by an explicit `delegation.done`.
 """
-from core import askexpired, chain, coretext, forms, langdata, minihub, owner, specmode
+from core import askexpired, busstate, chain, coretext, forms, langdata, liaison, minihub, owner, specmode
 from core.coretext import T
 from core.guards import checker
 from core.machines import DELEGATION, ENDED, decide
@@ -296,13 +296,20 @@ def move(st, d, event, ev, ctx, first=False):
 
 
 # the core's lines on a task to the hub and to whoever set it (core/coretext.py: the owner reads them in his language)
-TO_OWNER = T("core.delegations.to_owner", "the owner on {mid}")
-TO_HUB = T("core.delegations.to_hub", "the hub")
-SESSION_WORD = T("core.delegations.session_word", "session {name}")
-REPLIED = T("core.delegations.replied", "REPLIED {id}: {name} replied to {target}: \"{short}\"")
+# shown= — the same line as the owner reads it in the hub's feed (core/coretext.py SHOWN): the tag and the task and
+# message numbers are for the session; a line a session acts on (STOPPED_SESSION, with its commands) keeps them. The
+# targets have a variant too — the same words in English, so that a language with a contracted preposition (French
+# "au", Spanish "al", Portuguese "ao") can carry it in the target and drop it from the phrase
+TO_OWNER = T("core.delegations.to_owner", "the owner on {mid}", shown="the owner")
+TO_HUB = T("core.delegations.to_hub", "the hub", shown="the hub")
+SESSION_WORD = T("core.delegations.session_word", "session {name}", shown="session {name}")
+REPLIED = T("core.delegations.replied", "REPLIED {id}: {name} replied to {target}: \"{short}\"",
+            shown="{name} replied to {target}: \"{short}\"")
 REPLIED_MORE = T("core.delegations.replied_more",
-                 "REPLIED {id} (continuation): {name} replied to {target} again: \"{short}\"")
-STOPPED_HUB = T("core.delegations.stopped_hub", "STOPPED {id}: {name} — {cut}, no reply to the owner")
+                 "REPLIED {id} (continuation): {name} replied to {target} again: \"{short}\"",
+                 shown="{name} replied to {target} again: \"{short}\"")
+STOPPED_HUB = T("core.delegations.stopped_hub", "STOPPED {id}: {name} — {cut}, no reply to the owner",
+                shown="{name} — {cut}, no reply to the owner")
 STOPPED_SESSION = T("core.delegations.stopped_session",
                     "STOPPED {id}: {name} — {cut}, no result on the task. What it got done — hub show {name}; {how}")
 HOW_SEND = T("core.delegations.how_send", "continue — hub send {name} \"…\"")
@@ -311,7 +318,8 @@ HOW_WAKE = T("core.delegations.how_wake",
 HOW_CRASHED = T("core.delegations.how_crashed",
                 "it crashed: the task anew — hub task run <name> … --work normal|risky (bring it back with its "
                 "conversation — hub session revive {name} {revivers})")
-TIMEOUT_HUB = T("core.delegations.timeout", "TIMEOUT {id}: {name} has worked on the task longer than {minutes} minutes")
+TIMEOUT_HUB = T("core.delegations.timeout", "TIMEOUT {id}: {name} has worked on the task longer than {minutes} minutes",
+                shown="{name} has worked on the task longer than {minutes} minutes")
 CUT_ERROR = T("core.delegations.cut_error", "the turn broke off with an error")
 CUT_OWNER = T("core.delegations.cut_owner", "stopped by the owner")
 CUT_SESSION = T("core.delegations.cut_session", "stopped by session {name}")
@@ -639,16 +647,24 @@ def _expect_answer(st, sess, msg, fresh):
     answer is `hub send` back. A session that answers in the turn's text is seen only by the owner's page; the asker
     waits for nothing (the asker waited and re-asked later). The turn result then goes to the asker by the core
     (on_result), as for a task, but only if the asker signalled that it waits (`hub waiting`, see _relay_result)."""
+    asker = _asker(st, sess, msg)
+    if asker is None:
+        return
+    waits = sess.setdefault("answer_to", []) if fresh else sess.get("answer_to")
+    if waits is not None and not any(w["to"] == asker for w in waits):
+        waits.append({"to": asker, "msg": msg["id"]})
+
+
+def _asker(st, sess, msg):
+    """The session whose plain `hub send` this message is (see _expect_answer), else None."""
     f = forms.sender(msg)
     if not f or f["kind"] != "session" or f["name"] == sess["name"] or msg.get("fyi") or msg.get("relay") \
             or msg.get("delegation") or msg.get("task") or msg.get("schedule"):
-        return
+        return None
     up = st["sessions"].get(f["name"]) or {}
     if not up or up.get("kind") == "hub" or up.get("state") in ("removed", "closed", "failed"):
-        return
-    waits = sess.setdefault("answer_to", []) if fresh else sess.get("answer_to")
-    if waits is not None and not any(w["to"] == f["name"] for w in waits):
-        waits.append({"to": f["name"], "msg": msg["id"]})
+        return None
+    return f["name"]
 
 
 def got_result(sess, who, text):
@@ -663,21 +679,55 @@ def got_result(sess, who, text):
     return who not in chars or chars[who] >= len((text or "").strip())
 
 
+def liaison_askers(st, sess):
+    """Whom the liaison's turn is to answer when it carries nothing out for them: the sessions behind the plain letters
+    the turn took — the one it began with and what it read together with it (answer_to has only the first of them) —
+    and whoever wrote to it mid-turn (answer_to), each once."""
+    from core import reducer
+    waits = [dict(w) for w in sess.get("answer_to") or []]
+    for mid in reducer._took(sess):
+        asker = _asker(st, sess, st["messages"].get(mid) or {})
+        if asker and not any(w["to"] == asker for w in waits):
+            waits.append({"to": asker, "msg": mid})
+    return waits
+
+
+def liaison_targets(st, sess, data):
+    """Those the liaison's turn answers with its result: the sessions that wrote to it and whose words it did not carry
+    out (busstate.unserved), whatever they said they wait for and however short the line — they cannot know the letter
+    did not go. Once per turn: a result without a turn of its own (`/clear`, a background job's end) is not another
+    answer, the turn's letters are still its head."""
+    text = (data.get("text") or "").strip()
+    if not text or not liaison.is_liaison(st, sess["name"]) \
+            or ("turn_relayed" in sess and sess["turn_relayed"] == (sess.get("turn_seq") or 0)):
+        return []
+    waits = liaison_askers(st, sess)
+    asked = busstate.unserved(st, sess, [w["to"] for w in waits])
+    return [w for w in waits if w["to"] in asked
+            and (st["sessions"].get(w["to"]) or {}).get("state", "removed") not in ("removed", "closed", "failed")]
+
+
 def relay_targets(st, sess, data):
     """Whom the core relays this turn's text result to (pure; _relay_result sends it): those who wrote to the session
     in this turn, were not answered by `hub send` and said they wait (`hub waiting`, still fresh: not written to
-    since). Not for a task's turn: its result is the reply. A report sent with a plain `hub send` is not a question."""
-    if sess.get("delegation") or sess.get("also_tasks") or data.get("is_error") \
-            or len((data.get("text") or "").strip()) < RELAY_MIN:
+    since). Not for a task's turn: its result is the reply. A report sent with a plain `hub send` is not a question.
+    The liaison's turn also answers those whose words it did not carry out (liaison_targets)."""
+    if sess.get("delegation") or sess.get("also_tasks") or data.get("is_error"):
         return []
-    return [w for w in sess.get("answer_to") or []
-            if not got_result(sess, w["to"], data.get("text")) and w["to"] != sess["name"]   # it wrote to it itself
-            and (wait := (st["sessions"].get(w["to"]) or {}).get("waiting")) and "stale" not in wait]
+    text = (data.get("text") or "").strip()
+    told = liaison_targets(st, sess, data)
+    if len(text) < RELAY_MIN:
+        return told
+    return told + [w for w in sess.get("answer_to") or []
+                   if w not in told and not got_result(sess, w["to"], data.get("text")) and w["to"] != sess["name"]
+                   and (wait := (st["sessions"].get(w["to"]) or {}).get("waiting")) and "stale" not in wait]
 
 
 def _relay_result(st, sess, ev, data, ctx):
     """The turn ended: the result goes to those relay_targets names."""
     waits = relay_targets(st, sess, data)
+    if waits and liaison_targets(st, sess, data):
+        sess["turn_relayed"] = sess.get("turn_seq") or 0   # this turn has answered its letters (liaison_targets)
     sess.pop("answer_to", None)
     text = (data.get("text") or "").strip()
     for w in waits:
@@ -845,7 +895,7 @@ def spec_who(st, d, ev):
     if sender and (sender == d.get("for_session") or me.get("kind") == "hub"):
         if not data.get("for"):
             raise Rejected(SPEC_FOR)
-        tools.owner_word(st, data, ev["ts"], own=True, cards=True)
+        tools.owner_word(st, data, ev["ts"], own=True, cards=True, spec=d["id"], deputy=ev.get("type") or "delegation.spec_accepted")
         return sender
     raise Rejected(SPEC_WHO.format(id=d["id"], boss=d.get("for_session") or TO_HUB))
 

@@ -182,6 +182,9 @@ html:not(.th-clean) .composer.rec:has(> .attach):not(:has(> .to-line, > .reply-b
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rec-dot, .spin-dot { animation: none; } }
 @media (max-width: 760px) { .btn.round { width: 40px; height: 40px; } .bar > .hint { display: none; } }
+/* the outcome of a command typed in the field ("/away", "/compact"): its own line under the buttons, its lines kept; every width and look */
+.cmd-answer { margin: 0; font-size: var(--text-xs); color: var(--foreground); white-space: pre-line; overflow-wrap: anywhere; }
+.composer:has(> .cmd-answer:not([hidden])) .bar > .hint { display: none; }   /* it says the same line, smaller and not on a phone */
 /* reply to a message: the quote is one line with an ellipsis, as wide as the box, "Cancel" beside it, not under the
    paperclip; the box column is no wider than its cell — otherwise a long quote stretched the box under the right
    threads panel */
@@ -242,6 +245,9 @@ html:not(.th-clean) .composer.rec:has(> .attach):not(:has(> .to-line, > .reply-b
 .status > .limline { flex: none; flex-wrap: nowrap; }
 .stat-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status > .stat-left > .stat-ctx { flex: none; }
+/* "Compacting the conversation…": the text color, not the muted one — it explains why a reply is late; the spinner is the working row's */
+.status > .stat-left > .stat-compact { flex: none; color: var(--foreground); }
+.stat-compact > .g { display: inline-block; width: 1.1em; text-align: center; vertical-align: top; }
 .stat-ctx[data-level="warn"] { color: var(--warning); }
 .stat-ctx[data-level="high"] { color: var(--destructive); font-weight: 600; }
 .stat-dir { color: inherit; text-decoration: none; white-space: nowrap; }   /* session folder: a link into "Files" */
@@ -256,6 +262,8 @@ html:not(.th-clean) .composer.rec:has(> .attach):not(:has(> .to-line, > .reply-b
 @container status (max-width: 520px) { .status > .stat-left > .stat-main { display: none; }
   .status > .stat-left > .stat-dir::before, .status > .stat-left > .stat-main + .stat-ctx::before { content: none; } .stat-ctx-tok, .dir-long { display: none; } .dir-short { display: inline; } }
 .stat-ctx-tok { white-space: nowrap; }
+/* narrow: the folder lost its "·" above (the model is hidden before it); after the compaction note it needs one back (Clean draws the folder with an icon there) */
+@container status (max-width: 520px) { html:not(.th-clean) .status > .stat-left > .stat-compact + .stat-dir::before { content: "·"; } }
 .status > .stat-left > .stat-main:empty { display: none; }
 /* the session's own executor count: first in the line, doesn't shrink; a custom (non-default) value takes the text color */
 .status > .stat-par { flex: none; }

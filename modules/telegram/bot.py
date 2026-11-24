@@ -58,6 +58,8 @@ UPLOAD_TRIES = 3   # this many times one file upload fails while the Bot API res
 TYPING_EVERY = 5         # Telegram clears "typing…" itself after ~5 s — refresh it while a turn for his message runs
 FIRST_LINE_AFTER = 45    # a turn longer than this — its first line ("accepted, passing on …") goes at once, the result later
 VOICE_SLOW_AFTER = 60    # a voice message is transcribed longer than this — one line "still transcribing" (otherwise a single 👀 for minutes)
+VOICE_NET_PAUSES = (10, 30, 60, 120, 300)   # s between downloads of a voice message while the network to Telegram is down (the last repeats)
+VOICE_NET_GIVE_UP = 15 * 60   # s without the network since the first failure — then "send it again" (the file is still on Telegram's side)
 LATE_AFTER = 600         # nothing for him within 10 min — one line "⏳ <who> is still busy: <what it does>"
 # Telegram's answer to a send into a topic that was deleted or closed: the message goes to "General" instead
 THREAD_GONE = re.compile(r"thread not found|topic_(?:closed|deleted|id_invalid)|topic (?:is )?closed", re.I)
@@ -124,6 +126,7 @@ def request(method, url, data=None, headers=None, timeout=30, max_bytes=None):
 
 # core.bus_* facts that put a ready card of the hub bus on a session (core/busstate._card)
 BUS_CARDS = ("core.bus_send_held", "core.bus_received", "core.bus_intro", "core.bus_offer")
+
 
 class TgError(Exception):
     """transient — a network failure, 429 or 5xx: retry later (retry_after — how long to wait by Telegram's word).
@@ -272,7 +275,7 @@ class Api:
         except NET_ERRORS as e:   # a break in the middle of a download is the same network failure as in call()
             raise TgError(f"download: {e}", transient=True) from None
         if status != 200:  # otherwise the error text would go on as the file content (an improvement made when accepting a PR)
-            raise TgError(f"getFile: HTTP {status} {body[:200]!r}")
+            raise TgError(f"getFile: HTTP {status} {body[:200]!r}", transient=status == 429 or status >= 500)
         return body
 
 
@@ -378,7 +381,7 @@ class Bot:
         self.outbox, self.hold_until, self.fails, self.poll_fails = [], 0, 0, 0
         for k, v in (("offset", 0), ("seq", None), ("routes", {}), ("owner_msgs", {}), ("asks", {}), ("held", {}), ("keys", {}),
                      ("cards", {}), ("turn", {}), ("failed", []), ("live", {}), ("retry", {}), ("told", []), ("unasked", {}),
-                     ("threads", {}), ("posted", {}), ("card_html", {}), ("quoted", {}), ("transcribe", {}),
+                     ("threads", {}), ("posted", {}), ("card_html", {}), ("quoted", {}), ("transcribe", {}), ("voice_wait", {}),
                      ("voiced", {}), ("notices", {}), ("digest", {}), ("topics", {}), ("topic_of", {}),
                      ("here_offers", {}), ("binding", {})):
             self.st.setdefault(k, v)
@@ -402,6 +405,7 @@ class Bot:
         self.voice_sync = False
         self.voicing = {}   # (chat, id) → (message, when started, whether "longer than usual" was said) — transcriptions in progress
         self.voicing_mu = threading.Lock()
+        self.voice_flight = set()   # "chat:id" of transcriptions started and not yet taken by drain_voice (the bot loop's own)
         # reply → voice message: the builtin voice (Codex realtime) or a module with the speech capability; tests replace speak
         self.speech = speech.Speech(state_dir, records=lambda: self.reader.state.get("modules") or {},
                                     providers=lambda: self.reader.state.get("providers") or {})
@@ -598,9 +602,9 @@ class Bot:
 
     def send_file(self, path, caption=None):
         """A file — straight into the chat: a video as a player, an image as a photo, the rest as a document (up to 50 MB — the bot limit). A file
-        that does not go through at all — a line into the chat with the path."""
+        that does not go through at all — a line into the chat with the path. -> the number of its message, or None."""
         try:
-            self.send_file_once(path, caption)
+            return self.send_file_once(path, caption)
         except TgError as e:
             if not getattr(e, "gave_up", False):
                 raise
@@ -623,7 +627,7 @@ class Bot:
             except TgError as e:
                 if e.transient or getattr(e, "gave_up", False):
                     raise   # network: the photo will be repeated, not sent a second time as a document
-        self.once(("upload", path, caption), lambda: self.upload(
+        return self.once(("upload", path, caption), lambda: self.upload(
             "sendVideo" if video else "sendDocument", "video" if video else "document", path,
             **self.where(), caption=caption, supports_streaming=True if video else None))
 
@@ -1430,24 +1434,10 @@ class Bot:
                 return
             # the "Voice" module: 👀 at once, transcription in the background (usually seconds, with retries — minutes), the text goes to the queue
             self.react(m["message_id"], "👀")
-            key = (m["chat"]["id"], m["message_id"])
-            with self.voicing_mu:
-                self.voicing[key] = [m, self.clock(), False]
             # and to the state file — one entry with the update number (save in poll): a bot restart in the middle of transcription
             # does not lose it, catch_up transcribes anew (Telegram will not give the message again, it is not yet in the journal)
-            self.st["transcribe"][f"{key[0]}:{key[1]}"] = m
-
-            def work():
-                try:
-                    got = self.transcribe(media, cfg)
-                except Exception as e:  # noqa: BLE001 — an unforeseen failure: the owner gets "could not parse", not a lone 👀
-                    traceback.print_exc()
-                    got = None, type(e).__name__
-                finally:   # release before the queue: otherwise "longer than usual" could follow the ready text
-                    with self.voicing_mu:
-                        self.voicing.pop(key, None)
-                self.voice_done.put((m, *got))
-            work() if self.voice_sync else threading.Thread(target=work, daemon=True).start()
+            self.st["transcribe"][f"{m['chat']['id']}:{m['message_id']}"] = m
+            self.start_voice(m, media, cfg)
             return
         files, failed = self.attachments(m)
         if failed and not text and not files:   # neither words nor a file — the session has nothing to read: the reason goes only to him
@@ -1477,6 +1467,8 @@ class Bot:
             data["to"] = route["session"]
             if route.get("delegation"):
                 data["reply_to"] = route["delegation"]
+            if route.get("spec"):   # a reply to a spec's card (spec_card)
+                data["spec_card"] = route["spec"]
             up = minihub.hub_of(self.reader.state, self.reader.state["sessions"].get(route["session"])) if member else None
             if up:   # an executor of a mini-hub hears the owner only through the mini-hub: a member's words go there too
                 data["to"] = up
@@ -1571,13 +1563,18 @@ class Bot:
             if (st.get("owner") or {}).get("state") != "away":
                 return self.send(i18n.t("telegram.back_not_away"), reply_to=m["message_id"])
             return self.put("owner.back", None, {"tg": tg})
+        words = (arg or "").split()
+        # /away deputies [<person> …]: the questions of the deputies' areas go to them (core/deputies.py, d2679763)
+        at = next((i for i, w in enumerate(words) if w.casefold() == "deputies"), None)
+        flag = (words[at + 1:] or True) if at is not None else None
+        words = words[:at] if at is not None else words
         try:
-            hours = float(arg.replace(",", ".")) if arg else None
+            hours = float(words[0].replace(",", ".")) if words else None
         except ValueError:
             hours = -1
-        if hours is not None and not 0 < hours <= 24 * 30:
+        if len(words) > 1 or hours is not None and not 0 < hours <= 24 * 30:
             return self.send(i18n.t("telegram.away_usage"), reply_to=m["message_id"])
-        self.put("owner.away", None, {"hours": hours, "tg": tg})
+        self.put("owner.away", None, {"hours": hours, "tg": tg, **({"deputies": flag} if flag else {})})
 
     def page_text(self):
         """/page: the address of the hub page on the computer itself (with a password, the page asks for it)."""
@@ -1640,13 +1637,18 @@ class Bot:
         if old:   # the earlier card's text is stale: its buttons go, the new one comes below
             self.edit_done(old, i18n.t("telegram.spec_replaced"))
         head = i18n.t("telegram.spec_ready", id=d["id"], name=d["session"])
+        # words in reply to the card or to its file go to the executor naming its task (spec_card): the raiser may cite
+        # them (--for mN)
+        route = {"session": d["session"], "spec": d["id"]}
         if not info["empty"]:   # Telegram takes no empty file: the card alone
-            self.send_file(info["path"], caption=head)
+            sent = self.send_file(info["path"], caption=head)
+            if sent:   # its caption is the bot's heading: a reply quotes without it (quote)
+                self.st["routes"][str(sent)] = {**route, "head": fmt.plain(head)}
         rows = [[{"text": i18n.t("telegram.spec_accept"),
                   "callback_data": self.key({"do": "spec", "did": d["id"], "action": "accept"})},
                  {"text": i18n.t("telegram.spec_drop"),
                   "callback_data": self.key({"do": "spec", "did": d["id"], "action": "drop"})}]]
-        ids = self.send(i18n.t("telegram.spec_ask", id=d["id"]), buttons=rows, route={"session": d["session"]})
+        ids = self.send(i18n.t("telegram.spec_ask", id=d["id"]), buttons=rows, route=route)
         if ids:
             self.st["cards"][f"spec:{d['id']}"] = ids[-1]
 
@@ -1696,23 +1698,46 @@ class Bot:
                                 at=owner._local(acc["exhausted"]["until"], tz).strftime("%d.%m %H:%M")))
         return "\n".join(lines)
 
+    def start_voice(self, m, media, cfg, told=False):
+        """Transcription of one voice message in the background; the result (m, text, why, net) goes to voice_done for drain_voice."""
+        key = (m["chat"]["id"], m["message_id"])
+        with self.voicing_mu:
+            self.voicing[key] = [m, self.clock(), told]
+        self.voice_flight.add(f"{key[0]}:{key[1]}")   # until drain_voice takes its result: retry_voice does not start a second one
+
+        def work():
+            try:
+                got = self.transcribe(media, cfg)
+            except Exception as e:  # noqa: BLE001 — an unforeseen failure: the owner gets "could not parse", not a lone 👀
+                traceback.print_exc()
+                got = None, type(e).__name__, False
+            finally:   # release before the queue: otherwise "longer than usual" could follow the ready text
+                with self.voicing_mu:
+                    self.voicing.pop(key, None)
+            self.voice_done.put((m, *got))
+        work() if self.voice_sync else threading.Thread(target=work, daemon=True).start()
+
     def transcribe(self, media, cfg):
-        """(text, None) or (None, why) — in the background; does not write to the bot state."""
+        """(text, None, False) or (None, why, net) — in the background; does not write to the bot state. net — the file did
+        not download because of the network (DNS, a timeout, 5xx/429): drain_voice keeps the voice message and retries later."""
         try:
             suffix = voice.suffix_for(media)
             if not suffix:
-                return None, i18n.t("telegram.audio_unsupported", mime=media.get("mime_type"))
+                return None, i18n.t("telegram.audio_unsupported", mime=media.get("mime_type")), False
             raw = self.api.download(media["file_id"])
-            return voice.transcribe_retry(raw, cfg, suffix=suffix, state=getattr(self, "state_dir", None)), None
+            return voice.transcribe_retry(raw, cfg, suffix=suffix, state=getattr(self, "state_dir", None)), None, False
         except voice.Empty:
-            return None, i18n.t("web.srv.no_speech").rstrip(".。")   # "{why}." follows in the line to the owner
+            return None, i18n.t("web.srv.no_speech").rstrip(".。"), False   # "{why}." follows in the line to the owner
         except voice.VoiceError as e:   # the reason in the owner's words from the failure code, as on the page
-            return None, i18n.t(VOICE_WHY.get(e.kind, "web.srv.voice_why_other"))
-        except (TgError, OSError) as e:
-            return None, str(e)[:200]
+            return None, i18n.t(VOICE_WHY.get(e.kind, "web.srv.voice_why_other")), False
+        except TgError as e:
+            return None, str(e)[:200], e.transient
+        except OSError as e:
+            return None, str(e)[:200], False
 
     def drain_voice(self):
         """Ready transcriptions — as ordinary owner messages: "🎤 voice: …" to the same addressee (reply, quote)."""
+        self.retry_voice()
         with self.voicing_mu:   # it takes longer than a minute (retries, a slow model) — say once that the voice did not get lost
             slow = [v for v in self.voicing.values() if not v[2] and self.clock() - v[1] >= VOICE_SLOW_AFTER]
             for v in slow:
@@ -1720,8 +1745,14 @@ class Bot:
         for m, _, _ in slow:
             self.send(i18n.t("telegram.voice_still"), reply_to=m["message_id"])
         while not self.voice_done.empty():
-            m, text, why = self.voice_done.get()
-            self.st["transcribe"].pop(f"{m['chat']['id']}:{m['message_id']}", None)   # to the file — save below, after the record
+            m, text, why, net = self.voice_done.get()
+            key = f"{m['chat']['id']}:{m['message_id']}"
+            self.voice_flight.discard(key)
+            self.st["transcribe"].pop(key, None)   # to the file — save below, after the record
+            if text is None and net:
+                self.voice_net_wait(key, m, why)
+                continue
+            self.st["voice_wait"].pop(key, None)
             if text is None:
                 self.react(m["message_id"], "👎")
                 self.send(i18n.t("telegram.voice_failed", why=why), reply_to=m["message_id"])
@@ -1737,6 +1768,50 @@ class Bot:
         while not self.voice_out.empty():
             self.send_voice(*self.voice_out.get())
         self.save()
+
+    def voice_net_wait(self, key, m, why):
+        """The voice file did not download because of the network: keep it in voice_wait (the state file — a restart keeps it)
+        and try again on the clock (retry_voice), the owner hears once that it waits. After VOICE_NET_GIVE_UP without the network —
+        one line asking to send it again (with 👎 only once that line went) and the entry is gone."""
+        now = self.clock()
+        w = self.st["voice_wait"].setdefault(key, {"m": m, "since": now, "tries": 0, "told": False})
+        w["tries"] += 1
+        if now - w["since"] >= VOICE_NET_GIVE_UP:
+            try:
+                self.send(i18n.t("telegram.voice_net_failed", why=why, count=VOICE_NET_GIVE_UP // 60), reply_to=m["message_id"])
+            except TgError:   # still no network: one more download attempt later, the line (and 👎) go when it can
+                w["next"] = now + VOICE_NET_PAUSES[-1]
+                return
+            self.react(m["message_id"], "👎")
+            self.st["voice_wait"].pop(key, None)
+            return
+        w["next"] = min(now + VOICE_NET_PAUSES[min(w["tries"], len(VOICE_NET_PAUSES)) - 1], w["since"] + VOICE_NET_GIVE_UP)
+        if not w["told"]:
+            try:
+                self.send(i18n.t("telegram.voice_net_wait"), reply_to=m["message_id"], quiet=True)
+                w["told"] = True
+            except TgError:
+                pass
+
+    def retry_voice(self):
+        """Voice messages waiting for the network whose time has come — download and transcribe again (by the clock, the bot loop
+        does not sleep)."""
+        now = self.clock()
+        for key, w in list(self.st["voice_wait"].items()):
+            m = w["m"]
+            if key in self.voice_flight or w.get("next", 0) > now:   # an attempt longer than the last pause is still in flight
+                continue
+            w["next"] = now + VOICE_NET_PAUSES[-1]   # until the attempt reports back (a crash in it — retried, not forgotten)
+            cfg = self.hub_config()
+            if not voice.enabled(cfg, state=self.state_dir):   # turned off while it waited — as on_message: say so, no download
+                try:
+                    self.send(i18n.t("telegram.voice_off"), reply_to=m["message_id"])
+                except TgError:   # no network still: the line goes on the next round
+                    continue
+                self.st["voice_wait"].pop(key, None)
+                continue
+            media = m.get("voice") or m.get("audio") or m.get("video_note")
+            self.start_voice(m, media, cfg, told=True)
 
     def voice_reply(self, text, reply_to, route):
         """The "Voice reply" module: after the text of a reply to the owner's message — a voice message (in the background: compression and voice
@@ -2409,8 +2484,9 @@ class Bot:
             if o.get("state") == "away" and o.get("away_seq") == ev["seq"]:
                 until = (i18n.t("telegram.away_until_time", time=owner._local(o["until"], o.get("tz") or "UTC").strftime("%H:%M"))
                          if o.get("until") else i18n.t("telegram.away_until_back"))
-                self.send(i18n.t("telegram.away_ack" if self.back_summary() else "telegram.away_ack_plain", until=until),
-                          reply_to=data["tg"]["id"])
+                from core import deputycli
+                self.send("\n".join([i18n.t("telegram.away_ack" if self.back_summary() else "telegram.away_ack_plain",
+                                             until=until), *deputycli.away_lines(st)]), reply_to=data["tg"]["id"])
             return
         if kind == "core.started":
             return self.back_online(st, ev, data)
@@ -3210,6 +3286,10 @@ def summary_text(sm):
                                             for r in rows) if rows else i18n.t("telegram.summary_none"))
     # the hub's answers to cards for him (spec d2549241): first, and only when there are some (older summaries have none)
     hub = [sec(i18n.t("telegram.summary_hub"), sm["hub"])] if sm.get("hub") else []
+    # the deputies (spec d2679763 A10): what they decided, and the cards at them with no answer — when there are some
+    hub += [sec(i18n.t("telegram.summary_deputies"), sm["deputies"])] if sm.get("deputies") else []
+    hub += [sec(i18n.t("telegram.summary_deputies_waiting"), sm["deputies_waiting"])] \
+        if sm.get("deputies_waiting") else []
     return "\n\n".join([i18n.t("telegram.summary_head"), *hub,
                         sec(i18n.t("telegram.summary_waiting"), sm.get("waiting") or []),
                         sec(i18n.t("telegram.summary_decided"), sm.get("decided") or []),

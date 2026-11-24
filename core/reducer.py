@@ -9,7 +9,7 @@ import os
 import re
 import traceback
 
-from core import (appwatch, askexpired, backbone, board, budget, busstate, catalog, chain, chats, codeedits, configwatch, coretext, corewrite, delegations, executors, gitaccess, guards, hubrun, identity, journal, layout,
+from core import (appwatch, askexpired, backbone, board, budget, busstate, catalog, chain, chats, codeedits, configwatch, coretext, corewrite, delegations, deputies, deputyroute, executors, gitaccess, guards, hubrun, identity, journal, layout,
                   langdata, i18n, lessons, liaison, forms, limitresume, mcpwatch, minihub, modelrule, modprompt, modrun, modstate, news, owner, parking, profcap, redact, refusals, restart, schedule, specmode, system,
                   tools)
 from core.coretext import T
@@ -471,10 +471,15 @@ def _apply(st, ev, actions):
     why = busstate.liaison_refusal(st, kind, data)   # the liaison: only its bus commands (core/liaison.py)
     if why:
         raise Rejected(why)
+    if st["owner"].get("deputies"):   # away with the deputies: a card whose ground went is the owner's again
+        deputyroute.check(st, ev)
     ctx = {"new_message": new_message, "notify": lambda e, text, **kw: _notify_hub(st, e, text, **kw),
            "sleep": lambda name, e: _auto_sleep(st, name, e, actions)}
     if kind in ("turn.tool", "turn.tool_result", "turn.result", "session.said"):
         mcpwatch.touched(st, ev, data)   # did the session touch a server that failed to come up (after the fix: "retry")
+    if kind == "session.said" and shown_text(data.get("text", "")).strip() and not data.get("parent") \
+            and ev.get("entity") in st["sessions"]:   # a helper agent's text is a step, not a feed row (journal.agent_steps)
+        st["sessions"][ev["entity"]]["turn_said"] = ev["seq"]   # the turn's last timeline row: where its thumb leads (_settle)
     if kind == "session.identified":
         if ev.get("entity") not in st["sessions"]:
             raise Rejected("unknown session")
@@ -529,12 +534,13 @@ def _apply(st, ev, actions):
             raise Rejected(T("core.reducer.run_by_executor",
                              "you are an executor of {name}: you may not raise executors — do it yourself or tell "
                              "{name}: hub send {name} \"<what is needed>\"").format(name=up["name"]))
-        tool_word = owner_word
+        tool_word, deputy_word = owner_word, None
         if data.get("for") and not owner_word:
             # the hub, on the owner's word (--for with a message or a form answer): above the limit threshold too
             # (04.10); a session for its own executor, on the owner's word to it, but not for risky --tools: the owner or
             # the hub decides those (friction digest 16.10)
-            owner_word = _owner_word_for(st, data, ev, own=True)
+            word = _owner_word_for(st, data, ev, own=True, deputy=kind)
+            owner_word, deputy_word = True, word if word.get("deputy") else None
             tool_word = me.get("kind") == "hub"
         if len(name) > NAME_MAX and NAME_CHARS.fullmatch(name):   # the "Latin, digits" refusal was repeated in
             raise Rejected(coretext.join(T("core.reducer.run_name_long",   # a loop for a long name
@@ -590,7 +596,11 @@ def _apply(st, ev, actions):
         # base tools (every session has them) are already there: do not grant or ask the owner (07.10: Jira three
         # times in a night)
         data = {**data, "tools": [t for t in data.get("tools") or [] if not st["catalog"][t].get("base")]}
-        risky = [t for t in data["tools"] if st["catalog"][t].get("risk") and not tool_word]
+        # on a deputy's decision a tool with the owner's own data, or one the card does not name, waits for him
+        # (tools.deputy_may, names_tool — as hub tools grant)
+        risky = [t for t in data["tools"] if st["catalog"][t].get("risk")
+                 and (not tool_word or deputy_word and ("owner-data" in st["catalog"][t]["risk"]
+                                                        or not tools.names_tool(st, deputy_word, t)))]
         # limit economy (mini-hubs only, core/budget.py): at once for a task on the owner's live word or an urgent one;
         # --work normal is raised on the economy pair, which hub task run computed from the settings
         eco = delegations.pinned(data["economy"], catalog.codex_state(st)) if isinstance(data.get("economy"), dict) else {}
@@ -740,7 +750,8 @@ def _apply(st, ev, actions):
                 raise Rejected(T("core.reducer.run_go_who", "the hub or the owner raises out of turn"))
             if tools.from_owner(data) or data.get("for"):
                 # and his word to the executor's lead: a mini-hub passed "raise it" to the hub (20.10)
-                run["owner_ok"] = tools.from_owner(data) or _owner_word_for(st, data, ev, lead=run.get("by"))
+                run["owner_ok"] = tools.from_owner(data) or bool(_owner_word_for(st, data, ev, lead=run.get("by"),
+                                                                                  deputy=kind))
             if data.get("queue"):
                 # the economy card's "raise the queue" button (hub task go --queue): the owner's word for the request,
                 # and room by queue and ceilings; with no room it is raised by itself once room frees up
@@ -791,6 +802,7 @@ def _apply(st, ev, actions):
             raise Rejected(NO_OPEN_QUESTION)
         if busstate.card_answered(st, ev, data, sess, actions, "dismissed"):
             return   # a card of the bus closed without an answer: not a yes — nothing goes out
+        deputyroute.withdrawn(st, ev, sess, ask)   # at a deputy: their channel's session stops asking
         sess["asks"].remove(ask)
         _answered(sess, ev, data, "dismissed", ask=ask)
         st["owner"]["reminders"].pop(f"q:{sess['name']}:{ask['request_id']}", None)
@@ -838,6 +850,7 @@ def _apply(st, ev, actions):
                              "the session that asked, the hub or the owner withdraws a question"))
         if busstate.card_answered(st, ev, data, sess, actions):
             return   # a card of the bus withdrawn: nothing goes out
+        deputyroute.withdrawn(st, ev, sess, ask)   # at a deputy: their channel's session stops asking
         why = str(data.get("why") or "").strip()
         _drop_ask(st, sess, ask, who or delegations.BY_OWNER, T("core.msg.trail_withdrawn", "withdrew question {id}").format(
             id=ask["id"]) + (f": {why}" if why else ""))
@@ -954,11 +967,25 @@ def _apply(st, ev, actions):
         return
     if kind == "owner.decided_revoked":
         return _decision_revoked(st, ev, data, actions)
+    if kind in ("contact.deputy_set", "contact.deputy_off"):   # the owner's deputies (core/deputies.py, spec d2679763)
+        rec = deputies.fold(st, ev, data)
+        deputyroute.deputy_changed(st, ev, rec["person"]["id"])   # cards at an earlier appointment: the owner's again
+        return
+    if kind == "question.routed":   # a card to a deputy of this away, or back to the owner (core/deputyroute.py)
+        return deputyroute.route(st, ev, data, actions)
+    if kind == "question.deputy_answered":   # a deputy's words through the session of their channel
+        return deputyroute.answered(st, ev, data)
     if kind == "owner.decided":
-        st["owner"]["decided"].append({"session": data.get("sender"), "text": data.get("text"), "ts": ev["ts"]})
+        # `hub decided --card qN`: the session acts on a deputy's answer, the card closes (core/deputyroute.py)
+        dep = deputyroute.decided(st, ev, data) if data.get("card") else None
+        st["owner"]["decided"].append({"session": data.get("sender"), "text": data.get("text"), "ts": ev["ts"],
+                                       **({"deputy": dep} if dep else {})})
         decisions = st.setdefault("decisions", [])   # the last ones, for `hub decided list` and a withdrawal
-        decisions.append({"seq": ev["seq"], "by": data.get("sender"), "text": data.get("text"), "ts": ev["ts"]})
+        decisions.append({"seq": ev["seq"], "by": data.get("sender"), "text": data.get("text"), "ts": ev["ts"],
+                          **({"card": dep["card"], "told": dep["asker"]} if dep else {})})
         del decisions[:-DECISIONS_KEPT]
+        if dep:   # a deputy's word, never the owner's: not into a direction's decisions, not relayed as his decision
+            return
         # a decision spoken to an executor goes to whoever raised it, to record in its own CLAUDE.md (spec section 4)
         by = st["sessions"].get(data.get("sender") or "") or {}
         slug = board.direction_of(st, by) if data.get("channel") == "session" else None
@@ -1272,6 +1299,7 @@ def _apply(st, ev, actions):
             # the launch hung (process alive, no SessionStart): such a session never gets a free minute, dirty would
             # wait forever, so restart now, same conversation. Not counted in MAX_RESTARTS: it is a request, not a crash
             sess["since"] = ev["ts"]
+            parking.mcp_up(sess)   # the killed process's wait (parking.mcp_init): the new one sets its own
             actions += [{"do": "kill", "session": sess["name"]}, spawn_action(sess, st=st)]
             return
         sess["dirty"] = True  # the same path as a new tool set: release + --resume in a free minute
@@ -1367,7 +1395,7 @@ def _apply(st, ev, actions):
         sess = st["sessions"].get(ev.get("entity"))
         if sess:
             refusals.info(sess, data, ev["ts"])   # after a return from Opus's fallback: is it on the asked model
-            sess.pop("mcp_init", None)
+            parking.mcp_up(sess)
             sess["info"] = dict(data)   # its own copy: mcpwatch.status edits info, while below we read data as it came
             # MCP failed to connect at start (a timeout while the whole fleet is coming up): reconnect in place,
             # without restarting the session; if that fails, retry no more often than mcpwatch.RETRY, tell the hub
@@ -1832,7 +1860,7 @@ def _apply(st, ev, actions):
     if kind in ("run.requested", "run.stop_requested", "core.run_started", "core.run_ended"):   # `hub run` (core/hubrun.py)
         return hubrun.apply(st, ev, data, {"new_message": new_message, "chain": lambda sess: _run_chain(st, sess)})
     if kind.startswith("schedule."):
-        return schedule.apply(st, ev, data, {"new_message": new_message, "hub": _hub})
+        return schedule.apply(st, ev, data, {"new_message": new_message, "hub": _hub, "executor": _job_wakes})
     if kind.startswith("hub.restart_") or kind == "page.held":   # page.held: the page holds a restart (core/restart.py)
         return restart.apply(st, ev, data, ctx)
     if kind == "core.archived":   # handed-in tasks of deleted executors go to the archive (core/delegations.archive)
@@ -1847,7 +1875,9 @@ def _apply(st, ev, actions):
                 del st["messages"][mid]
         return
     if kind == "core.slept":
-        return _slept(st, data)   # the machine slept: terms that count a living process's time move by it
+        return _slept(st, data, ev["ts"])   # the machine slept: terms that count a living process's time move by it
+    if kind == "core.dark":
+        return _dark(st, data, ev["ts"])   # the Mac is awake without the person (DarkWake): the queue waits for the full wake
     if kind == "core.started":
         st["started"] = ev["ts"]  # since when the core runs, for "About" (03.10: uptime)
         st["started_seq"] = ev["seq"]   # and by which event: is the core on pre-update code? (core/restart.behind)
@@ -1899,6 +1929,16 @@ def _apply(st, ev, actions):
         raise Rejected(T("core.reducer.spool_core_only",
                          "{type}: only the core writes core.* events and the spool check count").format(
             type=data.get("type")))
+    if kind == "session.compacting" and ev.get("entity") in st["sessions"]:
+        # the host saw a compaction begin or end that nobody ordered (Claude Code compacts by itself at its threshold) or
+        # that the core ordered (the same field, set at the command): the page says "compacting", delivery and parking
+        # wait for it like for /compact. The end of a failed one has no session.compacted: this is its only trace
+        sess = st["sessions"][ev["entity"]]
+        if data.get("on") is True:
+            if sess["state"] in LIVE and not parking.compacting(sess, ev["ts"]):   # a mark that ran out is a lost end: a new start
+                sess["compacting"] = ev["ts"]
+        else:
+            sess.pop("compacting", None)
     if kind == "session.compacted" and ev.get("entity") in st["sessions"]:
         sess = st["sessions"][ev["entity"]]
         sess.pop("compacting", None)   # compaction is over, the queue types again (_pump)
@@ -2383,7 +2423,8 @@ def _session_event(st, ev, data, actions):
                 m.pop("handover", None)
                 coretext.prepend(m, T("core.msg.was_for_stopped",
                                       "(This was for executor {name} — it was stopped.)").format(name=name) + "\n")
-        for ask in sess.pop("asks", None) or []:
+        for n, ask in enumerate(sess.pop("asks", None) or []):
+            deputyroute.void(st, ev, sess, ask, deputyroute.WHY_WITHDRAWN, k=f"ds{n}")   # at a deputy: the route stops
             st["owner"]["reminders"].pop(f"q:{name}:{ask['request_id']}", None)
     if kind == "session.wake_requested" and executors.dormant(sess):
         # an executor that handed in is woken by the owner, the hub or whoever raised it
@@ -2589,10 +2630,9 @@ def _session_event(st, ev, data, actions):
         sess["restarts"] = 0
         tools.close_held(st, ev, [sess])   # a dangling request for what is already in the set (the catalog is written only on change)
         sess.pop("compacting", None)   # release+spawn and reload write no session.exited: new process, compaction interrupted
+        parking.mcp_up(sess)   # /clear inside the same process: it already reads its input; a new one — its own wait below
         if data.get("source") in ("startup", "resume") and st.get("host") != "tmux":   # tmux sends no session.info
             sess["mcp_init"] = ts   # a new process: until system init it does not read its input (parking.mcp_init)
-        else:   # /clear inside the same process: it already reads its input
-            sess.pop("mcp_init", None)
         asked = sess.pop("compact_wake", None)   # compaction was requested while it slept, however it was woken
         if asked and data.get("session_id") in (None, sess.get("session_id")):   # the same conversation: there is something to compact
             sess["compact"] = asked
@@ -2652,7 +2692,7 @@ def _session_event(st, ev, data, actions):
     if kind in ("turn.started", "permission.requested"):
         sess.pop("attention", None)  # it works again or asked via a form: the watchdog's "waits for you" mark is no longer needed
     if kind == "turn.started":
-        sess.pop("mcp_init", None)
+        parking.mcp_up(sess)
         sess.pop("limit_cut", None)  # a new turn began: do not continue one cut by the limit
         sess.pop("net_cut", None)    # nor one cut by the network
         # the chain and task of a `hub task run` request apply only to a task set together with the launch; if there
@@ -2758,7 +2798,7 @@ def _session_event(st, ev, data, actions):
                 _bg_gone(sess, [tid], ts)
     if kind == "session.exited":
         sess.pop("compacting", None)
-        sess.pop("mcp_init", None)
+        parking.mcp_up(sess)
         refusals.exited(sess)   # the raise that carried the cut died before its start: no second cut (core/refusals.py)
         bg = [t.get("title") or t.get("id") for t in (sess.get("background") or {}).values()]
         if current in ("busy", "dialog") or bg:
@@ -2824,8 +2864,8 @@ def _session_event(st, ev, data, actions):
             qid=qid, question=owner.question_text({"tool": data.get("tool"), "input": data.get("input")})))
         texts = owner.ask_texts({"tool": data.get("tool"), "input": data.get("input")})
         # away: the card waits for his return, with no push or Telegram, and does not expire; a 🚨 one reaches him at once
-        # (owner 17.11, q2551190: "push at once")
-        away = st["owner"]["state"] == "away" and not owner.urgent(texts)
+        # (owner 17.11, q2551190: "push at once"), and so does the hub's card on his own fresh message (_hub_on_his_word)
+        away = st["owner"]["state"] == "away" and not owner.urgent(texts) and not _hub_on_his_word(st, sess, ts)
         # non-working hours (hub.json quiet_review): the card is on the page, Telegram and push get it in the working morning
         hold = owner.review_hold(st, ts, texts, [name])
         sess.setdefault("asks", []).append({"id": qid, "request_id": data.get("request_id"), "tool": data.get("tool"),
@@ -2836,8 +2876,12 @@ def _session_event(st, ev, data, actions):
                                             **({"budget_card": True} if budget.card_of(st, sess) else {})})
         if liaison.is_liaison(st, name):   # its form on one incoming item: that item waits for the owner (no 30-min mark)
             busstate.liaison_asked(st, sess, data.get("request_id"), ts)
-        hub_may = away and _owners_own(st, sess, sess["asks"][-1]) is None   # the hub may answer it for him
-        if hub_may and st.get("host") == "tmux":
+        own_why = _owners_own(st, sess, sess["asks"][-1])
+        hub_may = away and own_why is None   # the hub may answer it for him
+        # the deputies of this away: for a card he keeps for himself (🚨 too, not held) — only one who decides
+        # everything takes it; the liaison cannot route its own form (the hub does: deputyroute.to_hub)
+        deps = "" if liaison.is_liaison(st, name) else deputyroute.ask_text(st, qid, owners_own=own_why is not None)
+        if away and _hub_sees(st, sess, sess["asks"][-1]) and st.get("host") == "tmux":
             _away_card(st, ev, sess, sess["asks"][-1])   # tmux sends no turn results (_settle): to the hub at once
         # the same question is already open on another session: tell the hub to remove the duplicate (07.10, two questions about one rule)
         text = owner.question_key({"tool": data.get("tool"), "input": data.get("input")})
@@ -2859,9 +2903,9 @@ def _session_event(st, ev, data, actions):
                                                         "notify": lambda e, text, **kw: _notify_hub(st, e, text, **kw)})
         actions.append({"do": "respond", "session": name, "request_id": data.get("request_id"), "response": {
             "behavior": "deny", "message": ASK_AWAY.format(away=_away_since(st), qid=qid)
-            + (ASK_AWAY_HUB.format(qid=qid) if hub_may else "") if away
+            + (ASK_AWAY_HUB.format(qid=qid) if hub_may else "") + deps if away
             else ASK_DETACHED.format(qid=qid, hours=owner.ASK_TTL // 3600)
-            + (ASK_REVIEW.format(at=_review_at(st, hold), qid=qid) if hold else "")}})
+            + (ASK_REVIEW.format(at=_review_at(st, hold), qid=qid) if hold else "") + deps}})
     elif kind == "permission.requested":
         told = _tell_raiser_permit(st, ev, sess, data)
         sess["pending"].append({"request_id": data.get("request_id"), "tool": data.get("tool"),
@@ -2919,6 +2963,13 @@ def _session_event(st, ev, data, actions):
     sess["state"] = to
     if to in ("closed", "failed", "removed") or (current in chain.BUSY and to in (*SLEEP, "held")):
         _gone(st, sess)
+    if (current in LIVE and to not in LIVE) or (current == "held" and to != "held") or kind == "session.ended" \
+            or "kill" in todo:
+        # the process went without session.exited (release: sleep, parking, a stop, hub take; SessionEnd; the owner's
+        # terminal given back or ended; a hung launch killed): its wait for MCP went with it, a new process sets its own
+        # on session.started (parking.mcp_init; the owner's terminal in held too: until his first turn nobody knows its
+        # servers)
+        parking.mcp_up(sess)
     if to not in LIVE:
         # no process (parked, asleep, crashed, with the owner): the next launch is with the new plugin version anyway;
         # the "will restart with them" mark in hub status is not needed for a sleeping session
@@ -3012,9 +3063,9 @@ HANDOFF_TEXT = T("core.msg.handoff",
                  "(or \"none\")", mark=HANDOFF_MARK, done=DONE_MARK)
 
 
-def _owner_word_for(st, data, ev, own=False, lead=None):
-    tools.owner_word(st, data, ev["ts"], own=own, lead=lead, cards=True)
-    return True
+def _owner_word_for(st, data, ev, own=False, lead=None, deputy=None):
+    """The owner's word (tools.owner_word, cards): what it found — a deputy's decision names them (deputy)."""
+    return tools.owner_word(st, data, ev["ts"], own=own, lead=lead, cards=True, deputy=deputy)
 
 
 def _heard_it(st, name, text):
@@ -3116,6 +3167,14 @@ def _merged_into(st, sess, did, data, now):
         # session knows it (it wrote the words, it got the item) and tells the owner itself — every one of them awake
         who, told = echo[0], True
         if any((st["sessions"].get(w) or {}).get("state", "removed") in (*gone, *SLEEP) for w in echo[1:]):
+            who = None
+    elif liaison.is_liaison(st, name) and busstate.nothing_sent(sess) and not sess.get("turn_asks") \
+            and (asked := [w["to"] for w in delegations.liaison_targets(st, sess, data)]):
+        # the liaison sent nothing (a refusal, a rule): its result goes to whoever wrote to it (the core relays it,
+        # delegations._relay_result), and that session tells the owner, every one of them awake. With a send that stays
+        # undecided or refused beside it, or a question to the owner, the result is the owner's too
+        who, told = asked[0], True
+        if any((st["sessions"].get(w) or {}).get("state", "removed") in (*gone, *SLEEP) for w in asked[1:]):
             who = None
     elif root:
         mine = [x for x in st["delegations"].values() if x.get("for") == root]
@@ -3577,6 +3636,9 @@ def _rename(st, ev, data, actions):
         for k in ("session", "to"):
             if m.get(k) == old:
                 m[k] = new
+    for link in (st.get("badge_links") or {}).values():   # the thumb leads to the row under the session's new name
+        if link["session"] == old:
+            link["session"] = new
     for d in st["delegations"].values():
         for k in ("session", "for_session", "by"):
             if d.get(k) == old:
@@ -3618,6 +3680,7 @@ def _rename(st, ev, data, actions):
     layout.rename(st, old, new, ev["seq"])
     if live:  # the same conversation, a new process under the new name
         sess["state"], sess["since"] = "starting", ev["ts"]
+        parking.mcp_up(sess)   # the released process's wait (parking.mcp_init): the new one sets its own
         actions.append({"do": "release", "session": old})
         actions.append(spawn_action(sess, st=st))
 
@@ -3806,7 +3869,8 @@ def _role_set(st, ev, data):
             raise Rejected(T("core.reducer.role_demote",
                              "the owner demotes an agent; the hub — on their word: --for mN (their message to you) or qN "
                              "(the answer to your card)"))
-        tools.owner_word(st, data, ev["ts"], cards=True)   # an mN of his message to the hub or a qN, the answer to a card
+        # an mN of his message to the hub or a qN, the answer to a card (or a deputy's decision on it)
+        tools.owner_word(st, data, ev["ts"], cards=True, deputy=ev["type"])
     about = data.get("about") or sess.get("about")
     if role == "agent" and not about:
         raise Rejected(T("core.reducer.role_about", "an agent needs --about: what it does, in one line — by it the hub "
@@ -4597,6 +4661,16 @@ SPEC_OWNER_COPY = T("core.msg.spec_owner_copy",
 SPEC_COPY_CHARS = 2000
 
 
+def _spec_card(st, data, name):
+    """The owner's words in reply to the card of an open spec (Telegram names the card's task: spec_card) that reached its
+    executor: his own (not a module handle, not a member of the group), so whoever raised the executor or the
+    hub may accept or drop that spec by them (delegations.spec_who; a colleague's hub 19.11: he answered the card with
+    words, and the raiser's --for was refused as written to the executor). Any other command keeps its rule."""
+    d = st["delegations"].get(data.get("spec_card")) if isinstance(data.get("spec_card"), str) else None
+    return bool(d and specmode.is_open(d) and d["state"] not in ("done", "archived") and d["session"] == name
+                and guards.from_owner_strict(st, data) is None)
+
+
 def _received(st, ev, data, actions=None, queued=None):
     """A session message. queued is a wake (a rework dN, or True) that got its place in the executor queue (_wake_ready): the
     wake checks were already passed when it was queued."""
@@ -4614,10 +4688,14 @@ def _received(st, ev, data, actions=None, queued=None):
         raise Rejected(FYI_PLAIN)
     # he writes from the page or Telegram himself, so he is present (09.10: /away with no end was forgotten for a
     # day and all sessions' forms piled up silently); from a client via a module handle too; CLI is not necessarily
-    # him: modules write that way as well
-    if st["owner"]["state"] == "away" and data.get("owner") is True and (
-            data.get("channel") in ("web", "telegram") or guards.MODULE_CHANNEL.fullmatch(str(data.get("channel")))):
-        _owner_event(st, ev, data, "owner.back")
+    # him: modules write that way as well. An away that hands questions to deputies (core/deputies.py) is held until
+    # his /back or the end of its term: his words do not end it (a flag no deputy fits hands nothing: it is a plain away),
+    # they only put the cards asked without him in front of him (_away_asks_seen)
+    if st["owner"]["state"] == "away" and data.get("owner") is True and _he_writes(data.get("channel")):
+        if deputies.held(st):
+            _away_asks_seen(st, ev)
+        else:
+            _owner_event(st, ev, data, "owner.back")
     to = (data.get("to") or "").strip()
     # no address means the hub: "wrote without a reply, you are writing to the hub"; "hub" is the hub too (the skill
     # teaches `hub send hub`, while the hub session is named by the settings, hub-core: on 01.10 eight messages to
@@ -4745,7 +4823,7 @@ def _received(st, ev, data, actions=None, queued=None):
         word = st["messages"][tools.owner_word(st, data, ev["ts"])["message"]]
         # `--card qN`: the hub names which card he answered (07.10: a session with two cards, the core does not guess)
         tgt = st["sessions"].get(name) or {}
-        if data.get("card") and not any(a["id"] == data["card"] and owner.before(a, word["created"])
+        if data.get("card") and not any(a["id"] == data["card"] and owner.before(a, word["created"], named=True)
                                         for a in owner.open_asks(tgt, ev["ts"])):
             raise Rejected(CARD_NOT_OPEN.format(card=data["card"], name=name, word=word["id"]))
     # an addition to an assignment (`hub send <agent> --about <dN|mN>`, the hub on 03.10: an addition went to someone
@@ -4803,7 +4881,10 @@ def _received(st, ev, data, actions=None, queued=None):
                       **({"comment": str(data["comment"])} if tools.from_owner(data) and data.get("comment") else {}),
                       **({"fyi": True} if fyi else {}))
     busstate.message_taken(st, ev, data, msg)   # a session's request to the liaison: its contact, and an outcome to wait for
-    if spec_task and msg["session"] == name and not typed and not fyi:
+    words = msg["session"] == name and not typed and not fyi   # his words that reached it, not a command
+    if words and _spec_card(st, data, name):
+        msg["spec_card"] = data["spec_card"]   # his reply to the spec's card: the raiser's --for of this spec counts it
+    if spec_task and words:
         # the copy "for your information" to the mini-hub: no turn, it rides with its next message (_ride); a command
         # (/compact) is an action on the session, not words
         words = str(data.get("text") or "")
@@ -4818,7 +4899,7 @@ def _received(st, ev, data, actions=None, queued=None):
     if tools.from_owner(data):
         _note_lang(st, data.get("text"))   # the owner's language goes to sessions at launch (09.10: after a compact they wrote English)
     if word and msg["session"] == name:
-        _relayed_answer(st, msg, word, ev["ts"], data.get("card"))
+        _relayed_answer(st, msg, word, ev, data.get("card"))
     if data.get("now"):
         _rush(st, msg, ev["ts"], actions)
     elif data.get("channel") == "session" and minihub.boss(st, st["sessions"].get(name)) == data.get("sender") \
@@ -4857,6 +4938,7 @@ def _received(st, ev, data, actions=None, queued=None):
             # with two or more open, the words answer none (answer with a card option or by quoting it)
             if len(asks) == 1 or any(a["id"] == data.get("card") for a in asks):
                 ask = next((a for a in asks if a["id"] == data.get("card")), asks[-1])   # the copied one, if any
+                deputyroute.owner_answered(st, ev, sess, ask)   # a deputy's answer on it is no ground any more
                 sess["asks"].remove(ask)
                 st["owner"]["reminders"].pop(f"q:{name}:{ask['request_id']}", None)
                 msg["answers_question"] = ask["id"]
@@ -4977,9 +5059,10 @@ def _delegated_words_answer_form(st, ev, d, actions):
     # it), and only to a card the hub named (`hub task new --for mN --card qN`): without it this is a new task, not an
     # answer (10.10: the only open card was closed by the owner's new task)
     asks = [a for a in owner.open_asks(sess, ev["ts"])
-            if owner.before(a, src["created"]) and d.get("card") and a["id"] == d["card"]]
+            if owner.before(a, src["created"], named=True) and d.get("card") and a["id"] == d["card"]]
     if asks:   # a question card: the task with his words is the answer; the question is closed and the task arrives with a note
         ask = asks[-1]
+        deputyroute.owner_answered(st, ev, sess, ask)   # a deputy's answer on it is no ground any more
         sess["asks"].remove(ask)
         st["owner"]["reminders"].pop(f"q:{sess['name']}:{ask['request_id']}", None)
         msg["answers_question"] = ask["id"]
@@ -4998,7 +5081,7 @@ RELAYED_TAIL = T("core.msg.relayed_tail",
                  "as a reply to them; do not duplicate the same result to the hub.)")
 
 
-def _relayed_answer(st, msg, word, ts, card=None):
+def _relayed_answer(st, msg, word, ev, card=None):
     """The hub relayed the owner's words (word): the turn result goes to the owner where he wrote from (re ->
     modules/telegram); his words answer the card named by the hub (card, `--card qN`); if none is named, this is not an
     answer to a card but a new request (10.10: the only open card was closed by any owner words relayed to the session)."""
@@ -5012,10 +5095,12 @@ def _relayed_answer(st, msg, word, ts, card=None):
     if word.get("action") or not card:
         return   # a page button retold by the hub is not an answer to a card; neither is anything without --card
     sess = st["sessions"][msg["session"]]
-    asks = [a for a in owner.open_asks(sess, ts) if owner.before(a, word["created"]) and (not card or a["id"] == card)]
+    asks = [a for a in owner.open_asks(sess, ev["ts"])
+            if owner.before(a, word["created"], named=True) and (not card or a["id"] == card)]
     if not asks:
         return
     ask = asks[-1]
+    deputyroute.owner_answered(st, ev, sess, ask)   # a deputy's answer on it is no ground any more
     sess["asks"].remove(ask)
     st["owner"]["reminders"].pop(f"q:{sess['name']}:{ask['request_id']}", None)
     msg["answers_question"] = ask["id"]
@@ -5058,16 +5143,22 @@ def _owner_event(st, ev, data, kind):
     to, todo, why = decide(OWNER, o["state"], kind, checker(st, data))
     if to is None:
         raise Rejected(why)
+    # the deputies of this away (core/deputies.py, spec d2679763 A5): checked before anything changes
+    flag = deputies.away_flag(st, ev, data, "extend" in todo) if {"away", "extend"} & set(todo) else None
     if "away" in todo:
         owner.went_away(o, ev, data)
     if "extend" in todo:
         owner.new_period(o, ev, data)
+    if flag is not None:
+        o["deputies"] = flag
     o["state"] = to
     if "away" in todo:
         _away_open(st, ev)
     if "back" in todo:
+        waiting = deputyroute.summary_waiting(st)   # the cards at a deputy without an answer: in the summary
+        deputyroute.came_back(st, ev)
         _away_asks_back(st, ev)
-        o["summary"] = {**owner.came_back(st, ev), "seq": ev["seq"]}
+        o["summary"] = {**owner.came_back(st, ev, deputies_waiting=waiting), "seq": ev["seq"]}
 
 
 DROPPED_GONE = T("core.msg.ask_dropped_gone", "removed question {id}: the owner is back, and the session is gone")
@@ -5111,6 +5202,17 @@ def _away_asks_back(st, ev):
                                                 "ts": ask["since"]})
             else:
                 ask["back_at"] = ev["ts"]
+
+
+def _away_asks_seen(st, ev):
+    """The owner writes while the away is held for the deputies: the cards asked without him are in front of him from
+    this word, as from a return, for his words that name one (owner.before named; 23.11: the hub's --card on his words
+    was refused with the card open and asked hours before them, since nothing but /back set back_at) — this word
+    answers none of them. They still wait for his return (owner.waits_return: no push, no Telegram, no expiry)."""
+    for sess in st["sessions"].values():
+        for ask in sess.get("asks") or []:
+            if owner.waits_return(ask):
+                ask.setdefault("seen_at", ev["ts"])
 
 
 def _budget_gate(st, ev, on):
@@ -5350,6 +5452,7 @@ def _answer_ask(st, ev, data, sess):
         return False
     if not tools.from_owner(data):
         return _hub_answers(st, ev, data, sess, ask)
+    deputyroute.owner_answered(st, ev, sess, ask)   # a deputy's answer on it is no ground any more
     sess["asks"].remove(ask)
     _answered(sess, ev, data, ask=ask)
     st["owner"]["reminders"].pop(f"q:{sess['name']}:{rid}", None)
@@ -5363,6 +5466,8 @@ def _answer_ask(st, ev, data, sess):
     new_message(st, f"m{ev['seq']}", sess["name"], _ask_answer_text(ask, answers, ev["ts"]), ev["ts"],
                 origin=forms.ORIGIN_OWNER, from_owner=True, answers_question=ask["id"], channel=data.get("channel"),
                 on_behalf="owner",   # the core's note in his name, not his words: views.core_row reads the mark
+                # his choices themselves: a deputy's area set on this answer quotes them (core/deputies.py)
+                **({"answers": dict(answers)} if data.get("behavior") == "allow" and answers else {}),
                 **({"card_declined": True} if data.get("behavior") != "allow" else {}),
                 **({"for_delegation": ask["delegation"]} if ask.get("delegation") else {}))
     return True
@@ -5402,6 +5507,8 @@ HUB_ANSWER_WHY = T("core.reducer.hub_answer_why", "the hub's answer for the owne
 HUB_ANSWER_LEAVE = T("core.reducer.hub_answer_leave", "the hub answers a card or leaves it to the owner — no refusal")
 HUB_ANSWER_GONE = T("core.reducer.hub_answer_gone", "the session that asked is gone: the question goes to their summary")
 HUB_ANSWER_THEIRS = T("core.reducer.hub_answer_theirs", "card {id} is the owner's own ({why}): it waits for them")
+HUB_ANSWER_DEPUTY = T("core.reducer.hub_answer_deputy", "card {id} is at the deputy {name}: their answer comes to the "
+                                                        "session")
 OWNERS_OWN = {"hub": T("core.reducer.own_hub", "the hub's own question"),
               "liaison": T("core.reducer.own_liaison", "the liaison's: out of the hub only by the owner's card"),
               "bus": T("core.reducer.own_bus", "a card of the hub bus"),
@@ -5425,6 +5532,30 @@ def _owners_own(st, sess, ask):
     return None
 
 
+def _he_writes(channel):
+    """The owner's word on this channel is him at the keyboard: the page, Telegram, a client through a module handle.
+    The CLI is not necessarily him: modules write that way as well."""
+    return channel in ("web", "telegram") or bool(guards.MODULE_CHANNEL.fullmatch(str(channel)))
+
+
+def _hub_on_his_word(st, sess, ts):
+    """The hub asks in a turn on the owner's own message (or his answer to a card, or his closing one) from the page,
+    Telegram or a module handle, no longer ago than owner.LIVE_WORD: he is at the keyboard now (an away with the
+    deputies holds through his words), so the card is in front of him at once, not at his return. The hub's cards are
+    his alone (OWNERS_OWN), and a deputy's area is set only from his words: held back, such a card left him no way to
+    change an area while away. The messages this turn took decide, not the chain's root: an insertion mid-turn does
+    not take it away."""
+    return sess.get("kind") == "hub" and any(
+        m.get("from_owner") and _he_writes(m.get("channel")) and ts - (m.get("created") or 0) <= owner.LIVE_WORD
+        for m in map(st["messages"].get, _took(sess)) if m)
+
+
+def _hub_sees(st, sess, ask):
+    """While he is away the hub gets this card (AWAY_CARD, AWAY_OPEN): one that is not his own, or the liaison's form
+    a deputy who decides everything may take (the liaison cannot route it: core/deputyroute.py to_hub)."""
+    return _owners_own(st, sess, ask) is None or deputyroute.to_hub(st, sess, ask)
+
+
 def _card_text(ask, most=AWAY_CARD_MAX):
     """A card's questions with their options, for the hub to decide by; a longer one is cut with "…"."""
     parts = []
@@ -5438,26 +5569,29 @@ def _card_text(ask, most=AWAY_CARD_MAX):
 
 def _away_card(st, ev, sess, ask):
     """The card a session left for the owner goes to the hub once (ask["to_hub"])."""
-    if ask.get("to_hub"):
+    if ask.get("to_hub") or deputyroute.at(ask):   # one at a deputy is theirs until it comes back
         return
     ask["to_hub"] = ev["seq"]
     d = st["delegations"].get(ask.get("delegation") or "") or {}
     task = AWAY_TASK.format(id=d["id"], words=delegations.short_text(" ".join(str(d.get("words") or "").split()), 120)) \
         if d else ""
-    _notify_hub(st, ev, AWAY_CARD.format(qid=ask["id"], name=sess["name"], task=task, questions=_card_text(ask),
-                                         rule=AWAY_RULE), away_card=ev["seq"])
+    _notify_hub(st, ev, coretext.join(AWAY_CARD.format(qid=ask["id"], name=sess["name"], task=task,
+                                                       questions=_card_text(ask), rule=AWAY_RULE),
+                                      deputyroute.hub_text(st)), away_card=ev["seq"])
 
 
 def _away_open(st, ev):
     """The owner has gone away: the cards open now go to the hub in one message."""
     cards = [(s, a) for s in st["sessions"].values() if s.get("state") not in minihub.GONE
-             for a in owner.open_asks(s, ev["ts"]) if _owners_own(st, s, a) is None]
+             for a in owner.open_asks(s, ev["ts"])
+             if _hub_sees(st, s, a) and not deputyroute.at(a)]
     if not cards:
         return
     for _, a in cards:
         a["to_hub"] = ev["seq"]
     lines = "; ".join(owner.CARD_LINE.format(id=a["id"], name=s["name"], question=_card_text(a, 300)) for s, a in cards)
-    _notify_hub(st, ev, AWAY_OPEN.format(lines=lines, rule=AWAY_RULE), away_card=ev["seq"])
+    _notify_hub(st, ev, coretext.join(AWAY_OPEN.format(lines=lines, rule=AWAY_RULE), deputyroute.hub_text(st)),
+                away_card=ev["seq"])
 
 
 def _hub_answers(st, ev, data, sess, ask):
@@ -5474,6 +5608,8 @@ def _hub_answers(st, ev, data, sess, ask):
     own = _owners_own(st, sess, ask)
     if own:
         raise Rejected(HUB_ANSWER_THEIRS.format(id=ask["id"], why=own))
+    if deputyroute.at(ask):
+        raise Rejected(HUB_ANSWER_DEPUTY.format(id=ask["id"], name=ask["deputy"]["name"]))
     why = " ".join(str(data.get("why") or "").split())
     if not why:
         raise Rejected(HUB_ANSWER_WHY)
@@ -5541,10 +5677,13 @@ def _badge(st, key, emoji, own=False):
     merged, his on top (views). None removes."""
     badges = st.setdefault("owner_badges" if own else "badges", {})
     badges.pop(key, None)
+    links = st.get("badge_links") or {}
+    links.pop(key, None)   # a link belongs to the core's thumb it was set with (_settle); any change of the badge drops it
     if emoji is not None:
         badges[key] = emoji
         while len(badges) > (OWN_KEEP if own else BADGES_KEEP):
-            del badges[next(iter(badges))]
+            links.pop(old := next(iter(badges)), None)
+            del badges[old]
 
 
 def _take(st, sess, msg):
@@ -5580,6 +5719,7 @@ def _turn_begins(st, sess):
     removed and has not gone to another session (resume); otherwise it will not come (a limit, but the session was
     raised on the same account), so forget it."""
     sess.pop("turn_asks", None)
+    sess.pop("turn_said", None)
     resume = st["messages"].get(sess.get("resume") or "")
     if not sess.get("cut_turn") and (not resume or resume["state"] == "failed" or resume["session"] != sess["name"]):
         sess.pop("cut_eyes", None)
@@ -5611,11 +5751,14 @@ def _settle(st, sess, data, ev):
     asks = sess.get("turn_asks") or []
     asked = DEFERRED in asks or set(asks) & {a.get("id") for a in sess.get("asks") or []}
     if asked and st["owner"]["state"] == "away":   # what the session left for him in this turn goes to the hub
-        for ask in [a for a in sess.get("asks") or [] if a["id"] in asks and _owners_own(st, sess, a) is None]:
+        for ask in [a for a in sess.get("asks") or [] if a["id"] in asks and _hub_sees(st, sess, a)]:
             _away_card(st, ev, sess, ask)
     ok = tools.answered(data) and not sess.get("pending") and not asked
+    said = sess.pop("turn_said", None)
     for mid in sess.pop("eyes", None) or []:
         _badge(st, mid, REACT_ANSWERED if ok else None)
+        if ok and said:   # the thumb leads to the answer: the last row this turn said in the timeline (views reactions.links)
+            st.setdefault("badge_links", {})[mid] = {"session": sess["name"], "seq": said}
 
 
 def _gone(st, sess):
@@ -5711,6 +5854,7 @@ def _decision_revoked(st, ev, data, actions):
     if guards.from_owner_or_hub(st, data) and not (who and who == rec.get("by")):
         raise Rejected(DECISION_WHO)
     rec["revoked"] = {"by": who, "ts": ev["ts"]}
+    (st.get("deputy_words") or {}).pop(rec.get("card") or "", None)   # a deputy's decision withdrawn opens no gate
     # the summary entry has no seq (a replay of an older journal must give the same summary): matched by author, text, time
     st["owner"]["decided"] = [d for d in st["owner"]["decided"]
                               if (d.get("session"), d.get("text"), d.get("ts")) != (rec["by"], rec["text"], rec["ts"])]
@@ -5746,7 +5890,7 @@ def new_message(st, mid, name, text, ts, origin="", frm=None, **extra):
     if executors.dormant(sess):
         # an executor that handed in sleeps: only the owner or the hub wakes it, explicitly (_received clears the mark
         # earlier); everything else (schedule, replies, core notes) goes to whoever raised it (analysis 05.10: it was
-        # woken bypassing the rule)
+        # woken bypassing the rule). A job it or its raiser set wakes it before it gets here (_job_wakes)
         up = sess.get("raised_by")
         up = up if up and (st["sessions"].get(up) or {}).get("state") not in (None, "removed", "closed", "failed") \
             else _hub(st)
@@ -6412,8 +6556,15 @@ def _account(st, ev, data, ctx):
     # (accounts.decide: free, or exhausted with an earlier reset). Before, every fresh token of a gateway ended it: the
     # budget read "normal" ("its reserve is not known") and seconds later "none free" again (2026-11-13)
     said = (acc.get("exhausted") or {}).get("until", 0)
-    episode = data.get("refresh") and was == to and said > now
+    # a move to a command account's fresh token while all are busy (accounts.decide: all_busy) is such a try too: it
+    # stays busy for the budget until its limits come (12.11: the move from the login at its 5 h limit to the gateway
+    # ended the episode — the economy over, none free, the pool card)
+    trying = bool(data.get("all_busy") and to and to != was and said > now)
+    episode = (data.get("refresh") and was == to or trying) and said > now
     acc.update(active=to, since=now, exhausted=acc["exhausted"] if episode else None, pinned=pinned, forced=forced)
+    if trying:
+        blocked[to] = max(blocked.get(to) or 0, said)
+        acc.setdefault("refresh_at", dict(acc.get("refreshed") or {}))[to] = now   # the next try is counted from this one
     if data.get("unread") and was == to and said > now:
         # the hold of a fresh token nobody read has ended: the queue comes up and reads it. A reading at the limit is
         # still this episode (accounts.decide: busy again until the account's own earliest reset, block, not said
@@ -6509,7 +6660,7 @@ def _account(st, ev, data, ctx):
         if limit and executors.dormant(sess) and not limitresume.stopped(sess) and _engine(st, sess) == engine \
                 and (data.get("free") or _account_stale(st, sess)):
             _wake_cut(st, ev, sess, _cut_text(st, sess, limit))
-    if data.get("channel") == "core" and data.get("restart"):
+    if data.get("channel") == "core" and data.get("restart") and not episode:   # a try while all are busy is no news
         why = coretext.join(" (", why_of(), ")") if data.get("why") else ""
         free = coretext.join(*(say("core.account.free_after", name=n, at=at(t)) for n, t in (data.get("blocked") or {}).items()))
         default = say("core.account.default")
@@ -6933,6 +7084,66 @@ def _core_wake(st, ev, sess, did, cut, text=LIMIT_RESET):
     sess["resume"] = go["id"]
 
 
+def _job_wakes(st, ev, job, text):
+    """A session job fires at an executor that handed in and sleeps (retired): if it set the job itself, or whoever raised
+    it did, the job wakes it as its raiser would (`hub session wake --about dN`) — its last task, handed in to that raiser,
+    is in progress again and the turn's result answers it; through the same refusals, places and queue (_raiser_terms,
+    _wake_cut). True — taken care of; False — as any message to a sleeper, to whoever raised it with "wake it" (a
+    colleague's hub 23.11: an executor's own alarm went to its raiser four times a day and the executor never woke). A
+    later firing while this wake waits for a place does not get here: it is its queued copy (schedule._queued)."""
+    name = job.get("session") or ""
+    sess = st["sessions"].get(name)
+    if not executors.dormant(sess) or name in (st.get("runs") or {}):
+        return False
+    raiser = sess.get("raised_by")
+    by = raiser if (st["sessions"].get(raiser or "") or {}).get("state") not in (None, "removed", "closed", "failed") \
+        else _hub(st)
+    d = st["delegations"].get(_last_task(st, name) or "") or {}
+    if not by or job.get("by") not in (name, raiser or by) or d.get("for_session") != (raiser or by) \
+            or not _handed(st, d.get("id")) or _wake_refusal(st, sess, direct=by != raiser):
+        return False
+    wait = executors.waits(st, by, now=ev["ts"])
+    if wait:   # raised by itself when there is room, as its raiser's wake (_wake_ready)
+        mini = minihub.on(st, st["sessions"].get(by))
+        st.setdefault("runs", {})[name] = {
+            "by": by, "task": str(text), "ts": ev["ts"], "state": "queued", **forms.why_fields(wait), "minihub": bool(mini),
+            **({"parent": d["parent"]} if mini and d.get("parent") else {}),
+            "wake": {"about": d["id"], "text": str(text), "l10n": coretext.marks(text), "attachments": [],
+                     "schedule": job["id"]}}
+    else:
+        _job_woken(st, ev, sess, d["id"], text, job["id"])
+    return True
+
+
+def _job_ready(st, ev, sleeper, w):
+    """A job's wake that waited for a place (_job_wakes) got it: the executor still sleeps with the task handed in — it is
+    woken as on the firing; woken meanwhile or refused now — the job's message as any (one copy). Gone, or the job removed,
+    paused or handed to another meanwhile — nothing: the job's own handling tells whom it concerns."""
+    job = st["schedule"].get(w["schedule"]) or {}
+    if not sleeper or sleeper["state"] in ("removed", "closed", "failed") \
+            or job.get("state") in (None, "removed", "paused") or job.get("session") != sleeper["name"]:
+        return
+    text = coretext.restore(w["text"], w.get("l10n"))   # the core's phrases (late, the check's news) in the owner's language
+    if executors.dormant(sleeper) and _handed(st, w["about"]) and not _wake_refusal(st, sleeper, direct=False):
+        return _job_woken(st, ev, sleeper, w["about"], text, w["schedule"])
+    if schedule._queued(st, job) is None:
+        new_message(st, f"m{ev['seq']}", sleeper["name"], text, ev["ts"], origin=forms.ORIGIN_SCHEDULE, schedule=w["schedule"])
+
+
+def _handed(st, did):
+    """Task did is handed in (replied or stopped): a wake can continue it."""
+    return (st["delegations"].get(did or "") or {}).get("state") in ("replied", "stopped")
+
+
+def _job_woken(st, ev, sess, did, text, jid):
+    """Wake a retired executor with the firing of its job jid: the job's message (not its raiser's: the turn stays a
+    schedule turn), and its handed-in task did is in progress again (as a raiser's wake with `--about`, _received)."""
+    sess["state"] = step(SESSION, "retired", "_unretire")[0]
+    delegations.trail(st, did, delegations.BY_CORE, TRAIL_WOKEN.format(name=sess["name"], text=text[:200]))
+    msg = new_message(st, f"m{ev['seq']}", sess["name"], text, ev["ts"], origin=forms.ORIGIN_SCHEDULE, schedule=jid)
+    delegations.continued(st, sess["name"], msg["id"], ev, did)
+
+
 def _notify_hub(st, ev, text, fyi=False, **extra):
     """A verdict on an assignment goes to the hub as a core message (task is which task: the chain, core/chain.py). A
     mini-hub executor's task bypasses the hub (the bus): whoever raised it already got REPLIED and STOPPED (the result,
@@ -6950,15 +7161,61 @@ def _notify_hub(st, ev, text, fyi=False, **extra):
         new_message(st, f"m{ev['seq']}", hub, text, ev["ts"], origin=forms.ORIGIN_CORE, **({"fyi": True} if fyi else {}), **extra)
 
 
-def _slept(st, data):
+PAUSES_KEEP = 86400   # s; how far back the hub remembers the time it did not live (paused): the watchdog's terms are minutes
+
+
+def _pause(st, start, end):
+    """[start, end] the hub did not live (a sleep, a dark wake) into st["pauses"]; one touching the last merges with it,
+    so a night of sleeps between dark wakes stays one or two spans."""
+    if not start < end:   # the wall clock stepped back
+        return
+    spans = [p for p in st.get("pauses") or [] if p[1] >= end - PAUSES_KEEP]
+    if spans and start <= spans[-1][1] + 1:
+        spans[-1] = [min(spans[-1][0], start), max(spans[-1][1], end)]
+    else:
+        spans.append([start, end])
+    st["pauses"] = spans
+
+
+def paused(st, since, now):
+    """Seconds of [since, now] the hub did not live: the machine slept (core.slept) or was in a dark wake (core.dark,
+    still open: until now). Terms meant as the hub's own waiting (the watchdog's "not delivered", "stalled") leave
+    them out (2026-11-22: a message held over a night of sleeps was "waited 16 min" and the session was woken)."""
+    spans = list(st.get("pauses") or [])
+    if "dark" in st:
+        spans.append([st["dark"], now])
+    total, edge = 0, since
+    for a, b in sorted(spans):
+        a, b = max(a, edge), min(b, now)
+        if b > a:
+            total, edge = total + b - a, b
+    return total
+
+
+def _dark(st, data, ts):
+    """The Mac is awake without the person (on) or fully awake again (off): macOS DarkWake between sleeps lasts 2-45 s
+    and the network often does not answer in it (2026-11-22: turns and schedule jobs started in such windows hung
+    for hours, one retry per window, and failed with "Request timed out"). While it lasts, nothing new starts: the
+    queue is not typed (_pump), a typed message whose term ran out goes back to the queue (_timer), the daemon defers
+    spawns and the schedule clock its commands; all of it goes once at the full wake. The time is a pause (paused)."""
+    on = data.get("on")
+    if on is True and "dark" not in st:
+        st["dark"] = ts
+    elif on is False and "dark" in st:
+        _pause(st, st.pop("dark"), ts)
+
+
+def _slept(st, data, ts):
     """The machine slept for data.seconds (the wall clock ran, the hub and its sessions did not: macOS DarkWake gives a
     window of 10-50 s every 15 minutes; 05.11: /compact took 1904 s instead of ~55 s). The terms that wait for a living
     process get that time back: the guard of a compaction in progress, the hold of a folder being fast-forwarded and the delivery deadline of a message being typed
     (its attempts are counted per term: four of them ran out across one sleep). The rest of the terms are wall-clock by
-    meaning (the schedule, the owner's hours, the cache that lives an hour)."""
+    meaning (the schedule, the owner's hours, the cache that lives an hour). The sleep is a pause (paused)."""
     n = data.get("seconds")
     if isinstance(n, bool) or not isinstance(n, (int, float)) or not 0 < n < 7 * 86400:   # nan fails the comparison too
         return
+    if "dark" not in st:   # in a dark wake the open span covers it
+        _pause(st, ts - n, ts)
     for sess in st["sessions"].values():
         if sess.get("compacting"):
             sess["compacting"] += n
@@ -6982,7 +7239,7 @@ def _timer(st, ev, data, actions):
     elif msg["attempt"] >= MAX_ATTEMPTS:
         _msg_move(msg, "_fail", ts)
         msg["reason"] = GAVE_UP
-    elif sess["state"] == "idle":
+    elif sess["state"] == "idle" and "dark" not in st:   # in a dark wake it waits in the queue for the full one (_dark)
         _msg_move(msg, "_retry", ts)
         _typed(msg, ts, actions)
     else:
@@ -7058,6 +7315,8 @@ def _pump(st, ev, actions):
             continue
         if "forwarding" in sess and forwarding(sess, ts):
             continue   # git is moving the files of its folder (_folder_forward): typing and a relaunch wait for it
+        if "dark" in st:
+            continue   # the Mac between sleeps (_dark): typing, a compaction and a relaunch wait for the full wake
 
         if name not in active and _pump_quiet(sess):
             continue   # free, nothing to write to it and no marks: none of the branches below would fire
@@ -7198,6 +7457,7 @@ def _tools_apply(st, sess, ev, actions, account=False):
                             **({"asked": asked} if asked else {})}
         _bg_gone(sess, sess.get("background") or {}, ev["ts"])
         sess["background"] = {}
+    parking.mcp_up(sess)   # no session.exited here either: the released process's wait went with it (parking.mcp_init)
     actions.append({"do": "release", "session": sess["name"]})
     actions.append(spawn_action(sess, st=st))
     frees = sess.pop("frees", None)
@@ -7587,8 +7847,8 @@ def _rush(st, msg, ts, actions):
         return False
     msg["urgent"] = True
     sess = st["sessions"].get(msg["session"]) or {}
-    if msg.get("held") or sess.get("state") != "busy" or not injectable(msg):
-        return False
+    if msg.get("held") or sess.get("state") != "busy" or not injectable(msg) or "dark" in st:
+        return False   # in a dark wake (_dark) the turn hangs on the network: first in the queue at the full wake
     _msg_move(msg, "_inject", ts)
     msg["injected"], msg["delivered_at"] = True, ts
     _ride(st, msg)
@@ -7766,6 +8026,8 @@ def _wake_ready(st, ev, name, actions):
     text goes to it as an ordinary message on that task."""
     run = st["runs"].pop(name)
     sleeper, by = st["sessions"].get(name), run.get("by")
+    if (run.get("wake") or {}).get("schedule"):   # its own job fired with no room (_job_wakes): not the raiser's wake
+        return _job_ready(st, ev, sleeper, run["wake"])
     if not sleeper or sleeper["state"] in ("removed", "closed", "failed"):
         if by in st["sessions"] and st["sessions"][by]["state"] not in ("removed", "closed", "failed"):
             what = KIND_REWORK_CAP if (run.get("wake") or {}).get("about") else KIND_WAKE_CAP

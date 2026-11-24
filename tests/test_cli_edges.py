@@ -136,6 +136,14 @@ class Arguments(Base):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.spooled(), [])
 
+    def test_decided_list_with_a_card_is_not_the_local_read(self):
+        # review high: the liaison may run `hub decided --card qN "…"` — with "list" it read the owner's decisions
+        for args in (("list",), ("undo", "5"), ("undo", "#5")):   # and no withdrawal with a card
+            r = self.hub("decided", "--card", "q5", *args, me="liaison")
+            self.refused(r)
+            self.assertIn('hub decided "', r.stdout + r.stderr, args)   # the reserved word's hint
+            self.assertEqual(self.spooled(), [])
+
     def test_decided_still_records_a_phrase_that_starts_with_such_a_word(self):
         self.core()
         for text in ("list the open tasks only in the summary · saves a click · re-enable the full list",

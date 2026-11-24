@@ -568,6 +568,19 @@ class Card(Core):
         self.mode("economy", window="five_hour", used=0.87, resets=5000, eta=4000)
         self.assertIn("forecast", self.hub_texts()[-1])
 
+    def test_the_date_names_the_window_whose_reset_it_is(self):
+        def text(st, names=None, **moved):
+            return budget.card(st, {**budget.decide(st, names, 0.95 if names else 0.98, 1000), **moved}, "UTC")
+        one = state(limits=seen(five=0.95, week=0.82, five_at=5000, week_at=9000))   # the week holds it past 5 h
+        self.assertIn("window 5 h 95%; until 01.01 02:30 (reset of the week window).", text(one))
+        self.assertIn("; until 01.01 02:30 (reset of the week window).", text(one, until=9030))
+        self.assertRegex(text(state(limits=seen(five=0.95, week=0.5, five_at=5000))), r"95%; reset \S 01\.01 01:23\.")
+        pool = state(accounts={"a": seen(five=1, week=0.96, five_at=5000, week_at=9600),
+                               "b": seen(five=1, week=0.97, five_at=5000, week_at=9000)})   # b frees first
+        self.assertIn("; until 01.01 02:30 (reset of the week window of account b).", text(pool, ["a", "b"]))
+        busy = state(accounts={"a": seen(five=1, five_at=5000)}, blocked={"a": 7000})
+        self.assertIn("until the reset; until 01.01 01:56.", text(busy, ["a"]))
+
     def test_only_the_core_writes_the_mode(self):
         self.assertIsNotNone(self.ev("budget.mode", None, mode="economy", **by("hub")))
         self.assertIsNotNone(self.ev("budget.mode", None, mode="soon", **CORE))

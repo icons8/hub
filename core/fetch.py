@@ -3,6 +3,7 @@
 `<file>.part`; a file that does not match is deleted and never handed over. Claude Code (core/claudeinstall) and the
 parts the app fetches on first use (Chrome for Testing: URL, sha256 and size pinned in tools/package/versions.json)
 go through here. The stdlib only."""
+import contextlib
 import hashlib
 import os
 import re
@@ -14,7 +15,10 @@ from core import i18n, nethttp
 TIMEOUT = 60          # seconds of silence on a socket before the attempt counts as broken
 SMALL = 1 << 20       # a pointer, a manifest, a signature, a key — far below a megabyte
 CHUNK = 1 << 20
-TRIES = 4             # attempts within one run; the next run continues the same .part
+PROGRESS_STEP = 1 << 18   # bytes between two calls of progress()
+TRIES = 4             # attempts in a row that bring not one byte, within one run; the next run continues the same .part
+RUN_SECONDS = 600     # past this a run starts no new attempt (the bytes so far stay): a link that gives a byte per try is not waited on
+ATTEMPTS_MAX = 16     # attempts within one run, with bytes or without: a link that gives a little each time is not for ever
 UA = "agents-hub (fetch)"
 # where the open build's environments are (the assets of its GitHub releases): an address its releases.json names off
 # its own pages, and every redirect of that download, is https to one of these exactly — no port, no login
@@ -133,12 +137,13 @@ def download(url, dest, sha, size, what, again, progress=None, log=None, say=Non
         have = 0
     if have and say:
         say(i18n.t("cli.fetch.resumed", what=what, mb=f"{have / 1e6:.1f}"))
-    last = None
-    for attempt in range(TRIES):
-        if have >= size:
+    last, fruitless, began = None, 0, time.monotonic()
+    for attempt in range(ATTEMPTS_MAX):
+        if have >= size or fruitless >= TRIES or (attempt and time.monotonic() - began > RUN_SECONDS):
             break
         if attempt:
-            time.sleep(pause * attempt)
+            time.sleep(pause * (fruitless or 1))
+        before = have
         try:
             have = _attempt(url, part, have, size, what, again, progress, pause, private, allow)
             last = None
@@ -146,6 +151,7 @@ def download(url, dest, sha, size, what, again, progress=None, log=None, say=Non
             last = e
             have = os.path.getsize(part) if os.path.isfile(part) else 0
             log(f"attempt {attempt + 1}: {e} (have {have} of {size})")
+        fruitless = 0 if have > before else fruitless + 1
     if have < size:
         raise Failed("broken", i18n.t("cli.fetch.broken", what=what, error=str(last or "?"), mb=f"{have / 1e6:.1f}",
                                       again=again))
@@ -163,10 +169,14 @@ def _attempt(url, part, have, size, what, again, progress, pause, private=None, 
     resp, conn = open_url(url, {"Range": f"bytes={have}-"} if have else None, private=private, allow=allow)
     try:
         got_range = resp.getheader("Content-Range") or ""
+        skip = 0   # bytes at the start of the answer that the part already holds
         if resp.status == 206 and got_range.startswith(f"bytes {have}-"):
-            mode, start = ("ab" if have else "wb"), have
+            mode = "ab" if have else "wb"
         elif resp.status == 200:
-            mode, have, start = "wb", 0, 0
+            # the whole file, a Range not honoured (a proxy in front, now and then): the part's bytes are read past, not
+            # written again and not thrown away — an answer that breaks off before them costs the part nothing; an answer
+            # that is not what the part holds starts it over
+            mode, skip = ("ab" if have else "wb"), have
         elif resp.status in (206, 416):
             # a range from another place, or past the end: what we have is no good, the next attempt starts over
             # without Range
@@ -180,27 +190,42 @@ def _attempt(url, part, have, size, what, again, progress, pause, private=None, 
             raise OSError(f"HTTP {resp.status}")
         else:
             raise Failed("http", i18n.t("cli.fetch.http", url=url, status=resp.status))
-        with open(part, mode) as f:
+        body, other, shown = 0, False, have   # bytes of the answer so far; the answer is not the file the part holds; progress
+        with open(part, mode) as f, (open(part, "rb") if skip else contextlib.nullcontext()) as held:
             progress(have, size)
             while True:
                 try:
-                    block = resp.read(CHUNK)
+                    block = resp.read1(CHUNK)   # what has come, not a whole block: a stall loses nothing of it
                 except (OSError, http.client.HTTPException) as e:
                     raise OSError(str(e) or type(e).__name__) from e
                 if not block:
                     break
+                body += len(block)
+                if skip:
+                    cut = min(skip, len(block))
+                    if held.read(cut) != block[:cut]:
+                        other = True
+                        break
+                    block, skip = block[cut:], skip - cut
+                    if not block:
+                        continue
                 if have + len(block) > size:
                     have = size + 1   # more than pinned: not this file
                     break
                 f.write(block)
                 have += len(block)
-                progress(have, size)
+                if have - shown >= PROGRESS_STEP or have >= size:   # a read is what the socket had: often 16 KB
+                    shown = have
+                    progress(have, size)
+        if other:   # the next attempt asks without a Range
+            os.remove(part)
+            raise OSError("the whole answer is not the file the part holds")
         if have > size:
             os.remove(part)
             raise Failed("checksum", i18n.t("cli.fetch.checksum", what=what, size=f"> {size}", want_size=size,
                                             again=again))
         length = resp.getheader("Content-Length")
-        if have < size and length and _number(length) and have - start == int(length):
+        if have < size and length and _number(length) and body == int(length):
             # the server sent the whole answer, and it is shorter than pinned: not this file
             os.remove(part)
             raise Failed("checksum", i18n.t("cli.fetch.checksum", what=what, size=have, want_size=size, again=again))

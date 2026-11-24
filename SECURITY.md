@@ -43,6 +43,16 @@ Be clear-eyed about these. If your threat needs one of them to hold, the hub is 
 - **One operating-system user.** The hub, its sessions and the `hub` command all run as the same user. A session can do
   anything that user can, including editing the hub's own files.
 - **Sessions in `bypassPermissions`.** There is no per-action prompt inside a session, and the hub does not sandbox it.
+- **A hub on Codex (OpenAI).** The engine is a setting of the whole hub, and everything above holds the same: a session
+  runs as your OS user with `approvalPolicy: never` and `sandbox: danger-full-access` — no prompt per action and no
+  sandbox. What leaves the machine goes to OpenAI through the Codex sign-in: the sessions' prompts, their context (files
+  and command output a session reads, the folder's instructions) and answers, and the hub's own short model calls (the
+  watchdog's "does it wait for you", push texts). The hub keeps Codex's sign-in, settings and conversations in its own
+  folder, not in your personal `~/.codex`. Other session modes (`default`, `acceptEdits`, `plan`, `dontAsk`) map to Codex's
+  approval policy and sandbox and ask or confine as Codex does; a command you approve runs outside the sandbox. The core's
+  bans stand in Codex's hook: if Codex does not trust the hook, the session does not start. On Windows the modes that need
+  Codex's sandbox set it up themselves, and a session that cannot get it does not start. Masking of secrets in the journal
+  is the hub's; it does not apply to what Codex sends to OpenAI.
 - **"Operator" and "hub" checks inside the hub.** The core checks who is speaking, accepts only the operator's words for
   operator-only actions, and refuses forged facts from sessions. Within one OS user this is a convention that catches
   mistakes and most manipulation, not a wall. A process that does not carry a session name (`HUB_SESSION`) speaks as the

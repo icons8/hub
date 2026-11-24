@@ -10,7 +10,7 @@ import time
 import platforms
 from core import ownclaude, perms
 from core.catalog import MCP_TIMEOUT, user_env, write_private
-from hosts.common import Trees, carry_transcript, existing_cwd, resume_on_disk, write_hook_settings
+from hosts.common import Trees, carry_transcript, existing_cwd, resume_lost, resume_on_disk, write_hook_settings
 
 # The pane's program reads the session's environment and umask from a 0600 file and removes it before claude starts
 # (platforms spec_loader): `tmux -e KEY=value` put them on the tmux client's command line, which every user of the
@@ -25,6 +25,7 @@ class TmuxHost(Trees):
     def __init__(self, state_dir, claude=("claude",), socket="hub", prefix="hub-", env=None):
         self.state_dir = state_dir
         self.claude = list(claude)
+        self.conversation_lost = set()   # sessions whose --resume found no conversation: started anew (hubd: in host.done)
         self.socket = socket
         self.prefix = prefix
         self.env = dict(env or {})
@@ -81,6 +82,9 @@ class TmuxHost(Trees):
         resume = resume_on_disk(f"tmux: {name}", cwd, session_id, resume)
         if resume:
             carry_transcript(cwd, session_id)
+        resume, lost = resume_lost(f"tmux: {name}", session_id, resume)   # the window has no suffix: no note to the session
+        if lost:
+            self.conversation_lost.add(name)
         # spec mode (core/specmode.py): the guard on file edits; the line is in its brief (the window has no suffix)
         settings = self.spec_settings() if (spec or {}).get("open") else self.settings
         cmd = self.claude + ["--resume" if resume else "--session-id", session_id, "-n", name,

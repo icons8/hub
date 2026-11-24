@@ -58,6 +58,9 @@
 .sec-form .opt small { display: block; color: var(--muted-foreground); }
 .sec-prev { display: grid; gap: 4px; }   /* "Change": the previous values, each with "Return" (spec d2441132) */
 .sec-prev .ac-note { margin: 0; }
+.sec-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }   /* a card's buttons, "Add", the form's "Save | Cancel": the gap between them is this rule's */
+.sec-more { display: grid; gap: var(--space-2); justify-items: start; }   /* a warning of the vault with its button ("Install", "Start over") */
+.sec-more .hint { margin: 0; }
 
 /* "Setup" (js/setup.js): a new hub's checklist — one card per item, a state dot, the step's own controls. The band above
    the page while a required item is red takes the primary color over the card backing (as the MCP band takes warning). */

@@ -807,6 +807,8 @@ def page_view(st, now=None):
             # our introduction went and the other hub's answer (it carries the pair code) has not come back yet
             "code_wait": bus.contact_code(c) is None and not c.get("verified") and busstate.waiting_code(b, c),
             "person": (c.get("person") or {}).get("name") if isinstance(c.get("person"), dict) else None,
+            # the person is the owner's deputy (core/deputies.py): the area on the hub's card, and why it is off
+            **{k: v for k, v in (("deputy", _deputy_view(st, c)),) if v},
             "agents": dict(c.get("agents") or {}),
             "v2": busstate.effective_v(b, c) >= 2, "quarantine": bool(c.get("quarantine")),
             "chat_in": len(chat), "last_in": max(chat, default=0)})
@@ -865,6 +867,18 @@ def list_view(st):
                     "last_in": max(chat, default=0), "heard": heard.get(name, 0),
                     "answered": answered.get(name, 0), "seen": seen.get(":hub:" + name, 0), "waiting": waiting})
     return {"enabled": bool(b.get("enabled")), "contacts": out}
+
+
+def _deputy_view(st, c):
+    """{zone, not, off} of the deputy this contact's person is, or None."""
+    from core import coretext, deputies
+    pid = (c.get("person") or {}).get("id") if isinstance(c.get("person"), dict) else None
+    rec = ((st or {}).get("deputies") or {}).get(pid or "") or {}
+    if not rec.get("on"):
+        return None
+    why = deputies.why_text(st, rec)
+    return {"zone": rec["zone"], **({"not": rec["not"]} if rec.get("not") else {}),
+            **({"off": coretext.human(why)} if why else {})}
 
 
 def _owner_words(b):

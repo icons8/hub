@@ -110,9 +110,18 @@ html.th-clean .search .clean-x::before { content: ""; width: 12px; height: 12px;
   html.th-clean .search .clean-x:hover { background: var(--c-fill); color: var(--c-t1); }
 }
 html.th-clean .search:has(#filter:placeholder-shown) .clean-x { display: none; }
+/* a plugin view's own search box (hub.searchField) looks like the list search above; its × is drawn like the list's */
+html.th-clean .search .search-x { width: 24px; height: 24px; border-radius: 8px; color: var(--c-t2); }
+html.th-clean .search .search-x > .icon { display: none; }
+html.th-clean .search .search-end .icon { color: inherit; }   /* the microphone's states (recording, failed) keep their colors */
+html.th-clean .search .search-x::before { content: ""; width: 12px; height: 12px; background: currentColor;
+  -webkit-mask: url("failed.svg") center / 12px no-repeat; mask: url("failed.svg") center / 12px no-repeat; }
+@media (hover: hover) and (pointer: fine) {
+  html.th-clean .search .search-x:hover { background: var(--c-fill); color: var(--c-t1); }
+}
 /* the :has stays inside the search row (> :where(.search-row)): a :has over the whole aside makes every change in the list re-check it,
    and the whole aside is restyled */
-html.th-clean aside:has(> :where(.search-row) #filter:not(:placeholder-shown)) #list .g-tools { display: none; }
+html.th-clean aside:has(> :where(.search-row) #filter:not(:placeholder-shown, [data-view])) #list .g-tools { display: none; }
 /* nothing found — one line in secondary gray under the field, as the native apps' search: no icon, no hint, no button */
 html.th-clean #list > p.hint { margin: 16px 12px 0; padding: 0; text-align: center; font: 400 var(--c-fs)/var(--c-lh) var(--font); color: var(--c-t2); overflow-wrap: anywhere; }
 
@@ -547,10 +556,29 @@ html.th-clean .react-chip { min-height: 28px; padding: 3px 10px; border: 1px sol
   html.th-clean .react-chip:hover { background: linear-gradient(var(--c-hover) 0 0), var(--background); }
 }
 html.th-clean .reactions { margin-top: 6px; }
+/* the emoji in the plate sits in its optical center. Drawn in its line box it stands ~2 px left of the plate's middle and ~1 px
+   high (the emoji font's side bearings), and some stand off by their own shape: 👍 🙏 low, ❤️ ‼️ 👎 high. Measured on the pixels
+   of a screenshot (a half-way point of the drawn emoji's box and its ink's centre of mass) with Apple Color Emoji: a tuned offset
+   of that font, so only where it draws the emoji (th-clean-apple-emoji, clean.js); another system's font stays as drawn. In
+   :where(), with no weight: a theme or a plugin that adjusts a specific emoji with `[data-emoji] { transform }` (EXTENDING.md)
+   moves it from where it is drawn, its rule replaces the offset instead of adding up with it */
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji:not(.kit-img)) { display: inline-block; transform: translate(0.12em, 0.05em); }   /* inline-block: an inline box takes no transform */
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="👍"]) { transform: translate(0.11em, -0.02em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="👎"]) { transform: translate(0.1em, 0.1em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="🙏"]) { transform: translate(0.12em, -0.03em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="❤"]) { transform: translate(0.13em, 0.07em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="‼"]) { transform: translate(0.13em, 0.09em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="🎉"]) { transform: translate(0.17em, 0.06em); }
+:where(html.th-clean-apple-emoji .react-chip > .react-emoji[data-emoji^="👀"]) { transform: translate(0.15em, 0.06em); }
 /* own message: the badge hangs on the bubble's bottom-right corner (4px out on the right so it keeps clear of the window edge, 6px down as the native ReactionChip); the bubble keeps
-   room so the badge never covers the last line. With the picker open the row stays in the flow under the text */
-html.th-clean .row.mine > .b:has(> .reactions > .react-chip:only-child) { position: relative; padding-bottom: 24px; margin-bottom: 6px; }
-html.th-clean .row.mine > .b > .reactions:has(> .react-chip:only-child) { position: absolute; inset-inline-end: -4px; bottom: -6px; margin: 0; }
+   room so the badge never covers the last line. With the picker open the row stays in the flow under the text (the hidden
+   "Reaction" beside a 👍 that leads to the answer does not count: the badge still hangs on the corner) */
+html.th-clean .row.mine > .b:has(> .reactions > .react-chip):not(:has(> .reactions > .react-pick)) { position: relative; padding-bottom: 24px; margin-bottom: 6px; }
+html.th-clean .row.mine > .b > .reactions:has(> .react-chip):not(:has(> .react-pick)) { position: absolute; inset-inline-end: -4px; bottom: -6px; margin: 0; }
+/* an own message carries no "Reaction" control at all, neither the word nor an icon: only the core's badge (its 👍 leads to the
+   answer). The word the core puts in the time row (to set a removed badge again) or beside a 👍 that leads to the answer
+   (to change it) is Classic's */
+html.th-clean .row.mine > .b .react-add { display: none; }
 
 /* the group header carries the count of its sessions only with the "Counts in the list" option (the class is set by clean.js) */
 html.th-clean:not(.th-clean-counts) .gcount { display: none; }
@@ -588,6 +616,8 @@ html.th-clean main > .head .chip.sched .chip-glyph { display: inline-block; widt
 /* a paused job: a soft yellow backing, the words and the clock in the "working" color (the core's .warn is a Classic border) */
 html.th-clean main > .head .chip.sched.warn { background: var(--c-busy-bg); color: var(--c-busy); box-shadow: none; border: 0; }
 html.th-clean main > .head .chip.sched.warn .chip-glyph { color: inherit; }
+html.th-clean main > .head > .chip.away { background: var(--c-busy-bg); color: var(--c-busy); white-space: nowrap; flex: none; }   /* the mark of an away on a phone (the list with its strip is a screen away) */
+@media (min-width: 761px) { html.th-clean main > .head > .chip.away { display: none; } }
 @media (hover: hover) and (pointer: fine) {
   html.th-clean main > .head .chip.sched.warn:hover { background: color-mix(in srgb, var(--c-busy-bg), var(--c-busy) 8%); }
 }
@@ -803,14 +833,47 @@ html.th-clean .row > .b > .byline .av, html.th-clean .row.from > .b > .meta > .b
 /* a 1px inner outline on the picture: the edge of a light picture on white (as the list avatars) */
 html.th-clean :where(.row > .b > .byline, .row.from > .b > .meta > .byline, .chat-head .byline) .av { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent); }
 html.th-clean .byline .av.emoji { font-size: 17px; background-color: var(--c-fill); }   /* a session's icon in the same 32 r6 plate */
+html.th-clean { --c-head-bg: #eaeaea; }   /* under a head of the characters (they are cut out, a/*.png have no background): the plate they were drawn on */
+/* the plate takes the color of the character: tint in the light theme, tint_dark in the dark one (avatars final-25.json). The picture is named in the node's own
+   style (background-image of a kit-img, --clean-av, --clean-face of a list row; custom properties inherit to the row's ::before); the Hub's head in the byline is
+   a rule of the stylesheet, so it gets the color by its selector. The #eaeaea above stays for a picture not named here */
+html.th-clean [style*="/a/hub.png"] { --c-head-bg: light-dark(#cfecff, #1a3b55); }
+html.th-clean [style*="/a/clay-coral-beanie.png"] { --c-head-bg: light-dark(#ffddd7, #532b25); }
+html.th-clean [style*="/a/clay-mustard-headset.png"] { --c-head-bg: light-dark(#fce3c8, #4c3211); }
+html.th-clean [style*="/a/clay-violet-scarf.png"] { --c-head-bg: light-dark(#f2e0fe, #422e4e); }
+html.th-clean [style*="/a/clay-sky-cap.png"] { --c-head-bg: light-dark(#cfecff, #193b54); }
+html.th-clean [style*="/a/clay-tomato-glasses.png"] { --c-head-bg: light-dark(#ffddd6, #532b25); }
+html.th-clean [style*="/a/clay-teal-earmuffs.png"] { --c-head-bg: light-dark(#c9f2e8, #0a4138); }
+html.th-clean [style*="/a/clay-mint-souwester.png"] { --c-head-bg: light-dark(#cef2df, #14412f); }
+html.th-clean [style*="/a/clay-peach-bandana.png"] { --c-head-bg: light-dark(#ffe1cb, #4f2f16); }
+html.th-clean [style*="/a/clay-indigo-beret.png"] { --c-head-bg: light-dark(#dfe6ff, #262b4c); }
+html.th-clean [style*="/a/clay-bubblegum-sunglasses.png"] { --c-head-bg: light-dark(#ffdce9, #502a39); }
+html.th-clean [style*="/a/clay-lemon-party-hat.png"] { --c-head-bg: light-dark(#fff2c6, #45360d); }
+html.th-clean [style*="/a/clay-sage-goggles.png"] { --c-head-bg: light-dark(#e6ecca, #373b19); }
+html.th-clean [style*="/a/clay-lilac-daisies.png"] { --c-head-bg: light-dark(#f5dffc, #442e4b); }
+html.th-clean [style*="/a/clay-cocoa-trapper.png"] { --c-head-bg: light-dark(#ffe0cf, #502e1d); }
+html.th-clean [style*="/a/clay-aqua-hard-hat.png"] { --c-head-bg: light-dark(#c6f2f3, #034142); }
+html.th-clean [style*="/a/clay-ivory-captain.png"] { --c-head-bg: light-dark(#fff1d7, #43361f); }
+html.th-clean [style*="/a/clay-plum-crown.png"] { --c-head-bg: light-dark(#ffdced, #442033); }
+html.th-clean [style*="/a/clay-forest-sweatband.png"] { --c-head-bg: light-dark(#d3f1d9, #15361e); }
+html.th-clean [style*="/a/clay-slate-bow.png"] { --c-head-bg: light-dark(#dee9fb, #2f3848); }
+html.th-clean [style*="/a/clay-lime-propeller.png"] { --c-head-bg: light-dark(#edfacd, #343d16); }
+html.th-clean [style*="/a/clay-magenta-cat-ears.png"] { --c-head-bg: light-dark(#ffdce5, #512a35); }
+html.th-clean [style*="/a/clay-sand-straw-hat.png"] { --c-head-bg: light-dark(#fbe4c8, #4a3313); }
+html.th-clean [style*="/a/clay-powder-headlamp.png"] { --c-head-bg: light-dark(#d6eaff, #27394f); }
+html.th-clean [style*="/a/clay-cherry-sailor.png"] { --c-head-bg: light-dark(#ffdddb, #472020); }
+html.th-clean .byline[data-clean="hub"] .av { --c-head-bg: light-dark(#cfecff, #1a3b55); }
+html.th-clean .kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }
+html.th-clean .byline .av.emoji.kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }   /* a session's character in a byline: stronger than the gray plate of .av.emoji above */
 html.th-clean .byline .av.kit-img { background-size: cover; }
 /* a mark with an icon image (bell, clock): the same 32 r6 plate, gray, a 16 icon inside */
 html.th-clean .byline .av.kit-img[style*=".svg"] { background-color: var(--c-fill); background-size: 16px; background-repeat: no-repeat; background-position: center; box-shadow: none; }
 /* every author has a picture: "Hub" and "Core" — the hub's icon, a session — the theme's picture of its icon (kit-img), the others — a
    character by the name (clean.js avatars, data-clean-av); the core's letter or emoji under it is not seen. An emoji of one's own stays */
-html.th-clean .byline:is([data-clean="hub"], [data-clean="core"]) .av { background: url("/static/favicon/tab.svg") center / cover; }
+html.th-clean .byline[data-clean="hub"] .av { background: url("/static/clean/a/hub.png") center / cover var(--c-head-bg); }   /* the Hub's own head, as in the list (faces.js HUB_FACE) */
+html.th-clean .byline[data-clean="core"] .av { background: url("/static/favicon/tab.svg") center / cover; }
 html.th-clean .byline:is([data-clean="hub"], [data-clean="core"]) .av.av, html.th-clean .byline .av.av[data-clean-av] { font-size: 0; color: transparent; }
-html.th-clean .byline .av[data-clean-av] { background: var(--clean-av) center / cover; }
+html.th-clean .byline .av[data-clean-av] { background: var(--clean-av) center / cover var(--c-head-bg); }
 html.th-clean .byline:is([data-clean="core"], [data-clean-owner]) > b::first-letter { text-transform: uppercase; }   /* "Core" and "Owner", like "Hub" and "Schedule" */
 html.th-clean .row .meta { font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); letter-spacing: 0; color: var(--c-t3); }
 html.th-clean .row.out > .b:has(> .byline) > .meta { align-self: center; }
@@ -852,12 +915,78 @@ html.th-clean .row:is(:focus-within) > .b > .reply-btn ~ .react-add, html.th-cle
   html.th-clean .row:is(:hover) > .b > .reply-btn ~ .react-add { opacity: 1; }
   html.th-clean .row > .b > .reply-btn ~ .react-add:hover { color: var(--c-t1); background: var(--c-fill); }
 }
+/* "Copy" — the same quiet 24 button with a 16 icon, 4 before "Reply" (on your own message — just outside it, further out);
+   for a moment after copying it shows a tick */
+html.th-clean .row > .b > .copy-btn, html.th-clean .row > .b > .reply-box > .meta > .copy-btn {
+  position: absolute; z-index: 2; top: -2px; inset-inline-end: 28px; width: 24px; height: 24px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; border: 0; border-radius: 8px; font-size: 0; color: var(--c-t2); background: none;
+  box-shadow: none; opacity: 0; transition: opacity 120ms ease; }
+html.th-clean .row > .b > .copy-btn::before, html.th-clean .row > .b > .reply-box > .meta > .copy-btn::before { content: ""; width: 16px; height: 16px;
+  background: currentColor; -webkit-mask: url("i/copy.svg") center / 16px no-repeat; mask: url("i/copy.svg") center / 16px no-repeat; }
+html.th-clean .row > .b > .copy-btn.done::before, html.th-clean .row > .b > .reply-box > .meta > .copy-btn.done::before {
+  -webkit-mask-image: url("i/allow.svg"); mask-image: url("i/allow.svg"); }
+html.th-clean .row:is(:focus-within) > .b > .copy-btn, html.th-clean .row:is(:focus-within) > .b > .reply-box > .meta > .copy-btn,
+html.th-clean .row .copy-btn.done { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  html.th-clean .row:is(:hover) > .b > .copy-btn, html.th-clean .row:is(:hover) > .b > .reply-box > .meta > .copy-btn { opacity: 1; }
+  html.th-clean .row > .b > .copy-btn:hover, html.th-clean .row > .b > .reply-box > .meta > .copy-btn:hover { color: var(--c-t1); background: var(--c-fill); text-decoration: none; }
+}
+@media (hover: none) {
+  html.th-clean .row > .b > .copy-btn, html.th-clean .row > .b > .reply-box > .meta > .copy-btn { opacity: 1; color: var(--c-t2); }
+}
+html.th-clean .row.mine > .b > .copy-btn { top: 0; inset-inline-end: calc(100% + 32px); }
+/* the page's line of two links under an own message (feed.css) is not this theme's: the icons stay centered in their buttons */
+html.th-clean .row.mine > .b > :is(.copy-btn, .reply-btn) { display: flex; float: none; }
+/* with "Reaction" (the reactions module), an icon 4 before "Reply" in this theme, "Copy" takes the next place out; the text keeps
+   the buttons' room: the end padding and, on the name line, an empty 20 column per button (with the 8 column gap) */
+html.th-clean .row > .b:has(> .react-add) > .copy-btn { inset-inline-end: 56px; }
+html.th-clean .row.out > .b:has(> .copy-btn) { padding-inline-end: 56px; }
+html.th-clean .row.out > .b:has(> .copy-btn):has(> .react-add) { padding-inline-end: 84px; }
+html.th-clean .row.out > .b:has(> .byline):has(> .copy-btn) { grid-template-columns: auto minmax(0, 1fr) 20px 20px; }
+html.th-clean .row.out > .b:has(> .byline):has(> .copy-btn):has(> .react-add) { grid-template-columns: auto minmax(0, 1fr) 20px 20px 20px; }
+/* a reply to you has them on the line of its name (in the box's head): the text of that line stops short of both too */
+html.th-clean .row > .b > .reply-box > .meta:has(> .copy-btn) { box-sizing: border-box; padding-inline-end: 56px; }
+@media (max-width: 760px) {
+  html.th-clean .row.out > .b:has(> .copy-btn), html.th-clean .row.out > .b:has(> .copy-btn):has(> .react-add) { padding-inline-end: 0; }
+  /* a reply without the name line (the second in a row) has no room at the end of its first line here: the buttons sit in its
+     time line under the text, above the reactions row (the open picker 18 + 6, a set reaction's badge 28 + 6) */
+  html.th-clean .row.out > .b:not(:has(> .byline)) > :is(.copy-btn, .reply-btn, .react-add) { top: auto; bottom: -4px; }
+  html.th-clean .row.out > .b:not(:has(> .byline)):has(> .reactions) > :is(.copy-btn, .reply-btn, .react-add) { bottom: 20px; }
+  html.th-clean .row.out > .b:not(:has(> .byline)):has(> .reactions > .react-chip) > :is(.copy-btn, .reply-btn, .react-add) { bottom: 30px; }
+  /* the 24 buttons stand 4 above and below the 16 time line: 4 more between the text and that line keep them off the text */
+  html.th-clean .row.out:not(.sent-file) > .b:not(:has(> .byline)):has(> .copy-btn) > .meta { margin-top: 4px; }
+  /* your own bubble is nearly as wide as the screen: "Copy" goes under "Reply", in the same narrow margin beside it */
+  html.th-clean .row.mine > .b > .copy-btn { top: 28px; inset-inline-end: calc(100% + 4px); }
+}
 /* a touch screen has no hover: both icons are always visible and readable, --c-t2 (4.76:1 light, 6.84:1 dark), not the faint --c-t3 */
 @media (hover: none) {
   html.th-clean .row > .b > .reply-btn ~ .react-add { opacity: 1; color: var(--c-t2); }
 }
 @media (hover: none) {
   html.th-clean .row > .b > .reply-btn, html.th-clean .row > .b > .reply-box > .meta > .reply-btn { opacity: 1; color: var(--c-t2); }
+}
+/* the second "Reply" under a message taller than the feed: the same icon and look, in the flow at the end of the text, on the same right
+   edge as the one on the name line: in the 48 the row keeps for the corner buttons, and in a reply box at the width of its name line */
+html.th-clean .reply-btn-bottom { position: relative; display: block; width: 24px; height: 24px; margin: 4px 0 0; margin-inline-start: auto; padding: 0; overflow: hidden;
+  box-sizing: border-box; border: 0; border-radius: 8px; font-size: var(--c-fs-s); text-indent: 48px; white-space: nowrap; color: var(--c-t2); background: none; box-shadow: none;
+  opacity: 0; transition: opacity 120ms ease; }   /* the words are pushed out of the 24 box: the font size stays the theme's, the measure below is in its characters */
+html.th-clean .row.out > .b > .reply-btn-bottom { margin-inline-end: -48px; }
+/* "Copy" widens the room the row keeps at its end (56, with "Reaction" 84): the second "Reply" goes out by the same, to the end of the first */
+html.th-clean .row.out > .b:has(> .copy-btn) > .reply-btn-bottom { margin-inline-end: -56px; }
+html.th-clean .row.out > .b:has(> .copy-btn):has(> .react-add) > .reply-btn-bottom { margin-inline-end: -84px; }
+@media (max-width: 760px) {   /* on a phone the row keeps no room at its end */
+  html.th-clean .row.out > .b:has(> .copy-btn) > .reply-btn-bottom, html.th-clean .row.out > .b:has(> .copy-btn):has(> .react-add) > .reply-btn-bottom { margin-inline-end: 0; }
+}
+html.th-clean .reply-box > .reply-btn-bottom { justify-self: start; margin-inline-start: calc(min(100%, var(--measure) * 14 / 12) - 24px); }
+html.th-clean .reply-btn-bottom::before { content: ""; position: absolute; inset: 0; margin: auto; width: 16px; height: 16px;
+  background: currentColor; -webkit-mask: url("reply.svg") center / 16px no-repeat; mask: url("reply.svg") center / 16px no-repeat; }
+html.th-clean .row:is(:focus-within) .reply-btn-bottom { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+  html.th-clean .row:is(:hover) .reply-btn-bottom { opacity: 1; }
+  html.th-clean .reply-btn-bottom:hover { color: var(--c-t1); background: var(--c-fill); }
+}
+@media (hover: none) {
+  html.th-clean .row .reply-btn-bottom { opacity: 1; }
 }
 /* "Reply" on your own message stands outside the bubble, on its start side, the top of the button at the top of the bubble — never
    over the time or the text; on the answer to a card — right after the line */
@@ -902,7 +1031,7 @@ html.th-clean .reply-box > .meta > .clean-who { font: 500 var(--c-fs)/var(--c-lh
 html.th-clean .reply-box > .meta .reply-btn { color: var(--c-t2); }
 html.th-clean .row > .g > .clean-av { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px;
   font: 600 var(--c-fs-13)/1 var(--font); background-color: light-dark(#f3ece5, #2e2a27); color: var(--muted-foreground); }   /* as a byline's .av: the emoji or the letter under the character */
-html.th-clean .row > .g > .clean-av[data-clean-av] { font-size: 0; color: transparent; background: var(--clean-av) center / cover; }
+html.th-clean .row > .g > .clean-av[data-clean-av] { font-size: 0; color: transparent; background: var(--clean-av) center / cover var(--c-head-bg); }
 /* ---- service rows of the feed (Figma 05, Message=Notification / urgent / Question / Answer line / Stopped / Terminal input /
    Plugin badge / Jumped to). In the avatar column a 32 r6 tile: gray with a 16 gray icon (a notification, a question, terminal
    input); an urgent one — the soft red with a red ×: no gray icons on a colored plate. The text 6 lower — its first line on the
@@ -1160,6 +1289,7 @@ html.th-clean .btn.round.send .icon.kit-img {
 html.th-clean .status { min-height: 24px; padding: 0 8px; gap: 4px; font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
 html.th-clean .status > .stat-left { flex: 1 1 auto; }
 html.th-clean .status > .stat-left > .stat-ctx { order: 1; }
+html.th-clean .status > .stat-left > .stat-compact { margin-inline-end: 12px; color: var(--c-t1); }   /* the tab has no "·" before the size: a gap instead */
 html.th-clean .status > .stat-left > .stat-ctx::before { content: none; }
 html.th-clean .status > .stat-left > .stat-dir { order: 2; margin-inline-start: auto; padding-inline-start: 12px; color: var(--c-t2); }
 @media (hover: hover) and (pointer: fine) {
@@ -1731,12 +1861,16 @@ html.th-clean .pal-reset:disabled { display: none; }
   }
   html.th-clean .feed { padding: 16px 16px 24px; }
   html.th-clean .row.out > .b { padding-inline-end: 0; }
+  html.th-clean .row.out > .b > .reply-btn-bottom { margin-inline-end: 0; }
   /* a reply without the name line (the second in a row) has no room at the end here: "Reaction" and "Reply" sit in its time line
      under the text, not on the text's first line; when the reactions row is under the time they stay above it: the open picker
      row 18 + 6, a set reaction's badge 28 + 6 */
   html.th-clean .row.out > .b:not(:has(> .byline)) > :is(.reply-btn, .reply-btn ~ .react-add) { top: auto; bottom: -4px; }
   html.th-clean .row.out > .b:not(:has(> .byline)):has(> .reactions) > :is(.reply-btn, .reply-btn ~ .react-add) { bottom: 20px; }
   html.th-clean .row.out > .b:not(:has(> .byline)):has(> .reactions > .react-chip) > :is(.reply-btn, .reply-btn ~ .react-add) { bottom: 30px; }
+  /* a file the session sent has its time line first and the picture under it: "Reply" stays on that line, not on the picture */
+  html.th-clean .row.out.sent-file > .b:not(:has(> .byline)) > .reply-btn { top: -2px; bottom: auto; }
+  html.th-clean .row.out.sent-file > .b:not(:has(> .byline)) > .meta { padding-inline-end: 28px; }   /* a long "<executor> sent you" wraps before it */
   html.th-clean .dock { padding: 0 12px calc(8px + env(safe-area-inset-bottom, 0px)); }
   html.th-clean .strip-row[data-k="wait"] { padding-inline: 20px; }   /* feed with 16 margins, input field with 12 — the "Waiting for you" strip is 4 wider than the card */
   html.th-clean .row.mine > .b { width: auto; max-width: 88%; }
@@ -1760,6 +1894,15 @@ html.th-clean :is(.srow, .active-bar button, .navmenu, .clean-fold, .clean-fold-
    "Settings" gets a ring. clean.js marks such an opening (data-clean-ptr); the first key in the menu clears the mark, and the
    keyboard ring is back */
 html.th-clean #nav-extra[data-clean-ptr] :focus-visible { outline: 0; }
+
+/* a long paste in the feed: a card of the feed's radius on the quiet fill */
+/* the title is at the size of all the text (14/20): two lines of it, the gap and the size line fill the card's 64 only with 3 above and below */
+html.th-clean .attach-list a.paste-tile { padding-block: 3px; border-radius: 12px; background: var(--c-fill); color: var(--c-t1); }
+html.th-clean .paste-tile .pt-title { font: var(--c-fs)/var(--c-lh) var(--font); }
+html.th-clean .paste-tile .pt-size { color: var(--c-t2); font: var(--c-fs-s)/var(--c-lh-s) var(--font); }
+@media (hover: hover) and (pointer: fine) {
+  html.th-clean .attach-list a.paste-tile:hover { background: linear-gradient(var(--c-hover) 0 0), var(--c-fill); }
+}
 
 /* ---- quiet hover and focus: no blue on hover or on focus; backing --c-hover/--c-fill, border --c-line-strong,
    keyboard ring --c-ring. Here is what comes from the core and plugins: an image in an attachment (the core's lightbox.css and
@@ -2737,6 +2880,7 @@ html.th-clean.th-clean-av #list .srow[data-clean-k] > .txt::before, html.th-clea
 html.th-clean.th-clean-av #list .srow[data-clean-k] > .txt::before { background: var(--clean-face, var(--c-fill)) center / cover;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent); }
 html.th-clean.th-clean-av #list .srow[data-clean-k="hub"] .nm { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* a long name gets an ellipsis */
+html.th-clean.th-clean-av #list .srow[style*="--clean-face"] > .txt::before { background-color: var(--c-head-bg); }
 html.th-clean.th-clean-av #list .srow[data-clean-face] > .txt::before { background-image: url("/static/favicon/tab.svg"); }
 /* the core's icon node (emoji) is a button over the frame: a click opens the icon picker. An emoji of the owner's own stays in the frame; over a
    character it is not seen */

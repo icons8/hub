@@ -13,7 +13,7 @@ PLAIN = {
     "bin/hub", "bin/hub-browser", "bin/hub-telegram", "bin/hub-up", "bin/hub-watch", "bin/hubd", "bin/hubsched",
     "core/__init__.py", "core/askexpired.py", "core/backbone.py", "core/board.py", "core/budget.py",
     "core/buscards.py", "core/buscli.py", "core/busflow.py", "core/catalog.py", "core/chain.py",
-    "core/claudeauth.py", "core/clihelp.py", "core/codexcli.py", "core/codexmodel.py", "core/coretext.py", "core/delegations.py",
+    "core/claudeauth.py", "core/clihelp.py", "core/codexcli.py", "core/codexmodel.py", "core/coretext.py", "core/delegations.py", "core/deputycli.py",
     "core/dev.py", "core/engineplugins.py", "core/executors.py", "core/flow.py", "core/forms.py", "core/gitaccess.py", "core/history.py",
     "core/httpd.py", "core/hubhelp.txt", "core/hubmod.py", "core/i18n.py", "core/identity.py", "core/instance.py", "core/instancecli.py", "core/instancejob.py", "core/kit.py", "core/kitcli.py", "core/langdata.py", "core/layout.py",
     "core/lessons.py", "core/limitresume.py", "core/lock.py", "core/mcpwatch.py", "core/migrate.py", "core/mine.py",

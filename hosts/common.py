@@ -1,4 +1,5 @@
 """Common to hosts: session settings for `claude --settings`: the core's hooks and a ban on killing processes by pattern."""
+import glob
 import json
 import os
 import shutil
@@ -85,6 +86,30 @@ def resume_on_disk(name, cwd, session_id, resume):
         return resume
     print(f"{name}: conversation {session_id} is already on disk — --resume", file=sys.stderr, flush=True)
     return True
+
+
+LOST_NOTE = ("Your previous conversation ({session_id}) is no longer on disk (deleted), so this is a new conversation with "
+             "the same session id: you do not remember what was said in it. What you knew lives in files: your agent "
+             "file and memory, the task records (`hub task show`), the board of your direction. Read them before you "
+             "go on; do not guess what the old conversation said.")
+
+
+def resume_lost(name, session_id, resume, claude_dir=None):
+    """--resume with the conversation in no project folder (a disk cleanup deleted old transcripts): Claude Code
+    fails with "No conversation found" on every raise, a crash loop no restart ends. A new conversation with the same
+    --session-id instead (a leftover `<id>/` folder of subagents does not stop it). Found in any project folder — resume
+    as before: Claude Code finds it there too, carry_transcript copies it. No projects folder at all: a cleanup deletes
+    transcripts, not the folder, so the conversations live elsewhere (another config folder, a stand-in claude) and
+    nothing is known to be lost — resume as asked. -> (resume, lost)"""
+    if not resume or not session_id:
+        return resume, False
+    root = claude_dir or os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    if not os.path.isdir(os.path.join(root, "projects")):
+        return resume, False
+    if glob.glob(os.path.join(glob.escape(os.path.join(root, "projects")), "*", glob.escape(f"{session_id}.jsonl"))):
+        return resume, False
+    print(f"{name}: conversation {session_id} is not on disk — a new conversation", file=sys.stderr, flush=True)
+    return False, True
 
 
 def carry_transcript(cwd, session_id, claude_dir=None):

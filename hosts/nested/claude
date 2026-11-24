@@ -92,6 +92,7 @@ def environment(env):
 
 
 if __name__ == "__main__":
+    platforms.current.nested_args()   # the Git Bash wrapper's switch is not for the real claude and its Bash
     session = []
     try:
         with open(os.environ.get("HUB_NESTED_FLAGS") or "", encoding="utf-8") as f:

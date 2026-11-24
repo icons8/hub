@@ -28,10 +28,11 @@
 //   last message (like a messenger preview), on the right — the time of last activity; the open session's row is a card (rowDetail);
 // - bottom row of the composer card (+, status chips, plugin buttons, camera, mic, send): room is shared by the measured
 //   width and nothing overlaps (fit.js).
+import { clock } from "../js/clock.js";
 import { mountFit } from "./fit.js";
 import { AGO, byRecent, detailOf, liveLine, sessionIndex } from "./rows.js";
 import { WORDS as USAGE_WORDS, emailSteps, usageModel } from "./usage.js";
-import { characterOf, faceByName, faceOf } from "./faces.js";
+import { characterOf, faceByName, faceOf, hubFace, loadTags } from "./faces.js";
 
 const on = () => document.documentElement.classList.contains("th-clean");
 
@@ -217,13 +218,19 @@ export default function register(hub) {
   // under the character: the session's emoji or the first letter of the name, seen while there is no character
   const faceText = (name) => sessionOf(name)?.icon || Array.from(name)[0].toUpperCase();
   const avatars = () => {
-    // a byline without the theme's picture (kit-img: the core drew a character by the icon) and without an emoji of its own (.emoji):
-    // a character by the name, the same everywhere
+    // an author's byline shows the character of the list's row (characterOf): the core draws the picture of the declared icon
+    // (kit-img), the list puts the owner's choice and a specialist's role before it — the row's character replaces the core's
+    // picture. "" (an emoji of the owner's own) — the core's node stays as it is
     for (const av of document.querySelectorAll(".byline .av")) {
       const b = av.closest(".byline");
       const who = b.querySelector(":scope > b")?.textContent?.trim();
-      const plain = who && !["hub", "core"].includes(b.dataset.clean) && !av.classList.contains("kit-img") && !av.classList.contains("emoji");
-      putFace(av, plain ? characterFor(who) : "");
+      const url = who && !["hub", "core"].includes(b.dataset.clean) ? characterFor(who) : "";
+      if (av.classList.contains("kit-img")) {
+        const v = url ? `url("${url}")` : "";
+        if (v && av.style.backgroundImage !== v) av.style.backgroundImage = v;
+        continue;
+      }
+      putFace(av, url);
     }
     // "hub-dev replied to your message": the name in bold, the replier's face in the left column instead of ●. The name is the
     // first word only where it is a session's name (the order of the words is the language's)
@@ -540,14 +547,19 @@ export default function register(hub) {
   const shortHint = (ph) => { const h = ph.split(" · ")[0].trim(); return h && !h.endsWith("…") ? h + "…" : h; };
   const placeholders = () => {
     const f = document.getElementById("filter");
-    if (f && f.placeholder !== FIND) { f.dataset.cleanPh = f.placeholder; f.placeholder = FIND; }
+    // an open plugin view holds the field with its own placeholder (data-view, Plugin API 1.39): not shortened
+    if (f && !f.dataset.view && f.placeholder !== FIND) { f.dataset.cleanPh = f.placeholder; f.placeholder = FIND; }
     for (const ta of document.querySelectorAll("form.composer textarea")) {
       const h = ta.placeholder && shortHint(ta.placeholder);
       if (h && h !== ta.placeholder) { ta.dataset.cleanPh = ta.placeholder; ta.placeholder = h; }
     }
   };
   const unPlaceholders = () => {
-    for (const i of document.querySelectorAll("[data-clean-ph]")) { i.placeholder = i.dataset.cleanPh; delete i.dataset.cleanPh; }
+    for (const i of document.querySelectorAll("[data-clean-ph]")) {
+      // the search field held by a plugin view (data-view): the original goes back when the view lets go of it
+      if (i.dataset.view) i.dataset.sessionHint = i.dataset.cleanPh; else i.placeholder = i.dataset.cleanPh;
+      delete i.dataset.cleanPh;
+    }
   };
   // "·" between parts of a line — as a separate mark (gray 28%, 6 apart), the words — 55%: in the "working" row the core writes
   // " · 9 min 12 s" at the start of a part (and rewrites it every second), under the field — "73k tokens · " at the end
@@ -589,9 +601,10 @@ export default function register(hub) {
   // for screen readers
   const COLLAPSE = T("web.clean.collapse", "Collapse");
   const actions = () => {
-    for (const b of document.querySelectorAll(".row .reply-btn:not([title]), .row > .b > .reply-btn ~ .react-add:not([title])")) {
+    for (const b of document.querySelectorAll(".row .reply-btn:not([title]), .row .reply-btn-bottom:not([title]), .row > .b > .reply-btn ~ .react-add:not([title])")) {
       b.title = b.textContent.trim();
-      const dot = b.previousSibling;
+      let dot = b.previousSibling;
+      if (dot?.nodeType === 1 && dot.matches(".copy-btn")) dot = dot.previousSibling;   // "Copy" stands between the dot and "Reply"
       if (b.parentElement.matches(".reply-box > .meta") && dot?.nodeType === 3 && dot.nodeValue === " · ") dot.replaceWith(hub.el("span", "clean-dot", " · "));
     }
     for (const h of document.querySelectorAll('.chat-head[aria-expanded="true"]:not([data-clean-label])')) {
@@ -725,7 +738,8 @@ export default function register(hub) {
   // is --clean-face, drawn by clean.css. A specialist and an executor show a character (characterOf, as in the feed): of their own
   // icon, else of the icon of whoever raised them, else one by the name; an emoji of their own stays an emoji (the core's
   // .nm > .avatar), without an icon and without a character — the first letter of the name (data-clean-letter on .txt); "Hub" — the
-  // character of its own icon, else the hub's icon (data-clean-face); a direction — a tile with a Forma compass (data-clean-tile).
+  // character of its own icon, else its own head (faces.js HUB_FACE), else the hub's icon (data-clean-face); a direction — a tile
+  // with a Forma compass (data-clean-tile).
   // Rows get no new nodes (the core rebuilds them)
   const rowFaces = () => {
     const rows = document.querySelectorAll("#list .srow:not(.nav, .queued)");
@@ -745,8 +759,8 @@ export default function register(hub) {
       const k = hubRow ? "hub" : s.role === "agent" ? "agent" : dirs.includes(s.name) || s.backlog ? "dir" : r.closest("li.forks") ? "exec" : "other";
       put(r, "cleanK", k);
       put(r, "cleanTile", k === "dir" ? "1" : "");
-      put(r, "cleanFace", hubRow && !s.icon ? "1" : "");
-      const u = k === "dir" ? "" : hubRow ? faceOf(s.icon) : characterOf(s, ix.byName), v = u ? `url("${u}")` : "";
+      const u = k === "dir" ? "" : hubRow ? faceOf(s.icon) || (s.icon ? "" : hubFace()) : characterOf(s, ix.byName), v = u ? `url("${u}")` : "";
+      put(r, "cleanFace", hubRow && !s.icon && !u ? "1" : "");   // no head of its own to draw: the hub's icon (CSS)
       if (v) { if (r.style.getPropertyValue("--clean-face") !== v) r.style.setProperty("--clean-face", v); }
       else if (r.style.getPropertyValue("--clean-face")) r.style.removeProperty("--clean-face");
       const txt = r.querySelector(":scope > .txt");
@@ -833,9 +847,12 @@ export default function register(hub) {
       attributeFilter: ["data-clean-d", "data-clean-k", "data-clean-tile", "data-clean-face", "data-clean-letter", "style"] });
   };
   // "Usage bars" (a "Look" option, off by default): the sidebar footer draws bars instead of the text line (usageDraw)
+  // the tuned offsets of a reaction's emoji (clean.css) hold for Apple Color Emoji, the emoji font of macOS and iOS in every browser
+  const APPLE_EMOJI = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform || navigator.platform || "");
   const usageBars = () => on() && !!hub.option?.("usage");
   const detailClass = () => {   // the theme's options, only while it is chosen: other themes see no foreign classes on <html>
     document.documentElement.classList.toggle("th-clean-detail", on() && !!hub.option?.("detail"));
+    document.documentElement.classList.toggle("th-clean-apple-emoji", on() && APPLE_EMOJI);
     document.documentElement.classList.toggle("th-clean-av", on() && !!hub.option?.("avatars"));
     document.documentElement.classList.toggle("th-clean-recent", on() && !!hub.option?.("recent"));
     document.documentElement.classList.toggle("th-clean-counts", on() && !!hub.option?.("counts"));
@@ -867,6 +884,8 @@ export default function register(hub) {
     headFold();   // reads computed style (is a switch hidden by the narrow header?) — after the layout the reads above already paid for
     fit.hook();
   };
+  loadTags(() => { if (on()) sweep(); });   // faces.json: the heads of the specialists by their role (faces.js)
+
   // The feed changes often — no more than once a frame. The core's stopwatch rewrites its text every second (main.js): a batch
   // of only such text gets only what reads that text — the " · " mark and the row tooltip, — not the whole sweep (it read the
   // scroll of the list and laid the page out every second while nothing happened). The sweep's own edits do not wake it again
@@ -911,7 +930,7 @@ export default function register(hub) {
       const used = w.resets && w.resets < now ? 0 : Math.round(w.used * 100);
       const seg = hub.el("span", "limseg");
       seg.dataset.tone = tone(used);
-      const reset = w.resets && w.resets > now ? new Date(w.resets * 1000).toLocaleString(hub.locale || undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+      const reset = w.resets && w.resets > now ? clock(w.resets, hub.locale, { day: "numeric", month: "short" }) : "";
       seg.dataset.full = T(...FULL[name]);
       seg.title = seg.dataset.full + (reset ? ` · ${reset}` : "");   // short names in the line; the full name and reset — in the tooltip
       const [k, fb] = SHORT[name];

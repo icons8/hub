@@ -215,13 +215,18 @@ $ hub send maps - <<'EOF'
 
 hub answer <name> <answer> [<answer>…]
 hub answer <name> --card qN <answer> [<answer>…] --why "<why · how to roll back>"
+hub answer <name> --card qN --route rN --from "<person>" --msg <id> "<their words>"
 : answer a session's AskUserQuestion (answers in question order)
   While the owner is away the hub answers a session's card for them — not their own decision (money, prod, people, the
   irreversible, a repo's gate, access): the session gets the hub's answer, not the owner's word; it goes into their
   return summary, and `hub decided undo <seq>` withdraws it.
 --card qN  (hub, owner away) the card answered
 --why "…"  (hub, owner away) why this answer and how to roll it back
-@ owner, hub
+--route rN  (the session of a deputy's channel) the route of the card: their words, with --from and --msg
+--from "…"  (--route) the person who answered
+--msg ID  (--route) the id of their message in the channel (each is taken once)
+--file PATH  (--route) their words from a file; `-` alone — from stdin
+@ owner, hub — --route: session, hub
 $ hub answer maps "Yes"
 $ hub answer maps --card q305 "tiles.toml" --why "short, like the files next to it · rename the file"
 
@@ -234,15 +239,28 @@ hub deny <name> [reason]
 @ owner, hub
 
 hub question withdraw <qN> ["why"]
-: withdraw a question to the owner — a duplicate or stale
+hub question route <qN> <person> [--note "…"] [--own] | --owner
+: withdraw a question to the owner (a duplicate, stale) — or send it to a deputy
+  route — the owner is away with the deputies (hub away --deputies): the card to the deputy of its area. Every
+  question of the card lies in that deputy's area and none in what they do not decide; never the owner's own decisions
+  (money, prod, publishing, people, the irreversible, access) or the deputy's own request — except to a deputy who
+  decides everything in their area (hub contacts deputy … --all): they act for the owner there, and all of it is theirs.
+  To no deputy: the owner's personal data, their correspondence, a text in their name, what needs their own hands.
+  Their answer comes to you on qN: their word, not the owner's. --owner — not theirs: the card waits for the owner,
+  never another deputy.
+--note "…"  (route) what the deputy should know besides the card
+--own  (route) the card is about the deputy's own request (only one who decides everything takes it)
+--owner  (route) back to the owner
 @ self, hub — own card; hub — any
 $ hub question withdraw q41 "already decided in m90"
+$ hub question route q41 Masha --note "the folder has tiles.json already"
 
 hub question show <qN>
 : (hub) show a session's question in its own chat as the same card
 @ hub, owner
 
 hub decided "<what> · <why> · <rollback>"
+hub decided --card qN "<what> · <deputy>, deputy · <rollback>"
 hub decided list
 hub decided undo <seq>
 : (from a session) decided something reversible without the owner — into his summary
@@ -252,6 +270,9 @@ hub decided undo <seq>
   undo — withdraw a decision recorded by mistake: its author, the hub or the owner. It leaves the owner's summary and the
   direction's backlog, and whoever was told about it hears it is withdrawn; what was already done on it stays. A core
   started before this version refuses it until hub restart.
+  --card qN — on a deputy's answer to your card qN (hub question route): the card closes, the owner's summary has it
+  under "Decided by your deputies".
+--card qN  your card at a deputy, answered: closed on their answer
 --file PATH  the text from a file; `-` alone (or `--file -`) — from stdin (<<'EOF'): $ and backticks stay as typed
 @ session
 $ hub decided "tile cache 1 h · lowers load · rollback: TTL=0 in config"
@@ -331,12 +352,17 @@ $ hub run --until 4h "python3 evals/run.py --only after"
 $ hub run stop run2061001
 ! setsid, nohup or a schedule job for long work — use hub run: they die with the hub's service or an executor's hand-in
 
-hub away [--hours N]
+hub away [--hours N] [--deputies [<person> …]] [--for mN]
 hub away --status
 : "I am away": questions pile up, urgent ones go to Telegram
+  --deputies: the questions of the deputies' areas go to them (hub contacts deputies) — all, or the named ones; the
+  flag lives this away. Telegram and the page: /away deputies [<person> …].
 --hours N  for how many hours
---status  whether away now
+--deputies  the deputies take the questions of their areas
+--for mN  (hub, --deputies) the owner's words to you
+--status  whether away now, and how many cards are at the deputies
 @ owner, hub — on his word
+$ hub away --deputies Masha --for m90
 
 hub back
 : "I am back"
@@ -345,8 +371,21 @@ hub back
 hub contacts [find <who>]
 hub contacts add "<name>" [--telegram @user:id] [--teams-chat ID] [--teams T] [--email E] [--alias A] [--note "…"] [--source "…"]
 hub contacts link "<person>" <hub> | unlink <hub> | rename "<person>" "<new>" | remove "<person>"
+hub contacts deputy "<person>" "<area>" [--not "…"] [--via <hub|session>] [--all] [--for mN|qN]
+hub contacts deputy "<person>" --off [--for mN|qN] | hub contacts deputies
 : the owner's addressees — whom to write to in his name (Telegram, Teams, mail)
   Saw a person's address at work — find; none or partial — add with --source: appends, never changes an address; write on the owner's word.
+  deputy — the owner's deputy: the area (his words verbatim) where the person decides for him while he is away with
+  the flag (hub away --deputies); the channel — their hub on the bus, or the session that holds their channel (--via).
+--not "…"  (deputy) what they do not decide — his words verbatim
+--via X  (deputy) their hub of several, or the session of their channel (Teams: the session that holds it)
+--for mN|qN  (deputy, hub) the owner's message to you or his answer to a card — the area is quoted from it
+--all  (deputy) they decide everything in the area, acting for the owner: the owner's own cards too (prod, money,
+  merges, publishing, the liaison's forms; not his personal data, correspondence or texts in his name), and their
+  decision recorded on a card (hub decided --card qN) is --for qN for the core's gates (tools grant — not a tool with
+  his own data —, task run/go, spec accept, an agent's role) — only when his words say so; set again without it to
+  take it off
+--off  (deputy) no longer a deputy
 --telegram @user:id  Telegram: @username and id
 --teams-chat ID  Teams chat
 --teams T  Teams (email or id)
@@ -354,9 +393,10 @@ hub contacts link "<person>" <hub> | unlink <hub> | rename "<person>" "<new>" | 
 --alias A  another name (can repeat)
 --note "…"  note
 --source "…"  where we know it from (owner, mN, chat)
-@ anyone — link, unlink, rename, remove: owner
+@ anyone — link, unlink, rename, remove: owner; deputy: owner, hub — on his word
 $ hub contacts find Masha
 $ hub contacts add "Masha" --telegram @masha:123 --source "owner, m90"
+$ hub contacts deputy "Masha" "map tiles: styles and stage rollouts" --for m90
 
 hub post <plugin> "<text>" [--reply pN]
 : a post to the plugin's channel in your own name

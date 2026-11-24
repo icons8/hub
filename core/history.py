@@ -21,7 +21,10 @@ A parse also remembers its version (PARSE, the parse field of the pointer). A pa
 until the background parse replaces it: a new version re-parses every archive (hundreds on a big hub, hours), and the
 feed past must not close for that time; the rows of an earlier parse differ only in a few places (02.11, PARSE 2: a call
 closed in the next archive was "stopped"; 11.11, PARSE 3: the copies of words in another feed — to an executor in the
-feed of whoever gave the task, the bus's words in the executor's feed — were dropped by a core snapshot, views._drop_strays).
+feed of whoever gave the task, the bus's words in the executor's feed — were dropped by a core snapshot, views._drop_strays;
+20.11, PARSE 4: the core's lines on a task — "REPLIED d8: …", "STOPPED d9: …", "TIMEOUT d7: …" — got the label the owner
+reads, without the tag and the numbers, in English hubs too: a parse of an earlier version has the tag in the label or,
+in an English hub, no label).
 """
 import bisect
 import glob
@@ -445,7 +448,7 @@ def parse(path):
             if (kept := [it for it in line if it.get("seq", 0) >= start or it.get("rev", 0) > mark])}
 
 
-PARSE = 3   # the parse version (the pointer's parse field): a parse of an earlier one is made again
+PARSE = 4   # the parse version (the pointer's parse field): a parse of an earlier one is made again
 LEAD_MAX = 30   # archives read back for a turn still open: one open longer (days) is not followed further
 
 

@@ -25,6 +25,9 @@ select { appearance: none; -webkit-appearance: none; padding-inline-end: 22px; c
   background-size: 4px 4px; background-repeat: no-repeat;
   background-position: calc(100% - 12px) 50%, calc(100% - 8px) 50%; }
 [dir="rtl"] select { background-position: 8px 50%, 12px 50%; }   /* the arrow at the line end */
+/* the open list of any select: an option with no background of its own took the select's text colour (light in a dark theme) over
+   the browser's own white list; the theme's opaque page colours give the list, in every theme and every select, readable text */
+option, optgroup { background-color: var(--background); color: var(--foreground); }
 /* links without a class of their own use the accent (blue = clickable); link buttons and list items are colored by their own rules */
 a:not([class]) { color: var(--primary); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 /* thin scrollbars */
@@ -112,6 +115,8 @@ main > .dock { grid-row: 5; }
 button.chip { background: transparent; font: inherit; font-size: var(--text-xs); cursor: pointer; }
 button.chip:hover { color: var(--foreground); border-color: var(--input); }
 .chip.warn { border-color: var(--warning); color: var(--foreground); }
+.head > .chip.away { flex: none; background: color-mix(in oklch, var(--warning) 16%, var(--background)); white-space: nowrap; }
+@media (min-width: 761px) { .head > .chip.away { display: none; } }   /* the strip over the list is beside the feed there */
 .btn.back { display: none; }
 /* the way back is a sign, one on every screen: the text stays for screen readers and search */
 .btn.back { font-size: 0; min-width: 36px; justify-content: center; }

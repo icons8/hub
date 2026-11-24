@@ -24,6 +24,7 @@ sys.path.insert(0, REPO)
 from core import catalog, coretext, forms, journal, langdata, minihub, owner, parking, redact, reducer, spool  # noqa: E402
 from core import machines  # noqa: E402
 from core.coretext import T  # noqa: E402
+from core.daemon import SLEPT_MIN  # noqa: E402
 from core.machines import COMMAND_CONFIRM_SECONDS  # noqa: E402
 # the v1.4.0 page server imports this file during the update's self-check with its own core.machines in memory (no
 # SLEEP): without the fallback every snapshot failed, "No connection" for the whole check (tests/test_old_page_server)
@@ -38,6 +39,7 @@ MAX_CHARS = 12000    # the tail of steps for the model (60 steps are usually 7�
 ASKS = 2             # questions about steps per pass: Haiku answers in seconds, the urgency of messages must not wait
 STALL = 20 * 60      # after an interrupted turn the session is free but there is no new turn for this long — trouble (eval 2026-10-03, item 6)
 UNDELIVERED = 150    # a message to a free session has been in the queue longer than this — a fact, without a model
+WOKE_HOLD = 60       # s awake after a sleep the watchdog judges nothing: hubd records the sleep between its steps (git: up to 30 s)
 CRASHES = 2          # restarts in a row
 OWNER_COOLDOWN = 30 * 60
 BG_LONG = 3 * 60 * 60  # a background command runs longer than this and is silent for BG_QUIET — an alarm to the hub (watch for
@@ -400,6 +402,25 @@ def open_cards(state, name, text, now):
     return CARDS_HEAD + "\n".join(rows[:CARDS_MAX]) + "\n\n" if rows else ""
 
 
+SESSIONS_MAX = 8
+# the hub's session names ride with the result like the open cards, not as a pronoun rule in NEEDS_PROMPT: "that is
+# item 14 of the session maps; she asked me to close it, but only she can, so I returned it to her" was read as the
+# owner's action (eval evals/prompts/needs-other-session.json on the watcher's model: 0-7/24 without the block, 8/24
+# with a pronoun rule in the prompt, 24/24 with the block); a result that names no session gets the same input as before
+SESSIONS_HEAD = ("SESSIONS: {names} - the text names these sessions of the hub; they are agents, not the owner. What "
+                 "the text hands, returns or leaves to one of them, and \"she\", \"he\", \"they\", \"it\" after its "
+                 "name, is that session's: needs=false for it, unless the text also needs something from the owner.\n\n")
+
+
+def named_sessions(state, name, text):
+    """The SESSIONS block for the needs question: the other sessions of the hub the result names (as a whole word). No
+    name - an empty string."""
+    names = [s["name"] for s in state["sessions"].values()
+             if s["name"] != name and len(s["name"]) > 2 and s.get("state") != "removed"
+             and re.search(r"(?<![\w-])" + re.escape(s["name"]) + r"(?![\w-])", text, re.I)]
+    return SESSIONS_HEAD.format(names=", ".join(names[:SESSIONS_MAX])) if names else ""
+
+
 def needs_owner(text):
     """Haiku: whether the turn result waits for something from the owner → {"needs": bool, "ask": what is needed in one line}."""
     return _claude(text, NEEDS_PROMPT, NEEDS_SCHEMA)
@@ -738,6 +759,7 @@ class Watcher:
         self.cut = {}       # session -> when its turn or background work was cut off together with the process
         self.yielded = []   # (session, owner's message): a surrender without a check, not yet sent
         self.seen_at = None  # the time of the last journal line read: the core uses it to tell a stale fact
+        self.awake_at = self.woke = None  # (wall, awake clock) at the last pass; the awake time of the last wake: just_woke
 
     def read(self):
         from core import journal
@@ -866,12 +888,26 @@ class Watcher:
         if self.doubted.get(name) and surrender(text) and not self.verified.get(name):
             self.yielded.append((name, self.doubted[name]))
 
-    def step(self, now=None):
+    def step(self, now=None, awake=None):
         """One look into the journal: read to the end, decide whom to ask about, ask."""
-        now = time.time() if now is None else now
+        real, now = now is None, time.time() if now is None else now
         self.refresh(now)
         self.started = True
+        if (real or awake is not None) and self.just_woke(now, time.monotonic() if awake is None else awake):
+            return
+        if "dark" in self.state:   # the Mac between sleeps (reducer _dark): a model call would hang as a turn would;
+            self.facts(now)        # what the state shows without a model is still judged (a crash loop)
+            return
         self.decide(now)
+
+    def just_woke(self, now, awake):
+        """The machine slept since the last pass or less than WOKE_HOLD ago (the wall clock ran ahead of the awake one):
+        hubd's core.slept may not be in the journal yet, so the pass judges nothing — its terms would count the sleep as
+        waiting (reducer.paused)."""
+        last, self.awake_at = self.awake_at, (now, awake)
+        if last and (now - last[0]) - (awake - last[1]) >= SLEPT_MIN:
+            self.woke = awake
+        return self.woke is not None and awake - self.woke < WOKE_HOLD
 
     def refresh(self, now):
         """Read the journal to the end. Before a model call and before a fact: a pass with model questions takes seconds and minutes, and
@@ -1117,7 +1153,8 @@ class Watcher:
                 continue                                          # (DISMISS_HOLD), unless a new turn replaced it
             try:
                 end = ending(res["text"])
-                op = self.needs(self.lang_line() + open_cards(self.state, name, end, now) + end)
+                op = self.needs(self.lang_line() + open_cards(self.state, name, end, now)
+                                + named_sessions(self.state, name, end) + end)
             except (OSError, ValueError, KeyError, TypeError) as e:
                 print(f"watch: the model did not answer about the result of {name} ({e!r}) — will retry", flush=True)
                 res["after"] = now + WINDOW_SECONDS
@@ -1221,9 +1258,10 @@ class Watcher:
         st = self.state
         for name, ts in list(self.cut.items()):
             sess = st["sessions"].get(name) or {}
-            if sess.get("state") == "idle" and now - ts >= STALL and ("stall", name, ts) not in self.told:
+            idle = now - ts - reducer.paused(st, ts, now)   # a sleep and a dark wake are no waiting of the hub
+            if sess.get("state") == "idle" and idle >= STALL and ("stall", name, ts) not in self.told:
                 self.told[("stall", name, ts)] = now
-                self.emit(name, now, {"kind": "stalled", "reason": STALLED.format(minutes=int(now - ts) // 60),
+                self.emit(name, now, {"kind": "stalled", "reason": STALLED.format(minutes=int(idle) // 60),
                                       "advice": STALLED_ADVICE})
             elif sess.get("state") in (None, "removed", "closed", *SLEEP):
                 self.cut.pop(name, None)
@@ -1239,14 +1277,16 @@ class Watcher:
             # a message behind a long turn is not trouble: counted from the moment the session became free; behind another in the queue
             # (a 37th in the hub queue while the host spent minutes typing the first) — too: the alarm is about the queue head;
             # a new process still connecting MCP has not read its input: counted from the end of that wait (parking.mcp_init)
+            # nor is the time the machine slept or was in a dark wake (the queue waits for the full wake on purpose)
+            since = max(m["created"], sess["since"], sess.get("mcp_init", -MCP_WAIT) + MCP_WAIT) if sess else now
             if sess and sess["state"] == "idle" and \
                     not (sess.get("compacting") and now - sess["compacting"] < COMMAND_CONFIRM_SECONDS) and \
-                    now - max(m["created"], sess["since"], sess.get("mcp_init", -MCP_WAIT) + MCP_WAIT) >= UNDELIVERED and \
+                    now - since - reducer.paused(st, since, now) >= UNDELIVERED and \
                     ("msg", m["id"]) not in self.told:
                 self.told[("msg", m["id"])] = now
                 if not self.core_waits(m["id"]):
                     continue  # it is not in the core or it has already arrived — the journal reader sees a phantom (eval 2026-10-03, item 7)
-                waited = int(now - m["created"])
+                waited = int(now - m["created"] - reducer.paused(st, m["created"], now))
                 self.emit(sess["name"], now, {"kind": "undelivered", "message": m["id"], "reason": UNDELIVERED_WHY.format(
                     id=m["id"], minutes=waited // 60, seconds=waited % 60, state=m["state"], attempt=m.get("attempt", 0)),
                     "advice": UNDELIVERED_ADVICE})

@@ -1,5 +1,6 @@
 // Small DOM and formatting helpers. User text goes in only through textContent.
 import { locale, t, CLOSED } from "./i18n.js";
+import { clockOptions } from "./clock.js";
 export const $ = (id) => document.getElementById(id);
 
 export function el(tag, cls, text) {
@@ -96,8 +97,8 @@ export function icon(name, alt) {
 // dates are drawn for every feed and list row on every snapshot: toLocale*String builds a formatter for each call (the
 // most expensive part of a row), these are made once a minute — the text is the same, and a formatter keeps the time zone
 // it was made in (the computer moved to another zone: in a minute the times follow)
-const FMT = { hm: { hour: "2-digit", minute: "2-digit" }, dm: { day: "2-digit", month: "2-digit" },
-  dmhm: { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" } };
+const FMT = { hm: clockOptions(locale), dm: { day: "2-digit", month: "2-digit" },
+  dmhm: clockOptions(locale, { day: "numeric", month: "long" }) };
 let fmts = null, fmtsAt = 0;
 const fmt = (k) => {
   if (!fmts || Date.now() - fmtsAt > 60000) {

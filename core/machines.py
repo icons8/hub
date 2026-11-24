@@ -451,7 +451,7 @@ COMMAND_CONFIRM_SECONDS = 600  # Claude Code commands: the result of /compact on
 
 # Facts: record them, do not change session/message state (except aliases, see identity).
 FACTS = {
-    "session.identified", "session.end_other", "session.compacted",
+    "session.identified", "session.end_other", "session.compacted", "session.compacting",
     "host.done", "host.error", "core.rejected", "core.started", "session.said", "core.snapshot",
     "turn.tool", "turn.tool_result",
     "session.mcp_set",  # the host added a granted MCP to a running Claude Code (or it refused): the restart applies it anyway

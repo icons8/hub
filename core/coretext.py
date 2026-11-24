@@ -16,6 +16,7 @@ language: the marks are made by the fold, the language is applied only where the
 import string
 
 TEMPLATES = {}   # key -> the English of the code (a text or plural forms): tests compare it with i18n/en.json
+SHOWN = ".shown"   # the suffix of a phrase's variant the owner reads (T(shown=…)): no tag, no numbers for the session
 
 
 class Text(str):
@@ -44,16 +45,20 @@ class Phrase(Text):
         return _text(english, ((0, len(english), self.key, {k: _arg(v) for k, v in kw.items()}),))
 
 
-def T(key, english, **fixed):
+def T(key, english, shown=None, **fixed):
     """The core's phrase key in English (a text, or plural forms {"one", "other"} chosen by the count argument). fixed —
     substitutions every use has: a word the core recognizes in a session's answer whatever the language (the "nothing
     to continue" one, delegations.NOTHING) stays out of the catalog text. Substitutions are plain {name}, as the
-    catalogs have them: a format spec ({hours:.1f}) is refused at once — the catalog could not render it."""
+    catalogs have them: a format spec ({hours:.1f}) is refused at once — the catalog could not render it. shown — the
+    same phrase as the owner reads it (the catalog key + SHOWN): a session needs the tag and the task and message
+    numbers ("REPLIED d8: …"), the owner reads only the words; it may use fewer of the substitutions."""
     for text in (english.values() if isinstance(english, dict) else [english]):
         for _, name, spec, conv in string.Formatter().parse(text):
             if name is not None and (spec or conv or not name.isidentifier()):
                 raise ValueError(f"{key}: {{{name}}} — a catalog substitution is a plain {{name}}")
     TEMPLATES[key] = english
+    if shown is not None:
+        TEMPLATES[key + SHOWN] = shown
     text = english if isinstance(english, str) else english["other"]
     p = Phrase(text.format_map(_Kept(fixed)) if fixed else text)   # the other {names} stay for .format()
     p.key, p._template, p._fixed = key, english, fixed
@@ -189,21 +194,26 @@ def drop(obj, field):
     obj.pop(field + "_l10n", None)
 
 
-def _render(text, spans, lang):
+def _render(text, spans, lang, owner=False):
+    """The marked phrases of text in lang; owner — as the owner reads them: a phrase with a SHOWN variant in the catalog
+    (T(shown=…)) is rendered by that variant, the others as they are."""
     from core import i18n
     out, at = [], 0
     for start, n, key, args in sorted(spans, key=lambda s: s[0]):
         if start < at or text[start:start + n] != i18n.tr(i18n.SOURCE, key, **_args(args, i18n.SOURCE)):
             continue   # overlapping, or the text was changed since: this span stays as it is
-        out += [text[at:start], i18n.tr(lang, key, **_args(args, lang))]
+        shown = key + SHOWN if owner and key + SHOWN in i18n.catalog(i18n.SOURCE) else key
+        # a phrase inside the phrase (the target of REPLIED) takes its own variant only inside a variant: the words of
+        # the plain phrase expect the plain target ("de la session b", not "de à la session b")
+        out += [text[at:start], i18n.tr(lang, shown, **_args(args, lang, owner and shown != key))]
         at = start + n
     return "".join(out) + text[at:]
 
 
-def _args(args, lang):
+def _args(args, lang, owner=False):
     from core import i18n
-    return {k: (v["text"] if lang == i18n.SOURCE else _render(v["text"], v["l10n"], lang)) if isinstance(v, dict) else v
-            for k, v in args.items()}
+    return {k: (v["text"] if lang == i18n.SOURCE and not owner else _render(v["text"], v["l10n"], lang, owner))
+            if isinstance(v, dict) else v for k, v in args.items()}
 
 
 def why_of(data, default=""):
@@ -234,17 +244,17 @@ def human(text, lang=None):
 
 
 def shown(msg, lang):
-    """The message text in the language lang if it differs from what the session got; otherwise (no marks, English,
-    marks of another shape) None."""
+    """The message text as the owner reads it in the language lang (English by default) if it differs from what the
+    session got: the phrases in his language, and those with a SHOWN variant — without the tag and the numbers of
+    the session's form; otherwise (no marks, the same text, marks of another shape) None. The session's form is the
+    text itself: a session's own `hub show` prints it (core/views.py)."""
     spans, text = (msg or {}).get("l10n"), (msg or {}).get("text")
     if not spans or not isinstance(text, str):   # almost every message: no lookup of the language
         return None
     from core import i18n
-    lang = i18n.known(lang)
-    if lang in (None, i18n.SOURCE):
-        return None
+    lang = i18n.known(lang) or i18n.SOURCE
     try:
-        out = _render(text, spans, lang)
+        out = _render(text, spans, lang, owner=True)
     except (TypeError, ValueError, KeyError, AttributeError, IndexError):   # marks not of this shape: the text as is
         return None
     return out if out != text else None

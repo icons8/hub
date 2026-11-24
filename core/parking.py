@@ -47,6 +47,24 @@ def mcp_init(sess, now):
     return bool(sess.get("mcp_init")) and now - sess["mcp_init"] < MCP_WAIT
 
 
+def mcp_up(sess):
+    """The process reads its input (system init, a turn, /clear) or is gone (an exit, a release, a kill, a rename): it
+    waits for no MCP server any more. The only way the mark goes: the servers it waited for go with it."""
+    sess.pop("mcp_init", None)
+    sess.pop("mcp_pending", None)
+
+
+def mcp_wait(sess, now):
+    """What the page and `hub status` say of a process that waits for its MCP servers: {servers, since, until}, or None.
+    servers - the ones the last status named as pending (empty until the first one comes); until - when Claude Code
+    stops waiting (MCP_TIMEOUT): a mark older than that says nothing; a status that names none pending - it waits for
+    nothing (the mark itself stays: delivery keeps its own reckoning). Only a free session: a working one already reads
+    its input."""
+    if sess.get("state") != "idle" or not mcp_init(sess, now) or sess.get("mcp_pending") == []:
+        return None
+    return {"servers": list(sess.get("mcp_pending") or []), "since": sess["mcp_init"], "until": sess["mcp_init"] + MCP_WAIT}
+
+
 def idle_too_long(sess, now, hours=PARK_AFTER_HOURS):
     """Free for longer than `hours` hours (0 or less — do not stop)."""
     return bool(hours and hours > 0) and sess["state"] == "idle" and now - (sess.get("since") or now) >= hours * 3600

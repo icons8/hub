@@ -9,6 +9,10 @@ import tempfile
 import unittest
 
 from core import forms, journal, modrun, modstate, modules, reducer, views
+from core import cutout
+
+# the Claude account pool features: listed only where the pool is in the tree (not on the open flavor)
+POOL = ["accounts", "accounts.use"] if cutout.present("profile") else []
 
 KNOWN = {"seq": 0, "ts": 0, "type": "module.ready", "entity": "m",
          "data": {"module": "m", "version": "1.0.0", "points": [], "launch": "L1", "channel": "core"}}
@@ -360,7 +364,7 @@ class NoModules(unittest.TestCase):
         web.config = lambda: {}
         snap = web.with_clock(r.snapshot())
         self.assertFalse({"mods", "mod_versions"} & set(snap))
-        self.assertEqual(snap["features"], ["upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
+        self.assertEqual(snap["features"], ["upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
         self.assertFalse([e for e in snap["extensions"] if e.get("base")])
 
 
@@ -401,7 +405,7 @@ class Snapshot(unittest.TestCase):
         snap = self.web.with_clock({"seq": 9, "mods": mods})
         self.assertEqual(snap["mods"], {"todo": {"list": {"value": [1], "rev": 5}}})   # a disabled one is not in the snapshot
         self.assertEqual(snap["mod_versions"], {"todo": "1.2.0"})
-        self.assertEqual(snap["features"], ["modules", "upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
+        self.assertEqual(snap["features"], ["modules", "upload.raw", *POOL, "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"])
         self.assertIn({"name": "mod:todo", "main": "main.js", "base": "/mod/todo/web/"}, snap["extensions"])
 
     def test_module_without_state_still_shows_as_loaded(self):

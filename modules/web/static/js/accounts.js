@@ -5,6 +5,7 @@
 // The core does the switching (modules/accounts); the pool is edited with `hub accounts …`, the page never sees
 // secrets. The limits line under the input field leads here.
 import { el } from "./dom.js";
+import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { S, render } from "./state.js";
 import { locale, t } from "./i18n.js";
@@ -12,15 +13,15 @@ import { locale, t } from "./i18n.js";
 const WIN = [["five_hour", t("web.accounts.win_five_hour")], ["seven_day", t("web.accounts.win_week")]];
 
 // time without a preposition: today — just the hours, otherwise date and hours
-function clock(ts) {
+function stamp(ts) {
   const d = new Date(ts * 1000), now = new Date();
-  const hm = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  const hm = clock(ts, locale);
   if (d.toDateString() === now.toDateString()) return hm;
   return d.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" }) + `, ${hm}`;
 }
 function when(ts) {
   const d = new Date(ts * 1000);
-  return d.toDateString() === new Date().toDateString() ? t("web.accounts.at_time", { time: clock(ts) }) : clock(ts);
+  return d.toDateString() === new Date().toDateString() ? t("web.accounts.at_time", { time: stamp(ts) }) : stamp(ts);
 }
 
 // catalog text with {name} placeholders — <code> nodes in place of the substitutions
@@ -110,7 +111,7 @@ function card(a, acc, now, i, on) {
   if (a.email) { const kind = el("span", "ac-kind", a.email); kind.title = a.email; title.append(kind); }
   head.append(title);
   if (active) head.append(el("span", "ac-badge", acc.pinned ? t("web.accounts.badge_now_manual") : t("web.accounts.badge_now")));
-  else if (until > now) head.append(el("span", "ac-badge busy", t("web.accounts.busy_until", { time: clock(until) })));
+  else if (until > now) head.append(el("span", "ac-badge busy", t("web.accounts.busy_until", { time: stamp(until) })));
   else if (on) {
     const go = el("button", "btn quiet ac-go", t("web.accounts.go"));
     go.type = "button";
@@ -197,7 +198,7 @@ export function accountsSection() {
     ? t("web.accounts.pool_empty")
     : !conf.on
       ? t("web.accounts.pool_paused")
-      : acc.since ? t("web.accounts.pool_now_since", { name: current, time: clock(acc.since),
+      : acc.since ? t("web.accounts.pool_now_since", { name: current, time: stamp(acc.since),
         pct: Math.round((conf.switch_at || 0.95) * 100) })
         : t("web.accounts.pool_now", { name: current, pct: Math.round((conf.switch_at || 0.95) * 100) });
   wrap.append(top);

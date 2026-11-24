@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import urllib.request
 
 import platforms
@@ -409,7 +410,13 @@ class Market:
         except BaseException:
             platforms.current.rmtree(new)
             raise
-        _swap(new, path)
+        stopped = []   # the plugin switched off for the swap: only when the folder turned out to be held
+        try:
+            _swap(new, path, stop=lambda: stopped.extend(self._stop(full)) or bool(stopped))
+        except BaseException:
+            self._resume(stopped, restart=True)
+            raise
+        self._resume(stopped)   # the flag off before the record below is made; the process starts at its end
         notes = [why] if why else []
         # the record goes into hub.json as it became after the clone: the clone took long, the page could have written its own
         with self.editing() as cfg:
@@ -445,6 +452,38 @@ class Market:
         self.newer = self._newer(full, commit)
         return i18n.t("cli.market.installed", name=key, repo=full, commit=commit[:7],
                       notes="; ".join(notes + [self.newer] if self.newer else notes))
+
+    def _stop(self, full):
+        """Windows: a running plugin process holds its folder and the swap fails (WinError 32). Switch the plugin off
+        in the settings and ask the hub to restart its part: hub-up stops it and does not start it. Returns the keys it
+        switched off (a plugin the owner had off is not touched), [] when there was nothing to stop."""
+        if not self.restart:
+            return []
+        keys = []
+        with self.editing() as cfg:
+            for k, x in (cfg.get("extensions") or {}).items():
+                if isinstance(x, dict) and x.get("source") == full and x.get("run") and not x.get("disabled"):
+                    x["disabled"] = True
+                    keys.append(k)
+        if keys:
+            try:
+                self.restart([f"ext:{k}" for k in keys])
+            except BaseException:   # the caller has not got the keys yet: take the flag back here, or it stays on for good
+                self._resume(keys)
+                raise
+        return keys
+
+    def _resume(self, keys, restart=False):
+        """Take back the flag `_stop` set; restart: start the part again now (the swap failed, the old copy stays)."""
+        if not keys:
+            return
+        with self.editing() as cfg:
+            for k in keys:
+                x = (cfg.get("extensions") or {}).get(k)
+                if isinstance(x, dict):
+                    x.pop("disabled", None)
+        if restart and self.restart:
+            self.restart([f"ext:{k}" for k in keys])
 
     def _find(self, name):
         """(settings, key, source): `<account>:<name>` or just `<name>` if there is only one such plugin."""
@@ -539,17 +578,39 @@ class Market:
 NEW, OLD = ".installing", ".previous"   # next to the plugin folder: the new copy before the swap and the old one during the swap
 
 
-def _swap(new, path):
+# with a half-second pause: the stopped plugin process takes a moment to exit and let go of its folder; hub-up gives it
+# stop_grace before it kills it, plus the hubd tick and the hub-up loop that carry the request (review)
+SWAP_TRIES = 2 * (platforms.current.stop_grace(False) + 15)
+
+
+def _swap(new, path, stop=None):
     """A ready copy `new` goes in place of `path`: the old one is set aside and deleted only when the new one is in place. If it did not
-    work (Windows: the plugin process holds the folder), the installed one stays as it was."""
+    work (Windows: the plugin process holds the folder), stop() is called once: it switches the plugin off and asks the hub
+    to stop the process (true: it did); then SWAP_TRIES half-second retries. Still held: the installed one stays as it was."""
     old = path + OLD
     platforms.current.rmtree(old)
     if os.path.isdir(path):
-        try:
-            os.rename(path, old)
-        except OSError as e:
-            platforms.current.rmtree(new)
-            raise Error(i18n.t("cli.market.folder_busy", path=path, error=e)) from e
+        tries, asked = 1, False
+        while True:
+            try:
+                os.rename(path, old)
+                break
+            except OSError as e:
+                if not asked and stop:
+                    asked = True
+                    try:
+                        held = stop()
+                    except BaseException:   # the request to stop failed: the downloaded copy does not stay (review)
+                        platforms.current.rmtree(new)
+                        raise
+                    if held:
+                        tries = SWAP_TRIES
+                tries -= 1
+                if tries > 0:
+                    time.sleep(0.5)
+                    continue
+                platforms.current.rmtree(new)
+                raise Error(i18n.t("cli.market.folder_busy", path=path, error=e)) from e
     try:
         os.rename(new, path)
     except OSError:

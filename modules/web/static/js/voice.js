@@ -11,6 +11,7 @@ import { S } from "./state.js";
 import { t } from "./i18n.js";
 import * as R from "./recorder.js";
 import { dictateButton } from "./dictate.js";
+import { fill, hold, release, settled } from "./outgoing.js";
 
 // the modules import each other in a circle (api.js → voice.js → recorder.js → api.js): R.* only at call time, not at load
 export const recording = () => R.recording();
@@ -74,12 +75,15 @@ const onScreen = (n) => n.getClientRects().length > 0 && getComputedStyle(n).vis
 
 // the right-hand icon: stop (recording) · send (there is content) · microphone (empty and voice is on) · send (no voice);
 // b.hubDict — the dictation microphone beside it, shown while there is content (the composer puts it into the row).
-// fillText(text) — where the words go when the recording was ended with "Done" (the strip's button): into the field, unsent
-export function actionButton(s, ta, sendText, fillText) {
+// fillText(text) — where the words go when the recording was ended with "Done" (the strip's button): into the field, unsent.
+// lock() — the field's send for the words of a recording, addressed at the moment it is called ("send" pressed): the
+// reply target, the board cards, the files then in the field (composer.js lock); a field without it sends with sendText
+export function actionButton(s, ta, sendText, fillText, lock = null) {
   const me = {
     key: s.name, field: ta, kind: "message", session: s.name, sendText, ta,
     empty: () => { const f = R.curField(); return (!f || !f.value.trim()) && !(S.pending[s.name] || []).length; },
-    deliver: (rec) => transcribeRecording(rec, sendText, fillText),
+    lock: () => lock?.() || null,
+    deliver: (rec, send) => transcribeRecording(rec, send || sendText, fillText),
     say: (text) => { S.errors[s.name] = text; },
   };
   R.bind(ta, me);
@@ -219,24 +223,32 @@ const failed = {};   // field key → {data, mime, blob, session}
 // offered while the error on screen belongs to this very recording: "no speech in the recording" from the next one is not about it
 export const failedRecording = (key) => (failed[key] && S.errors[key] === failed[key].error ? failed[key] : null);
 
-// rec.insert — it ended with "Done": the words go to fillText (the field), not to sendText
+// rec.insert — it ended with "Done": the words go to fillText (the field), not to sendText. sendText addressed at "send"
+// (sendText.session — composer.js lock) shows the message in that session's feed meanwhile and gives the field its reply
+// and cards back when nothing is sent (sendText.drop)
 export async function transcribeRecording(rec, sendText, fillText) {
   R.V.target = null;   // a voice message (and "Retry" too): the session field gets the focus after the recording
+  const cid = sendText.session ? hold(sendText.session) : null;   // a plugin's field has no feed
+  const drop = () => { settled(cid); sendText.drop?.(); };
   const res = await R.recognize(rec);
-  if (res.discarded) return R.redraw();   // "Cancel" while it was recognized: nothing is sent, nothing is shown, the recording is let go
+  if (res.discarded) { drop(); return R.redraw(); }   // "Cancel" while it was recognized: nothing is sent, nothing is shown, the recording is let go
   // 422 — no speech: a retry would hear the same, so we do not offer "Retry" and do not displace the earlier failed one
-  if (R.noSpeech(res)) { S.errors[rec.session] = res.error; return R.redraw(); }
+  if (R.noSpeech(res)) { drop(); S.errors[rec.session] = res.error; return R.redraw(); }
   if (res.error) {
+    drop();   // the reply and the cards are back over the field: a message typed by hand now goes with them
     const why = R.failureText(res);
-    failed[rec.session] = { ...rec, sendText, fillText, error: why };
+    failed[rec.session] = { ...rec, sendText, fillText, error: why };   // "Retry" of a voice message addresses it anew (composer.js lock)
     S.errors[rec.session] = why;
     return R.redraw();
   }
   delete failed[rec.session];
   S.errors[rec.session] = "";
   R.redraw();
-  if (rec.insert && fillText) { fillText(res.data.text); return R.redraw(); }
-  sendText(`🎤 ${t("web.voice.head")}: ${res.data.text}`);  // right away, like a Telegram voice message; the core parses any word after the mic (core/forms.py HEADS)
+  if (rec.insert && fillText) { drop(); fillText(res.data.text); return R.redraw(); }
+  const text = `🎤 ${t("web.voice.head")}: ${res.data.text}`;
+  fill(cid, text);
+  sendText(text, cid);  // right away, like a Telegram voice message; the core parses any word after the mic (core/forms.py HEADS)
+  release(cid);
 }
 
 // "Retry" and "Download" after the text about an untranscribed recording: the voice message and dictation into the page's

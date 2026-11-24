@@ -25,18 +25,24 @@ test("the badge is opaque: the page background, also under hover", () => {
 });
 
 test("on an own message the badge hangs on the bubble's bottom corner at the line end, 4px out, 6px down", () => {
-  const box = rule("html.th-clean .row.mine > .b > .reactions:has(> .react-chip:only-child)");
+  const box = rule("html.th-clean .row.mine > .b > .reactions:has(> .react-chip):not(:has(> .react-pick))");
   assert.match(box, /position: absolute/);
   assert.match(box, /inset-inline-end: -4px/);
   assert.match(box, /bottom: -6px/);
   assert.doesNotMatch(box, /(^|[\s;{])(left|right):/, "a logical side, so a right-to-left page mirrors it");
-  const bubble = rule("html.th-clean .row.mine > .b:has(> .reactions > .react-chip:only-child)");
+  const bubble = rule("html.th-clean .row.mine > .b:has(> .reactions > .react-chip):not(:has(> .reactions > .react-pick))");
   assert.match(bubble, /position: relative/);
   assert.match(bubble, /padding-bottom: 24px/);   // the badge never covers the last line
 });
 
+test("an own message has no \"Reaction\" control: neither the word nor an icon, only the core's badge", () => {
+  assert.match(rule("html.th-clean .row.mine > .b .react-add"), /display: none/);
+});
+
 test("the open picker is not pinned to the corner", () => {
   assert.doesNotMatch(css, /\.reactions:has\(> \.react-pick\)[^{]*\{[^}]*position: absolute/);
+  // and the hidden "Reaction" beside a 👍 that leads to the answer does not take the badge off the corner
+  assert.doesNotMatch(css, /\.reactions:has\(> \.react-chip:only-child\)/);
 });
 
 // "Reply" and "Reaction" stand at the message, not at the feed's edge: without a box of their own the corner buttons took
@@ -74,4 +80,16 @@ test("Reaction under a session's reply is an icon button left of Reply, seen whe
   assert.equal(icons.icons.items.react.commonName, "happy");
   assert.ok(fs.readFileSync(path.join(root, "react.svg"), "utf8").startsWith("<svg"));
   assert.match(fs.readFileSync(path.join(root, "clean.js"), "utf8"), /\.reply-btn ~ \.react-add:not\(\[title\]\)/);   // the word goes to the tooltip
+});
+
+test("the emoji's tuned offsets hold for Apple's emoji font only and give way to a theme's own `[data-emoji] { transform }`", () => {
+  const face = rule(":where(html.th-clean-apple-emoji .react-chip > .react-emoji:not(.kit-img))");
+  assert.match(face, /display: inline-block/);          // an inline box takes no transform
+  assert.match(face, /transform: translate\([-\d.]+em, [-\d.]+em\)/);
+  assert.doesNotMatch(css, /\.react-emoji[^{]*\{[^}]*[^-]translate:/);   // `translate` would add up with the theme's transform
+  // every rule that moves the emoji: only with Apple's emoji font, and with no weight of its own, so any theme rule wins
+  const moves = [...css.matchAll(/^([^\n{]*\.react-emoji[^\n{]*)\{[^}]*transform:/gm)].map((m) => m[1]);
+  assert.ok(moves.length > 1);
+  for (const sel of moves) assert.match(sel, /^:where\(html\.th-clean-apple-emoji /, sel);
+  assert.match(css, /:where\(html\.th-clean-apple-emoji \.react-chip > \.react-emoji\[data-emoji\^="👍"\]\) \{ transform: translate\(/);
 });

@@ -69,6 +69,32 @@ class Parse(unittest.TestCase):
             self.assertIsNone(c.gh_id("bob"))
 
 
+class Renamed(unittest.TestCase):
+    """A login renamed on GitHub: the old thanks stay in CHANGES.md (the updater diffs it), the lists say the new login."""
+    OLD = CHANGES.replace("@carol", "@Old-Carol").replace("@erin", "@carol")
+
+    def setUp(self):
+        from unittest import mock
+        patch = mock.patch.object(c, "RENAMED", {"old-carol": "Carol"})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_the_two_spellings_are_one_contributor_under_the_new_login(self):
+        rows = c.tally(self.OLD, "alice")
+        # old-carol: PR #8, #3 of the modules; carol (was erin, a thanks without a number): one report (the "@Erin" one stays) — one row, new spelling
+        self.assertIn(("Carol", 2, 1), rows)
+        self.assertEqual([r[0].lower() for r in rows].count("carol"), 1)
+        self.assertNotIn("old-carol", [r[0].lower() for r in rows])
+        self.assertEqual(c.mentions(self.OLD, "alice")["carol"], 3)
+
+    def test_a_trailer_of_the_old_login_credits_the_new_one(self):
+        old = "Co-authored-by: Old-Carol <102+Old-Carol@users.noreply.github.com>"
+        self.assertEqual(c.credited(old), {"carol"})
+        lines, _ = c.coauthors(self.OLD, None, "alice", {"carol": 102}, lambda login: None, history=old)
+        self.assertNotIn("Co-authored-by: Carol <102+Carol@users.noreply.github.com>", lines)
+        self.assertEqual(c.listed("- [@Old-Carol](https://github.com/Old-Carol): 1 pull request\n"), ["Carol"])
+
+
 class Coauthors(unittest.TestCase):
     def fetch(self, login):
         self.asked.append(login)

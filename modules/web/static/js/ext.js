@@ -104,13 +104,27 @@
 //   names it, <plugin>:<file>; another plugin's theme cannot be named); title is for older cores, which show it on "Look".
 //   A call with [A, B] puts the group under A and B, replacing this plugin's earlier one there. hub.option(key) as before,
 //   with no choice saved — the default of the chosen theme's group. To check: hub.capabilities.themeOptions === 1.
+//   1.39: search in addView({...}) — { placeholder?, query(text) }: while the view is open the page's search field (the
+//   one of the session list) is the view's: its placeholder, its text; typing calls query(text) at once, clearing (Esc,
+//   ×) calls query(""); the session list is not filtered by it and Enter opens no session. Leaving the view gives the
+//   field back to the session search with the text it had; coming back shows the view's own text again. hub.search({
+//   placeholder?, text? }) — change the field from the open view (another tab) without a query call, also from render of
+//   the view being opened (it acts on that view); → false when this plugin's view with search is neither drawn nor open.
+//   On a narrow screen the list and the view are separate screens, so the field is not with the view: hub.searchField({
+//   placeholder?, text?, onInput(text), mic? }) is the same search box for the view's own place (the magnifier, × while
+//   there is text, the microphone unless mic: false) → { node, input, set({ text?, placeholder? }), focus() }; keep the
+//   node between snapshots. Cmd+K goes to the shared field, or to a visible box of the open view (in it or its toolbar)
+//   where the list is not on screen. To check: hub.capabilities.viewSearch === 1.
+//   1.39: data-hub-message on a plugin's element with the text of one message (a letter, a to-do item): a triple click
+//   selects all of it, a selected piece gets the selection bar with "Copy" (js/quotesel.js); no check needed.
 import { el, icon, kit } from "./dom.js";
 import { inputBox } from "./inputbox.js";
-import { dictateButton, dictable } from "./dictate.js";
+import { dictateButton, dictable, fieldMic } from "./dictate.js";
 import { S, render } from "./state.js";
 import { applyUnread, post, receiptOf, say, sendMessage } from "./api.js";
 import { addCommand } from "./commands.js";
 import { lang, locale, t } from "./i18n.js";
+import { clock } from "./clock.js";
 import { isOpen, setOpen } from "./fold.js";
 import { messageOf } from "./feed.js";
 
@@ -222,7 +236,7 @@ function problem(name, text, err) {
 const api = (name, base = `/ext/${name}/`, builtIn = false) => ({
   api: S.snap?.plugin_api || "1.1",
   // what the page can do (1.28): name → version; no name means no capability (on an old core the field itself is absent)
-  capabilities: Object.freeze({ composerTransport: 1, composerLeading: 1, views: 1, viewToolbar: 1, openSettings: 1, receipt: 1, banner: 1, subgroups: 1, dictate: 1, sidebar: 1, inputRecord: 1, messageAt: 1, viewBadge: 1, themeOptions: 1 }),
+  capabilities: Object.freeze({ clock: 1, composerTransport: 1, composerLeading: 1, views: 1, viewToolbar: 1, openSettings: 1, receipt: 1, banner: 1, subgroups: 1, dictate: 1, sidebar: 1, inputRecord: 1, messageAt: 1, viewBadge: 1, themeOptions: 1, viewSearch: 1 }),
   addView(v) {
     if (!ID.test(v.id || "")) return problem(name, t("web.ext.bad_view_id"));
     const previous = views.get(v.id);
@@ -230,7 +244,9 @@ const api = (name, base = `/ext/${name}/`, builtIn = false) => ({
     const next = { ...v, ext: name, base, root: own?.root || null,
       toolbarRoot: own?.toolbarRoot || null, opened: own?.opened };
     views.set(v.id, next);
-    if (own && shown === own) shown = next;
+    if (own?.search?.placeholder !== v.search?.placeholder) viewHints.delete(v.id);   // the newer placeholder wins
+    if (!own || searching(own) !== searching(v)) viewTexts.delete(v.id);   // another view now: no text it never got
+    if (own && shown === own) { shown = next; syncSearch(); }
     viewsChanged();
     // the ☰ item's number changed (badge is not in views(), so no listener fires): compared as shown, so NaN or a new object each time does not re-render
     const numberChanged = previous && badgeText(previous.badge) !== badgeText(v.badge);
@@ -323,6 +339,8 @@ const api = (name, base = `/ext/${name}/`, builtIn = false) => ({
   dictate: (field, opts) => (dictable(field)
     ? dictateButton(field, opts || {}, (what, err) => problem(name, t("web.ext.dictate_failed", { what }), err))
     : problem(name, t("web.ext.dictate_needs")) || null),
+  search: (opts) => setSearch(name, opts),
+  searchField: (opts) => searchBox(name, opts),
   go: (id, params) => {
     const q = routeParams(params);
     if (q == null) return problem(name, t("web.ext.go_params", { id }));
@@ -338,6 +356,7 @@ const api = (name, base = `/ext/${name}/`, builtIn = false) => ({
   lang,
   locale,
   t,
+  clock: (ts, date) => clock(ts, locale, date),   // 1.39: the page's one clock
   url: (file) => `${base}${file}`,
   // 1.2: the plugin's channel — posts to the hub journal (hub post / hub feed in sessions); the channel name is the
   // plugin name without the author
@@ -357,16 +376,56 @@ const api = (name, base = `/ext/${name}/`, builtIn = false) => ({
     return out;
   },
   postFeed: (text, replyTo) => post("/api/feed/post", { plugin: name.split(":").pop(), text, ...(replyTo ? { reply_to: replyTo } : {}) }),
-  addStyle: (file) => attachStyle(name, `${base}${file}`),
+  addStyle: (file, opts) => attachStyle(name, `${base}${file}`, opts),
 });
 
-// a plugin's stylesheet in <head>, once: the same address as the page's own <link> for a "css" entry of the plugin's record
-function attachStyle(name, href) {
+// a sheet a plugin's code turned off or narrowed by media (a look the person switched off) is kept in this browser for
+// the first frame of the next load (js/first-paint.js): the sheets of the css field are in <head> from the first byte,
+// the code runs only after the page is drawn. Only what the plugin asks for through hub.addStyle(file, { on }) (1.39),
+// one entry per sheet (href → media), so a plugin that is absent for a load keeps its entry; a sheet the plugin did not
+// ask about by the end of its register() goes back to the state of the list — the page keeps no state of a plugin that
+// the plugin's code no longer sets (a version without the switch, a switch the code only sets when it is off)
+const SHEET_MEDIA = "hub.sheetMedia";
+const sheetsAsked = new Set();   // the hrefs hub.addStyle(file, { on }) spoke for in this load
+function sheetRecord() { try { return JSON.parse(localStorage.getItem(SHEET_MEDIA) || "null") || {}; } catch { return {}; } }
+function saveSheetRecord(rec) {
+  try {
+    if (Object.keys(rec).length) localStorage.setItem(SHEET_MEDIA, JSON.stringify(rec));
+    else localStorage.removeItem(SHEET_MEDIA);
+  } catch { /* no storage: the next load starts with the sheets as listed */ }
+}
+function setSheet(link, on) {
+  const href = link.getAttribute("href"), rec = sheetRecord();
+  sheetsAsked.add(href);
+  if (on) { link.removeAttribute("media"); delete rec[href]; } else { link.media = "not all"; rec[href] = "not all"; }
+  saveSheetRecord(rec);
+}
+// after a plugin's register(): a listed sheet in the record it did not speak for goes out of the record, and its media goes
+// off the link if it is still the record's (the "off" was the page's from the first frame, not the code's); a media the code
+// set on the link by hand — with no record, or over the record's value — is its own and stays
+function settleSheets(name) {
+  const rec = sheetRecord();
+  let changed = false;
+  for (const l of document.querySelectorAll(`link[rel=stylesheet][data-plugin="${CSS.escape(name)}"]`)) {
+    const href = l.getAttribute("href");
+    if (sheetsAsked.has(href) || !(href in rec)) continue;
+    if (l.getAttribute("media") === rec[href]) l.removeAttribute("media");
+    delete rec[href]; changed = true;
+  }
+  if (changed) saveSheetRecord(rec);
+}
+
+// a plugin's stylesheet in <head>, once: the same address as the page's own <link> for a "css" entry of the plugin's record;
+// { on: false } turns the sheet off (media "not all") and keeps that for the next load, { on: true } turns it back on
+function attachStyle(name, href, opts) {
   const full = new URL(href, document.baseURI).href;   // "./web/x.css" and "web/x.css" are the same sheet
-  if ([...document.querySelectorAll("link[rel=stylesheet]")].some((x) => x.href === full)) return;
-  const l = document.createElement("link");
-  l.rel = "stylesheet"; l.href = href; l.dataset.plugin = name;
-  document.head.append(l);
+  let l = [...document.querySelectorAll("link[rel=stylesheet]")].find((x) => x.href === full);
+  if (!l) {
+    l = document.createElement("link");
+    l.rel = "stylesheet"; l.href = href; l.dataset.plugin = name;
+    document.head.append(l);
+  }
+  if (opts && typeof opts.on === "boolean") setSheet(l, opts.on);
 }
 
 // plugin checkboxes (1.12): the choice lives in the browser, key hub.opt.<plugin>; no choice means the default from addOptions
@@ -413,9 +472,14 @@ export async function loadExtensions() {
   // A render during an import must not start a second registration pass. Only the active call returns fresh and
   // requests a redraw; that redraw picks up extensions announced while it was waiting.
   if (loading) return false;
+  const todo = (S.snap.extensions || []).filter((e) => !loaded.has(e.name) && !IN_CORE.has(e.name));
+  // every plugin's code is asked for at once, not after the previous one has registered: one after another, the last
+  // of twenty was fetched only after the nineteen before it had run. A preload only fetches; the code still runs one
+  // plugin after another
+  for (const e of todo) preload(`${e.base || `/ext/${e.name}/`}${e.main}`);
   let fresh = false;
-  for (const e of S.snap.extensions || []) {
-    if (loaded.has(e.name) || IN_CORE.has(e.name)) continue;
+  for (const e of todo) {
+    if (loaded.has(e.name)) continue;
     loaded.add(e.name);
     fresh = true;
     loading += 1;
@@ -425,11 +489,23 @@ export async function loadExtensions() {
       // was open (or a page served by a server from before the field) takes them here, before its code runs
       for (const f of Array.isArray(e.css) ? e.css : []) if (typeof f === "string") attachStyle(e.name, `${base}${f}`);
       const mod = await import(`${base}${e.main}`);
-      (mod.default || mod.register)(api(e.name, base));
+      const out = (mod.default || mod.register)(api(e.name, base));
+      // the sheets settle once register() is done — after its promise for an async one (its asks after an await count),
+      // without holding the plugins after it; an async register() that threw is a failed load like a sync one (shown in
+      // "Settings" → "Plugins", not a rejection nobody heard) and keeps its record as it was
+      Promise.resolve(out).then(() => settleSheets(e.name), (err) => problem(e.name, t("web.ext.load_failed"), err));
     } catch (err) { problem(e.name, t("web.ext.load_failed"), err); }
     loading -= 1;
   }
   return fresh;
+}
+
+function preload(href) {
+  if (document.querySelector(`link[rel="modulepreload"][href="${CSS.escape(href)}"]`)) return;
+  const link = document.createElement("link");
+  link.rel = "modulepreload";
+  link.href = href;
+  document.head.append(link);
 }
 
 function draw(name, what, fn) {
@@ -547,15 +623,17 @@ export function extToolbar(id) {
 
 export function extView(id) {
   let v = views.get(id);
-  if (!v) return null;
+  if (!v) { extHide(); return null; }   // "No view" on screen: the last view lets go of the field (1.39)
   if (!v.root) v.root = el("div", "ext-view" + (v.full ? " full" : ""));
   v.root.classList.toggle("full", !!v.full);
-  draw(v.ext, t("web.ext.view_failed", { id }), () => v.render(v.root, S.snap));
+  rendering = v;   // hub.search from render acts on this view, though it is not the shown one yet
+  try { draw(v.ext, t("web.ext.view_failed", { id }), () => v.render(v.root, S.snap)); } finally { rendering = null; }
   if (views.get(id)?.root === v.root) v = views.get(id);   // render registered the view again: enter the new registration
   const entered = shown !== v;
   if (entered) {
     extHide();
     shown = v;
+    syncSearch();
     if (v.show) requestAnimationFrame(() => { const cur = current(v);   // already in the page
       if (cur?.show) draw(cur.ext, t("web.ext.view_show_failed", { id }), () => cur.show(cur.root)); });
   }
@@ -580,7 +658,108 @@ function opened(v, hash) {
 export function extHide() {
   const v = shown;
   shown = null;
+  syncSearch();
   if (v?.hide) draw(v.ext, t("web.ext.view_hide_failed", { id: v.id }), () => v.hide(v.root));
+}
+
+// The page's search field and the open view (1.39): a view with search holds the field while it is open. The page keeps
+// one text for the session search and one per view, so leaving and coming back loses neither.
+let holder = null;   // id of the view holding the field
+let sessionText = "";   // the session search while a view holds the field; its placeholder waits in data-session-hint
+// (a theme turned off meanwhile puts its own original there: clean.js)
+const viewTexts = new Map(), viewHints = new Map();   // view id → its text, the placeholder hub.search gave
+const searching = (v) => typeof v?.search?.query === "function";
+// an empty placeholder is the default one: the × of the field hides by :placeholder-shown, which an empty one never is
+const hintOf = (v) => viewHints.get(v.id) || (typeof v.search.placeholder === "string" && v.search.placeholder
+  ? v.search.placeholder : t("web.clean.find"));
+let rendering = null;   // the view whose render runs now
+export function syncSearch() {
+  const f = document.getElementById("filter");
+  if (!f) return;
+  const v = searching(shown) ? shown : null, id = v?.id ?? null;
+  if (id !== holder) {
+    if (holder) viewTexts.set(holder, f.value); else { sessionText = f.value; f.dataset.sessionHint = f.placeholder; }
+    f.value = id ? viewTexts.get(id) || "" : sessionText;
+    holder = id;
+    if (!id) {   // as a theme had it
+      delete f.dataset.view;
+      f.placeholder = f.dataset.sessionHint || t("web.sidebar.find");
+      delete f.dataset.sessionHint;
+    }
+  }
+  if (!v) return;
+  f.dataset.view = id;
+  if (f.placeholder !== hintOf(v)) f.placeholder = hintOf(v);   // also after the language changed (data-i18n-placeholder)
+}
+// what the session list filters by: the field; nothing while a view holds it — the field shows the view's text, and a
+// list cut by a hidden query would look broken (its text comes back with the field)
+export const sessionQuery = () => (holder ? "" : document.getElementById("filter")?.value || "");
+export const searchHeld = () => !!holder;
+// a session chosen from the list ends the session search; while a view holds the field, that search is the hidden text
+// the field gets back when the view lets go of it (sidebar.js endSearch)
+export function clearSessionQuery() { sessionText = ""; }
+// the field's text went to the view holding it (typing, Esc, ×)
+export function viewQuery(text) {
+  const v = holder && shown?.id === holder ? shown : null;
+  if (searching(v)) draw(v.ext, t("web.ext.view_failed", { id: v.id }), () => v.search.query(text));
+}
+// from render: the view being drawn (it becomes the shown one right after); otherwise the open view holding the field.
+// The view not holding the field yet keeps both for when it takes it
+function setSearch(name, opts) {
+  const v = rendering ? views.get(rendering.id) : holder && shown?.id === holder ? shown : null;
+  if (!searching(v) || v.ext !== name || !opts || typeof opts !== "object") return false;
+  const f = document.getElementById("filter"), held = holder === v.id && !!f;
+  if (typeof opts.placeholder === "string") viewHints.set(v.id, opts.placeholder);
+  if (typeof opts.text === "string") { if (held) f.value = opts.text; else viewTexts.set(v.id, opts.text); }
+  if (held && f.placeholder !== hintOf(v)) f.placeholder = hintOf(v);
+  return true;
+}
+// Cmd+K: the shared field; where it is not on screen (a narrow screen with a view open), a visible box of the view
+// (in the view or in its toolbar). Looked up on the screen each time: a plugin keeps its box between snapshots, and the
+// box comes back with the view after a round trip through a session
+// (a folded list is visibility: hidden — it has boxes on the page, yet it is not on screen)
+const onScreen = (n) => (n.checkVisibility ? n.checkVisibility({ visibilityProperty: true }) : !!n.getClientRects().length);
+export function focusSearch() {
+  const f = document.getElementById("filter");
+  const own = shown && !onScreen(f) ? [shown.root, shown.toolbarRoot]
+    .flatMap((r) => (r?.isConnected ? [...r.querySelectorAll(".view-search input")] : []))
+    .find(onScreen) : null;
+  (own || f).focus();
+  (own || f).select();
+}
+// the session list's search box for a plugin's own place: the same classes, so the look and the themes style it alike
+function searchBox(name, opts) {
+  if (!opts || typeof opts !== "object") opts = {};
+  const box = el("label", "search view-search");
+  const input = el("input");
+  input.type = "text";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  const said = () => { if (typeof opts.onInput === "function")
+    draw(name, t("web.ext.search_failed"), () => opts.onInput(input.value)); };
+  const set = (o = {}) => {   // an empty placeholder is the default one (the × hides by :placeholder-shown)
+    if (typeof o.placeholder === "string") input.placeholder = o.placeholder || t("web.clean.find");
+    if (typeof o.text === "string") input.value = o.text;
+  };
+  set({ placeholder: typeof opts.placeholder === "string" ? opts.placeholder : "", text: opts.text ?? "" });
+  input.addEventListener("input", said);
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !input.value) return;
+    e.preventDefault();
+    input.value = "";
+    said();
+  });
+  const x = el("button", "search-x");
+  x.type = "button";
+  x.append(icon("close"));
+  x.title = t("web.clean.clear_search");
+  x.setAttribute("aria-label", x.title);
+  x.addEventListener("click", (e) => { e.preventDefault(); input.value = ""; said(); input.focus(); });
+  const end = el("span", "search-end");
+  end.append(x);
+  if (opts.mic !== false && dictable(input)) end.append(fieldMic(input, { space: false }));
+  box.append(icon("search"), input, end);
+  return { node: box, input, set, focus: () => input.focus() };
 }
 
 // "Settings" tabs from plugins: id, title, node (the same between snapshots)

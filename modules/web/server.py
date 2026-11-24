@@ -416,6 +416,26 @@ class Web:
         box = self.put(type, entity, {**data, "req": req})
         return (*journal.decided(path, req, self.decide_wait if wait is None else wait, 1 << 20, start=start), box)
 
+    def away_said(self, st, since_before):
+        """The answer to /away: the line Telegram sends (until when, what happens meanwhile) and the lines of the
+        deputies' share of this away. since_before — the clock before the request was put: an away that began earlier
+        says so, not the same "noted" again (a repeat only moves the end and adds deputies); read from the folded state,
+        not guessed before the request from the page reader, which may lag the core."""
+        from core import deputycli, owner
+        o = st.get("owner") or {}
+        if o.get("state") != "away":   # the page's reader has not folded it yet (or it ended at once): no details
+            return self.t("web.cmd.away_ok")
+        tz = o.get("tz") or "UTC"
+
+        def clock(ts):   # an away may last days: another day comes with its date
+            at = owner._local(ts, tz)
+            return at.strftime("%H:%M" if at.date() == owner._local(time.time(), tz).date() else "%d.%m %H:%M")
+        until = (self.t("telegram.away_until_time", time=clock(o["until"])) if o.get("until")
+                 else self.t("telegram.away_until_back"))
+        first = (self.t("web.cmd.away_already", since=clock(o["away_since"]), until=until)
+                 if (o.get("away_since") or since_before) < since_before else self.t("telegram.away_ack", until=until))
+        return "\n".join([first, *deputycli.away_lines(st, lang=self.lang_now())])
+
     def said(self, why):
         """A refusal of the core as the response says it: its core phrases in the response language (core/coretext.py),
         the code kept. Whatever decides by the reason (codes, REFUSED_IN) reads it before this."""
@@ -1001,10 +1021,22 @@ class Web:
             return self.schedule_act(path, body, snap, sessions)
         # commands via "/" in the input field (js/commands.js): the same facts as hub away / back / restart in the terminal
         if path == "/api/away":
-            hours = body.get("hours")
+            hours, flag = body.get("hours"), body.get("deputies")
             if hours is not None and not (isinstance(hours, (int, float)) and 0 < hours <= 24 * 30):
                 return 400, self.t("web.srv.hours_positive")
-            return self.put_decided("owner.away", None, {"hours": hours})
+            # /away deputies [<person> …]: the deputies' areas go to them (core/deputies.py, spec d2679763)
+            if flag is not None and not (flag is True or isinstance(flag, list) and 0 < len(flag) <= 20
+                                         and all(isinstance(w, str) and 0 < len(w) <= 100 for w in flag)):
+                return 400, self.t("web.srv.deputies_bad")
+            began = time.time()
+            code, out = self.put_decided("owner.away", None, {"hours": hours, **({"deputies": flag} if flag else {})},
+                                         seq_out=True)
+            if code == 202 and isinstance(out, dict) and out.get("seq"):   # recorded: what this away is, as Telegram says it
+                end = time.monotonic() + 2   # the page's reader folds the fact a moment after the core wrote it
+                while (self.tail.reader.state.get("seq") or 0) < out["seq"] and time.monotonic() < end:
+                    time.sleep(0.05)
+                return 202, {"ok": True, "text": self.away_said(self.tail.reader.state, began)}
+            return code, out
         if path == "/api/hold":   # a tab holds off a hub restart while it has undelivered messages (core/restart.py, js/api.js)
             from core import restart
             holds = body.get("holds")
@@ -1875,7 +1907,10 @@ class Web:
                 "version": self.version(),
                 # optional for clients outside the page: notifications are sent only when a key is set (modules/web/push.py)
                 "features": (["push", "push.alerts"] if self.push.settings() else []) + (["reactions"] if reactions_on(cfg) else [])
-                + (["modules"] if mods else []) + ["upload.raw", "accounts.use", "send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"]
+                + (["modules"] if mods else []) + ["upload.raw"]
+                # a Claude account pool (the built-in one or a login module's): "Accounts", the account in the usage
+                # block, choosing an account; the open flavor without a login module has none, its clients show none
+                + (["accounts", "accounts.use"] if self.pooled(cfg) else []) + ["send.tasks", "feed.post_by_id", "bus", "about.addresses", "about.lite", "send.app", "setup", "feed.on_behalf", "session.resume", "stream.delta2", "stream.feed", "page.password", "file.thumb"]
                 + (["voice.raw"] if voice_on else [])
                 # the app (app spec §4a): the steps run by themselves, the band is the only view of them
                 + (["setup.app"] if getattr(self.setup(), "app", False) else []),
@@ -2127,6 +2162,11 @@ class Web:
                           "pool": {"on": bool((known.get("pool") or {}).get("on")), "rows": rows,
                                    "exhausted": (acc.get("exhausted") or {}).get("until"),
                                    **({} if codexslot.present() else {"cut": True})}}}
+
+    def pooled(self, cfg=None):
+        """The hub has a Claude account pool: the built-in one is in the tree or a login module handles session sign-in
+        (core/profiles.py). Without one (the open flavor, no module) sessions run on this computer's Claude login."""
+        return cutout.present("profile") or self.profiles.sign_in(cfg) is not None
 
     def accounts(self):
         """The pool of Claude accounts without secrets — for Settings -> Accounts and the limits row (the state is in the
@@ -2796,11 +2836,13 @@ class Web:
     def ext_style_links(self):
         """The <link> tags of the plugins' stylesheets (the css field): in the page's own <head>, so a plugin's tokens are
         there from the first frame, not after the page has loaded the plugin's code. The address is exactly the one
-        hub.addStyle builds (/ext/<name>/<file>), so the page does not add the same sheet a second time."""
+        hub.addStyle builds (/ext/<name>/<file>, a core module's /mod/<name>/web/<file>), so the page does not add the same
+        sheet a second time."""
         import html
-        q = lambda x: html.escape(x, quote=True)  # noqa: E731 — both values are already vetted (EXT_NAME, pluginstyle.css_files)
-        return "".join(f'<link rel="stylesheet" href="/ext/{q(e["name"])}/{q(f)}" data-plugin="{q(e["name"])}">\n'
-                       for e in self.extensions() if e["main"] for f in e["css"])
+        q = lambda x: html.escape(x, quote=True)  # noqa: E731 — the values are already vetted (EXT_NAME, pluginstyle.css_files)
+        sheets = [(e["name"], f"/ext/{e['name']}/{f}") for e in self.extensions() if e["main"] for f in e["css"]]
+        return "".join(f'<link rel="stylesheet" href="{q(href)}" data-plugin="{q(name)}">\n'
+                       for name, href in sheets + modstate.web_styles(self.state_dir))
 
     # --- server --------------------------------------------------------------------------------------------------
     def handler(self):
@@ -2899,8 +2941,11 @@ class Web:
                 # the early hints (modules/web/preload.py) go by the addresses the page itself uses
                 hints = lambda prefix, html=page: preload.head_hints(STATIC, html, prefix)  # noqa: E731
                 page = pagecache.page(page, ver, vendor, hints)
-                if links:   # after the core's stylesheets: a plugin's token overrides the core's, as hub.addStyle did
-                    page = page.replace("</head>", links + "</head>", 1)
+                # after the core's stylesheets (a plugin's token overrides the core's, as hub.addStyle did) and before the look
+                # script, which finds them in place: a sheet the plugin turned off in this browser stays off from the first frame
+                marker = "<!-- plugin-styles -->\n"
+                # a page without the marker (files from before it under this server) takes them before </head>, as before
+                page = page.replace(marker, links, 1) if marker in page else page.replace("</head>", links + "</head>", 1)
                 return self.send(200, page, "text/html; charset=utf-8", "no-cache", tag)
 
             def local_host(self):
@@ -3144,6 +3189,9 @@ class Web:
                         return self.end_headers()
                     return self.send(200, json.dumps(i18n.page_bundle(lang), ensure_ascii=False), cache="no-cache",
                                      etag=tag)
+                if self.path == "/api/keyboards":   # the layouts of the language data for the list search (static/js/names.js)
+                    from core import langdata
+                    return self.send(200, json.dumps({"layouts": langdata.keyboards()}, ensure_ascii=False))
                 if self.path.split("?")[0] in APP_ICONS:   # the hub's own app icon, if there is one next to hub.json, wins
                     own = web.own_app_icon(maskable=self.path.split("?")[0].endswith("/icon-maskable-512.png"))
                     if own:
@@ -3358,10 +3406,12 @@ class Web:
                     # what the latest journal poll published, without its lock: "About the hub" (and a client's hub
                     # discovery, which has a 4 s deadline) does not wait for the lock even after the first pass, while a
                     # poll under load holds it; during a re-read from the start — the previous snapshot; if no snapshot
-                    # from the journal exists yet — no numbers from it (null)
-                    with web.tail.changed:   # the snapshot and started come from one poll (they change as a pair)
-                        snap, started, known, ups = web.tail.snapshot, web.tail.started, web.tail.published, web.tail.updates
-                    about = web.about(started if known else None, len(snap["sessions"]) if known else None, ups)
+                    # from the journal exists yet — no numbers from it (null). Not core_started: before the first pass is
+                    # over it is the core's own start read from the journal's end (Tail.core_started), for the update's
+                    # watchdog — null only once that pass has failed
+                    with web.tail.changed:   # the snapshot and its numbers come from one poll (they change as a pair)
+                        snap, known, ups = web.tail.snapshot, web.tail.published, web.tail.updates
+                    about = web.about(web.tail.core_started(), len(snap["sessions"]) if known else None, ups)
                     if (parse_qs(urlparse(self.path).query).get("lite") or [""])[0] != "1":
                         return self.send(200, json.dumps(about, ensure_ascii=False))
                     body = json.dumps(web.about_lite(about), ensure_ascii=False)

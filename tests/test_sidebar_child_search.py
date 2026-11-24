@@ -6,6 +6,11 @@ import time
 
 from tests.test_web_e2e import PageInChrome
 
+def on_russian_keys(latin):
+    """What these Latin keys type on the Russian layout (i18n/data/ru.json): a query in the wrong layout, not spelled here."""
+    from core import langdata
+    return latin.translate(str.maketrans(langdata.keyboards()["ru"]))
+
 
 class ChildSearch(PageInChrome):
     def fleet(self):
@@ -43,6 +48,35 @@ class ChildSearch(PageInChrome):
         self.assertEqual(got[5]["eval"], "true")
         self.assertTrue(got[7]["until"])
         self.assertEqual(got[9]["eval"], ["false", '["agents"]'])
+
+    def test_the_search_follows_the_native_name_rule_and_a_chosen_row_ends_it(self):
+        # one rule with the iPhone and Mac apps (names.js, hub-ios SearchNames): separators and case do not matter, one
+        # letter matches only the start of a name or a word, the other keyboard layout finds the same names; a chosen row
+        # opens the thread and the search ends (the field empties, the list is whole again)
+        at = time.time()
+        for name in ("hub-dev", "brush-sales", "atlas"):
+            self.j.append("session.requested", name, dict(session_id="s-" + name, cwd="/w", channel="cli", owner=True,
+                                                         role="agent"), ts=at)
+            self.j.append("session.started", name, {"session_id": "s-" + name}, ts=at)
+        names = {"eval": "[...document.querySelectorAll('#list .srow')].map(r => r.closest('li')?.dataset.s).filter(Boolean).sort()"}
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/sessions"},
+                        {"until": "!!document.querySelector('#list li[data-s=\"atlas\"]')"},
+                        self.query("Hub Dev"), names,
+                        self.query("s"), names,
+                        self.query(on_russian_keys("bru")), names,
+                        self.query("-"), names,
+                        self.query("   "), names,
+                        self.query("sal"),
+                        {"eval": "document.getElementById('filter').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true})); 1"},
+                        {"until": "location.hash === '#/s/brush-sales'"},
+                        {"until": "document.getElementById('filter').value === '' && !!document.querySelector('#list li[data-s=\"atlas\"]')"})
+        evals = [g["eval"] for g in got if isinstance(g.get("eval"), list)]
+        self.assertEqual(evals[0], ["hub-dev"])                  # "Hub Dev" finds hub-dev
+        self.assertEqual(evals[1], ["brush-sales"])              # one letter: the start of a word, not atlas's middle "s"
+        self.assertEqual(evals[2], ["brush-sales"])              # "bru" typed on the Russian keys
+        self.assertEqual(evals[3], [])                           # separators only: nothing found
+        self.assertEqual(evals[4], ["atlas", "brush-sales", "hub-dev"])   # spaces only: no search, the whole list
+        self.assertTrue(got[-2]["until"] and got[-1]["until"], got)
 
     def test_a_group_remembered_by_its_title_stays_collapsed(self):
         # hub.closedGroups used to hold the titles of the default groups: the page reads them from the catalog now

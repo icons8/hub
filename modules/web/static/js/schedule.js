@@ -1,5 +1,6 @@
 // Schedule: all the machine's jobs — upcoming ones by day, paused ones (awaiting a decision), finished ones. The clock is a separate process.
 import { el, icon, kit } from "./dom.js";
+import { clock } from "./clock.js";
 import { S, render, sessionLabel } from "./state.js";
 import { banner, post } from "./api.js";
 import { confirmDlg, toList } from "./dialogs.js";
@@ -21,8 +22,8 @@ const CLOCK = {
   down: [t("web.schedule.clock_down"), "failed"],
 };
 
-const hm = (ts) => new Date(ts * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
-const dhm = (ts) => new Date(ts * 1000).toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const hm = (ts) => clock(ts, locale);
+const dhm = (ts) => clock(ts, locale, { day: "numeric", month: "short" });
 function dayName(ts) {
   const d = new Date(ts * 1000), today = new Date();
   const diff = Math.round((new Date(d.toDateString()) - new Date(today.toDateString())) / 86400000);
@@ -75,7 +76,7 @@ function runsText(times) {
   const shown = times.slice(0, 5).map((ts) => {
     const d = new Date(ts * 1000), today = new Date();
     return d.toDateString() === today.toDateString() ? hm(ts)
-      : d.toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      : dhm(ts);
   });
   return shown.length ? t("web.schedule.runs_next", { list: `${shown.join(", ")}${times.length > 5 ? "…" : ""}` }) : "";
 }

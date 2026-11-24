@@ -105,11 +105,67 @@ class FirstPass(ReaderWait):
         self.web.tail.poll()   # the pass is over
         self.assertEqual(self.ask("/api/feed?plugin=x", 20)[0], 200)
 
+    def test_about_tells_the_cores_start_before_the_first_pass_is_over(self):
+        # the update's watchdog (modules/update/trial.py) takes "the core came up" from /api/about: a hub that folds its
+        # journal for minutes after a reboot is up, not "did not come up" (a rollback 180 s after the start)
+        from core import journal
+        from modules.web import pagekeyweb
+        j = journal.Journal(os.path.join(self.state, "journal.jsonl"))
+        j.append("core.started", None, {"pid": 1}, ts=1000.0)
+        late = j.append("core.started", None, {"pid": 2}, ts=2000.0)
+        j.append("message.received", None, {"text": 'about "type":"core.started"'})
+        self.assertFalse(self.web.tail.published)
+        code, _, body = self.ask("/api/about", 20)
+        self.assertEqual((code, json.loads(body)["core_started"]), (200, late["ts"]))
+        self.assertEqual(pagekeyweb.about_alive(self.web)["core_started"], late["ts"])
+        self.assertIsNone(json.loads(body)["sessions"])   # the numbers of the journal still wait for the pass
+        self.web.tail.poll()
+        self.assertEqual(json.loads(self.ask("/api/about", 20)[2])["core_started"], self.web.tail.started)
+
     test_a_stuck_reader_answers_503_and_recovers = None
     test_clients_that_left_do_not_hold_sockets_until_the_lock = None
 
 
+class FirstPassFails(ReaderWait):
+    """The thread of the journal poll dies with an exception in the first pass: the page cannot read its journal, and
+    that is not "the core came up" for the update's watchdog (it would keep a release whose page answers 503)."""
+
+    def setUp(self):
+        from core import journal
+        from core.tail import Tail
+        self.state = tempfile.mkdtemp(prefix="hubweb-")
+        journal.Journal(os.path.join(self.state, "journal.jsonl")).append("core.started", None, {"pid": 1})
+        with mock.patch.object(Tail, "poll", side_effect=RuntimeError("boom")), mock.patch("threading.excepthook"):
+            self.web = Web(self.state)
+            self.server = self.web.serve(port=0)
+            end = time.time() + 10
+            while not self.web.tail.failed:
+                self.assertLess(time.time(), end)
+                time.sleep(0.02)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    test_a_stuck_reader_answers_503_and_recovers = None
+    test_clients_that_left_do_not_hold_sockets_until_the_lock = None
+
+    def test_a_failed_pass_tells_no_start_and_the_watchdog_does_not_say_ok(self):
+        from modules.update import trial
+        from modules.web import pagekeyweb
+        self.assertFalse(self.web.tail.published)
+        code, _, body = self.ask("/api/about", 20)
+        about = json.loads(body)
+        self.assertEqual((code, about["core_started"]), (200, None))
+        self.assertIsNone(pagekeyweb.about_alive(self.web)["core_started"])
+        asked = {**pagekeyweb.about_alive(self.web), "web_started": time.time() + 1}
+        waiting = {"status": "waiting", "started": 0, "to": "abcdef0123", "layer": None}
+        asked["code"] = {"running": "abcdef0123"}
+        self.assertNotEqual(trial.decide(waiting, asked, None, time.time()), "ok")
+        self.assertEqual(trial.decide(waiting, {**asked, "core_started": time.time()}, None, time.time()), "ok")   # the same answer with a start
+
+
 class PublishedFeed(FirstPass):
+    test_about_tells_the_cores_start_before_the_first_pass_is_over = None
+
     def test_plugin_feed_does_not_wait_for_an_unpublished_journal_pass(self):
         from core import journal
         j = journal.Journal(os.path.join(self.state, "journal.jsonl"))

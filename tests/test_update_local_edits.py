@@ -211,6 +211,28 @@ class Edits(unittest.TestCase):
         self.write(self.mine, "core.py", "a = 2\n")
         self.assertNotIn("zones", self.edits())
 
+    def test_git_output_is_read_as_utf8_whatever_the_machine_code_page(self):
+        # on Windows text=True alone decodes with cp1251, which has no byte 0x98 (the second byte of "\u0458" in UTF-8): the reader
+        # thread died and the count crashed with an AttributeError instead of an answer. The tests run with PYTHONUTF8=1,
+        # so the encoding is checked in the call itself, and the name is real
+        from unittest import mock
+        from core import codeedits
+        self.write(self.mine, "core.py", "a = 2\n")
+        self.write(self.mine, "docs/\u0458.md", "x\n")
+        self.commit(self.mine)
+        seen = []
+        real = subprocess.run
+
+        def run(*a, **kw):
+            if "--no-optional-locks" in a[0]:   # the call of codeedits (the test's own git calls go through the same module)
+                seen.append(kw.get("encoding"))
+            return real(*a, **kw)
+
+        with mock.patch.object(codeedits.subprocess, "run", run):
+            got = self.edits()
+        self.assertEqual(self.paths(got), {"core.py": "M", "docs/\u0458.md": "A"})
+        self.assertTrue(seen and set(seen) == {"utf-8"}, seen)
+
     def test_no_answer_is_not_zero(self):
         # not git, and a base that is not in this copy: None (the page shows nothing), not "no edits"
         self.assertIsNone(self.edits(repo=self.root))

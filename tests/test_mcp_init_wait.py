@@ -10,7 +10,7 @@ import os
 import tempfile
 import unittest
 
-from core import reducer, spool
+from core import reducer, spool, tools
 from core.parking import MCP_WAIT
 from core.machines import COMMAND_CONFIRM_SECONDS, CONFIRM_SECONDS, GAVE_UP, MAX_ATTEMPTS
 from modules.watch import watch
@@ -114,6 +114,97 @@ class Delivery(unittest.TestCase):
         msg = self.st["messages"][self.mid]
         self.assertEqual((msg["state"], msg["attempt"]), ("typing", 2))
         self.assertEqual(msg["deadline"], self.T0 + 7 + 2 * COMMAND_CONFIRM_SECONDS)
+
+
+class ProcessGone(unittest.TestCase):
+    """The mark is the wait of one process. Only session.exited, session.info, a turn and /clear used to drop it, while
+    the paths that end a process without session.exited (release: sleep, parking, hub take, a stop, a restart for
+    tools or a rename; a kill of a hung launch) left it on the session: a process released before its first turn
+    (system init comes with it) kept the mark, and `hub tools` kept silent about the servers that failed in the
+    session (tools.down) until the next process started."""
+    T0 = 1000
+
+    def setUp(self):
+        self.st, self.seq = reducer.empty(), 0
+        self.ev(self.T0, "session.requested", "b", cwd="/w", session_id="s-b", **OWNER)
+        self.ev(self.T0 + 5, "session.started", "b", source="resume")
+        self.ev(self.T0 + 6, "session.info", "b", mcp=["srv-a"], mcp_failed=["srv-a"])
+        self.ev(self.T0 + 20, "session.started", "b", source="resume")   # a new process, released before its first turn
+        self.assertEqual(self.sess()["mcp_init"], self.T0 + 20)
+
+    def ev(self, ts, type, entity=None, **data):
+        self.seq += 1
+        self.st, _, why = reducer.reduce(self.st, {"seq": self.seq, "ts": ts, "type": type, "entity": entity,
+                                                   "data": data})
+        self.assertIsNone(why)
+
+    def sess(self, name="b"):
+        return self.st["sessions"][name]
+
+    def gone(self, state, name="b"):
+        self.assertEqual(self.sess(name)["state"], state)
+        self.assertNotIn("mcp_init", self.sess(name), "the mark outlived its process")
+
+    def test_parking(self):
+        self.ev(self.T0 + 30, "session.parked", "b", channel="core")
+        self.gone("parked")
+
+    def test_a_stop(self):
+        self.ev(self.T0 + 30, "session.requested", "b-1", cwd="/w", session_id="s-b-1", executor=True, raised_by="b")
+        self.ev(self.T0 + 31, "session.started", "b-1", source="startup")
+        self.assertEqual(self.sess("b-1")["mcp_init"], self.T0 + 31)
+        self.ev(self.T0 + 40, "session.stop_requested", "b-1", **OWNER)
+        self.gone("retired", "b-1")
+
+    def test_an_end_from_the_terminal(self):
+        self.ev(self.T0 + 30, "session.ended", "b", reason="prompt_input_exit")
+        self.gone("asleep")
+
+    def test_a_take_and_the_owners_terminal(self):
+        self.ev(self.T0 + 30, "session.take_requested", "b", **OWNER)
+        self.gone("held")
+        # his terminal is a new process of its own: until his first turn nobody knows its servers, as before
+        self.ev(self.T0 + 40, "session.started", "b", source="resume")
+        self.assertEqual(self.sess()["mcp_init"], self.T0 + 40)
+        self.ev(self.T0 + 50, "turn.started", "b", prompt_head="go on")
+        self.gone("held")
+
+    def test_the_owners_terminal_ended_or_given_back_before_his_first_turn(self):
+        self.ev(self.T0 + 30, "session.take_requested", "b", **OWNER)
+        self.ev(self.T0 + 40, "session.started", "b", source="resume")
+        self.ev(self.T0 + 45, "session.ended", "b", reason="prompt_input_exit")
+        self.gone("held")
+        self.ev(self.T0 + 50, "session.started", "b", source="resume")
+        self.assertEqual(self.sess()["mcp_init"], self.T0 + 50)
+        self.ev(self.T0 + 60, "session.give_requested", "b", **OWNER)
+        self.gone("starting")
+
+    def test_a_restart_for_tools_and_the_new_process_waits_anew(self):
+        self.ev(self.T0 + 30, "session.reload_requested", "b", **OWNER)
+        self.gone("starting")
+        self.ev(self.T0 + 40, "session.started", "b", source="resume")
+        self.assertEqual(self.sess()["mcp_init"], self.T0 + 40)
+
+    def test_a_rename(self):
+        self.ev(self.T0 + 30, "session.renamed", "b", to="c", **OWNER)
+        self.gone("starting", "c")
+
+    def test_a_kill_of_a_hung_launch(self):
+        """A state folded by the code before: a launch that hangs with the mark of the process before it."""
+        self.sess().update(state="starting", mcp_init=self.T0 + 20)
+        self.ev(self.T0 + 700, "session.start_stuck", "b", minutes=10)
+        self.gone("starting")
+        self.sess().update(mcp_init=self.T0 + 20)
+        self.ev(self.T0 + 800, "session.reload_requested", "b", **OWNER)
+        self.gone("starting")
+
+    def test_hub_tools_tells_the_failed_server_as_for_a_process_that_said_its_servers(self):
+        """The owner took it into his terminal: the core answers by the last status it has, as when the released
+        process got its init (an older one's servers no longer hide behind a wait that ended with its process)."""
+        self.ev(self.T0 + 30, "session.take_requested", "b", **OWNER)
+        said = tools.down(self.st, self.sess(), "srv-a", grant=True)
+        self.assertIsNotNone(said, "hub tools grant answered 'already has it' about a server that failed")
+        self.assertIn("srv-a", said)
 
 
 class Watcher(unittest.TestCase):

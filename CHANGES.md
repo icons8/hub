@@ -5,6 +5,368 @@ An item from someone else's PR ends with thanks: "— thanks: @login".
 The "### For sessions" subsection under a date is what changed for the sessions themselves (commands, rules): the core
 attaches to each session's next message only what it has not seen yet; the page does not show it.
 
+## 2026-11-24
+- A session whose conversation file is gone from disk (a cleanup of old transcripts in `~/.claude/projects`, a disk
+  cleaner) no longer crashes in a loop. Before, the core raised it with `--resume`, Claude Code failed at once with "No
+  conversation found", and so on at every start. Now it starts a new conversation with the same id, the session is told
+  that the old one is gone and what it knew is in its files, and the spawn fact says `"conversation": "lost"`. A
+  conversation found in any project folder is resumed as before; with no `projects` folder at all (another config
+  folder, a stand-in claude) nothing counts as lost. Nothing to do: it arrives with the update, a running hub needs
+  `hub restart` to apply it — thanks: @kalimullin
+
+## 2026-11-23
+- A file that a session's schedule job sends (`hub send-file` in the job's command) is now also a row of the hub feed,
+  signed "sent you by <session>". Before, it lay only in that session's own feed, so with the session asleep you saw
+  nothing on the page. Nothing to do: a page reload (⌘R / Ctrl+R) picks up the page part, and `hub restart web`
+  (the update does it itself) loads the server part — thanks: @elenalo91
+- A long text pasted into the field and sent as a file shows in the feed as a card, as in the apps: its first words in up
+  to two lines and its size, instead of a line "pasted-1.txt · 4 KB"; a click gets the file as before. Other files of the
+  same message go in lines under the cards. Nothing to do: static files only, a page reload (⌘R / Ctrl+R) picks it up, no
+  `hub restart` — thanks: @visualpharm
+- A feed with many file paths in it no longer stalls the page: `/api/paths` ran `git worktree list` anew for every path
+  that was not found in the session's folder (150 paths, 150 runs, an answer in 15–20 s on a big repo, and the browser's
+  connections stayed busy, so the feed did not update). The list is now kept for 30 s, like the repo root and its files;
+  a worktree made in the last 30 s is picked up by the next lookup after that. Needs `hub restart web` (the update does
+  it itself); nothing else to do — thanks: @DeValar
+- An executor's schedule job now wakes it after it has handed in its task and fallen asleep. A job it set for itself
+  (`hub schedule add … --session <itself>`, a repeating one or one more than a day ahead) or one its raiser set for it
+  continues its task at the set time, and the result goes to the raiser as a continuation, the same as a wake with
+  `hub session wake <name> --about dN`. Before, the firing went to the raiser with "wake it", and the executor never
+  woke. Places and the queue count as for that wake: with no free place it waits in the queue (a repeat firing adds
+  only its check's news). A job set by another session still goes to the raiser. Needs `hub restart` — thanks:
+  @GreatMedivack
+- The core's "still connecting MCP" mark of a session's process now ends with that process also when it ends without
+  an exit event: sleep, parking, a stop, `hub take`, a restart for tools or a rename, a kill of a hung launch. A process
+  that went before its first turn kept the mark until the next launch, and `hub tools grant` answered "already has it"
+  for a server that had failed in the session. Needs `hub restart` (the update does it itself); nothing else to do
+- A session whose Claude Code is still connecting its MCP servers no longer looks like a free "idle" one. A new
+  process (after a restart, a wake-up or `hub session reload`) reads no input until its servers are up, for as long as
+  3 minutes; until now `hub status` and the page showed `idle` and a sent message just sat there. `hub status` now has
+  a line under the session — `waiting for MCP: <servers> (N s left)` — and the page's list says "Waiting for MCP…",
+  with the servers and the time Claude Code stops waiting in the tooltip. Only the display changed: delivery,
+  waiting times and the state itself are as before. Plugin API 1.41: the session row in the snapshot has `mcp_wait`.
+  Nothing to do: a page reload (⌘R / Ctrl+R) picks up the page part, and a running hub needs `hub restart` to apply the
+  core part — thanks: @sanchopanda
+- While you are away and write to the hub yourself (an away with deputies holds through your messages), the card the
+  hub asks you in answer comes to you at once — on the page, in Telegram, with a push — instead of waiting for your
+  return. Before, such a card (for example, "this area for your deputy — ok?") was held until `/back`, so an area could
+  only be changed by typing it out in full. This applies to the hub's cards in a turn on your message of the last two
+  hours; every other card of the away waits for you as before. Needs `hub restart`
+- While you are away with deputies, the hub can pass on your answer to a card asked in your absence again. Your
+  words from the page or Telegram do not end such an away, so a card asked without you never counted as seen, and
+  `hub send <session> --for mN --card qN` was refused as "no open card asked before the owner's words" even hours
+  later. A card now counts as seen from your first message after it was asked: that message answers none of them,
+  your later ones answer the card the hub names. Words that name no card still close none of them until you are back.
+  Needs `hub restart` (the update does it itself); nothing else to do
+- Hub bus: when a session asks the liaison to ask another hub something and the liaison writes the message in its own
+  words, that message now continues the session's thread with that hub, as a forwarded message already did. The
+  request also counts as handled, so the session no longer gets "The liaison has not handled your request" half an
+  hour after its words went out. When the liaison declines a session's request, the other hub is no longer sent
+  "Hub X declined the request: <reason>". That hub asked nothing, and the reason was this hub's own business. The
+  session that asked is told instead. In the liaison's own words, the core's labels (`[hub:mN …]`) and the fence lines
+  around another hub's words are dropped before sending. A session's words sent by reference go out as written. Needs
+  `hub restart` (the update does it itself); nothing else to do
+- macOS: a sleeping Mac no longer starts work in its short wake-ups. Every ~15 minutes a sleeping Mac wakes for a few
+  seconds without you (DarkWake), often with no network. A schedule job, a message or a session launch that started in
+  such a window sent its request, the Mac slept again, and the turn hung for 3–4 hours and failed with "Request timed
+  out". Now in these windows the hub only queues: messages and schedule jobs wait, sessions are not started, and job
+  commands do not run. When you wake the Mac, each goes once. A turn the network cut is continued after the full wake
+  too. The watchdog no longer counts sleep as waiting, so it no longer reports "not delivered" and wakes a session for a
+  message held overnight. Linux and Windows: nothing changes. Needs `hub restart` (the update does it itself); nothing
+  else to do
+- Clean: new characters. The 24 session pictures are new clay heads, each on a plate of its own color (a light and a
+  dark tint); the Hub has a head of its own in the list and on its feed byline. A specialist with no icon chosen by you
+  gets the head of its role (a word of its name or of its profile's title: "designer", "analyst", "liaison"…), else one
+  by its name as before; an icon you pick in the picker still comes first, an emoji of your own stays an emoji. A session
+  that had a character keeps the same slot, so it changes its picture once. Reload the page (⌘R / Ctrl+R) — thanks:
+  @kalimullin
+- A card handed to a deputy (`hub question route`) is no longer shown as waiting for you: `hub show qN` says "state: open
+  — routed to <name> (deputy), waits for their answer"; once they have answered it is no longer "open" — "state:
+  answered by <name> (deputy) — close the card: hub decided --card qN …" — and `hub status` lists it as "at <name>
+  (deputy)" or "answered by <name> (deputy), not waiting for the owner". A card that came back to you reads as before. Needs
+  `hub restart` for the core part.
+
+## 2026-11-22
+- Away with deputies (`/away deputies`, `hub away --deputies`) now lasts until you say you are back — "I'm back" on
+  the page, `/back`, `hub back` — or until its `--hours` run out. Your own messages from the page or Telegram no
+  longer end it, so the deputies keep taking the questions of their areas while you write to the hub; urgent things
+  still reach you in Telegram as in any away. A plain away without deputies is unchanged: your next message still ends
+  it, so a forgotten `/away` does not hang for a day. It holds while a deputy you named is on the list, even if their
+  channel is down for a while (their hub in quarantine, the session of their channel gone): their cards then wait for
+  you. `hub away --status`, the line under `/away deputies` and the page's tooltip on the away strip say that it is
+  held. Nothing to do: it arrives with the update, and a running
+  hub needs `hub restart` to apply the core part.
+- A deputy can act for you in their area: tell the hub «X acts for me on <area> while I'm away — everything there is
+  theirs» and it marks them (`hub contacts deputy "X" "<area>" --all`). While you are away with the deputies, every
+  question of that area goes to them — prod, money, merges, publishing, access, «only on my word», 🚨, their own
+  request — and is not held for you. Never to any deputy: your personal data, your correspondence, a text in your name
+  and what needs your own hands (Touch ID, a code from your phone, a password) — those wait for you. Their answer is
+  their word, not yours: in your return summary under «Decided by your deputies», their own requests marked. The mark
+  shows in `hub contacts deputies` and `hub away --status`; to take it off, tell the hub to set them again without it,
+  or remove the deputy — the cards they hold come back to you. A deputy without the mark decides as before. Needs `hub
+  restart`.
+- Such a deputy's decision also opens what the hub would otherwise keep waiting for your word: a tool for a session
+  (never one the catalog marks as holding your own data — your mail, chats, browser sign-ins: those still wait for
+  you), an executor, a spec's acceptance, an agent's role. Your liaison's forms on messages to other hubs go to them
+  too (never promises or deadlines in your name, nor your personal data or correspondence); the hub's own checks of
+  whom to trust (a pair code, a link offer, an introduction) stay yours. Your summary says what each decision opened.
+  It counts while you are away with that deputy and for a day; removing the mark or the deputy, or your return, ends
+  it.
+- The hub page says when a session is compacting its conversation, so the wait after a message or a wake-up no longer
+  looks like a hang. While Claude Code (or Codex) shortens a long conversation — at its own threshold, after `/compact`,
+  or when the hub compacts a session it is waking — the line above the message field reads "Compacting the
+  conversation…" with a spinner, the session's row in the list and the header say "Compacting…" instead of "idle" or
+  "working", and the session counts as working. A message you send meanwhile waits in the queue and goes right after,
+  and the hub does not park the session in the middle of it. Plugin API 1.40: the session row in the snapshot has
+  `compacting`. Nothing to do: a page reload (⌘R / Ctrl+R) picks up the page part, and a running hub needs
+  `hub restart` for the core part.
+- `/away` and `/away deputies` typed in the message field now answer where you typed them, on every screen and in Clean
+  too: the line Telegram sends (away until when, what the deputies take, "held until /back") under the field — on a
+  phone the old one-line hint was hidden, so it looked as if nothing had happened — and a repeat while already away says
+  "Already away (since …), now until …" instead of the same answer. On a phone the header of a session carries an
+  "Away" mark (the strip over the list is a screen away there). Nothing to do: a page reload (⌘R / Ctrl+R) picks up the
+  page part; the answer's text comes from the page server, so it needs `hub restart web`.
+### For sessions
+- A deputy marked «(everything in it)» acts for the owner in their area: route them every card of it, the owner's own
+  gates included (prod, money, merges, publishing, access, «only on my word»), and their own request with
+  `hub question route qN <name> --own`. Never to any deputy: the owner's personal data, their correspondence (in the
+  question, the options or `--note`), a text in the owner's name, what needs the owner's own hands. Their answer is the
+  decision on that card for your rules and your repo's gates, never for writing in the owner's name. Record it first
+  (`hub decided --card qN …`), then a gate of the core that needs the owner's word takes `--for qN` (`hub tools grant`,
+  `hub task run/go`, `hub task spec accept`); a tool with the owner's own data still waits for them.
+
+## 2026-11-21
+- The hub page keeps what you were writing: the text in a session's message field is still there after the page
+  reloads (the hub updated, the browser restarted the tab), and the "Reply" quote stays with its own thread — a look at
+  another thread no longer drops it, and it survives a reload too. Kept in this browser for 14 days, removed the moment
+  the message is sent; two open tabs do not overwrite each other, and a draft sent in one tab leaves the other. If a
+  send got no answer and the text came back into the field, sending it again after a reload does not double the
+  message. Attachments are not kept (the `[Image #N]` mark stays in the text), and a plugin's own field stores its
+  draft itself, as before; the fields of plugins, boards and linked hubs are not touched by another tab's drafts. A
+  "Reply" kept from before the reload to a session that is gone (closed, renamed) is dropped, and a very long quote is
+  kept with its first 4000 characters. A page reload is enough, no `hub restart` — thanks: @visualpharm
+- The hub page, voice messages: a voice message is addressed when you press "send" (the button, Space, the release of
+  a hold, the stop on another session's page, the silence stop). Its "Reply" quote, the board cards picked and the
+  question card the field is aimed at go with it, and so do the text and the files then in the field; the quote, the
+  cards and the card's aim leave the field at once. What you set, type or attach while it is transcribed stays in the
+  field for your next message: before, a reply or a card set meanwhile went with the message already spoken. If
+  nothing is sent (cancelled, no speech, the transcription failed, a file of it failed to upload), the quote, the cards and
+  the aim come back. The message is in the feed as soon as you press "send": "Recognizing…",
+  then its words, then the hub's own row in the same place. Reload the page (⌘R / Ctrl+R). — thanks: @visualpharm
+- The hub page: the search in the session list finds names by the same rule as the phone and Mac apps. Case,
+  accents and the separators `-`, `_`, `.`, `/` and spaces do not matter ("hub dev" finds "hub-dev"); a query of one
+  letter matches only the start of a name or of a word; "bru" typed on the Russian keys finds what "bru" finds, after
+  the names that match as typed. Opening a session from the search clears it, so the whole list is back. The Russian
+  keyboard layout comes from the language data through `/api/keyboards`, so it needs `hub restart web`; until then
+  the search matches only what was typed — thanks: @visualpharm
+- Accounts, the rest of the gateway flicker at the end of the week (after PR #601): when this computer's login is at
+  its limit too, a try of the gateway's fresh token no longer tells the hub "limit economy is over", then "none free"
+  and the pool card, and no longer adds a "new token on command" line every 30 minutes. Such a try keeps "all busy"
+  and the economy mode until its limits come: with reserve "all busy" ends once, as before; at the limit, silently. At
+  the reset that ends "all busy", the account it freed comes first, before another try of the gateway, when the
+  gateway's last try was read. Needs `hub restart`. — thanks: @Enwimo
+- A hub process that is already running keeps the texts it has read, even when an update moves them out of a catalog
+  or a catalog file is caught half-written: a message no longer shows a raw key (such as `core.accounts.limit_pct`) in
+  the minute before the restart. A changed text is still taken at once. Works from the next update on, once the hub
+  runs this version (`hub restart`). — thanks: @Enwimo
+- Windows: `hub run`, starting another hub instance from the page, the watchdog of an app update and the uninstall no
+  longer open a console window on the desktop (the uninstall's only flashed). The hub starts them outside its job through
+  WMI, and the new console's window was shown; it is now created hidden. The app's launcher carries its own copy of this
+  start: it changes with the next app update. Needs `hub restart`. — thanks: @Enwimo
+- An executor with a one-shot job addressed to it (`hub schedule add --at`, usually its own) that then reported is no longer put to sleep
+  two minutes later when the job is due within a day: it stays awake and the job's message reaches it at the set time.
+  Before, it fell asleep and the message went to whoever raised it with "wake it", so the window never started; a job
+  further than a day ahead does not hold the place. — thanks: @GreatMedivack
+- Accounts gateway, a pool of one account whose token comes from a command: when that account hits its limit, the
+  requests already sent (a turn, a batch of subagents) no longer fail with "You have hit your … limit". The gateway holds
+  each of them until the hub takes a fresh token (usually 1–3 seconds, at most 15) and sends it once more. When the
+  hub takes none (it says the account is busy: the command gave no new token, or a fresh one was taken lately) or the
+  fresh one is refused too, claude gets the refusal as before, at most a few seconds later. A pool of several
+  accounts, an account with a plain token and an account waiting for its own reset work as before. The gateway's `status.json` counts
+  limit refusals by the API's `overage-disabled-reason` (a spending cap and overage switched off look the same in
+  claude) and the held requests; the reason also goes to the hub log. Needs `hub restart`. — thanks: @GreatMedivack
+- `hub show qN` says where a question card stands: the second line is `state: open — waits for the owner's answer`,
+  `state: answered` (the answer is the last line, as before) or `state: closed without an answer — …` with the reason: the
+  owner closed the card, it was withdrawn (by whom and why), it went stale (no answer for over 24 h) or its session is
+  gone; a card that left the list with no trace of how says only `state: closed — no longer waits for the owner`; the last line repeats the state of a card with no answer. A card the owner closed with the × used to end in "no
+  answer yet", like an open one. Works at once, no restart.
+- Sessions check what they hand you as waiting: before an answer ends with "Waits for you", each card in it is read with
+  `hub show qN` — another session's card too — and named only while it says `state: open`; an answered or closed card
+  and one not checked in that turn are left out. Before, a card you had already answered could stay in every answer
+  for hours, carried over from the session's earlier answers or from its summary after compaction. Sessions take it
+  with the hub's restart (`hub restart`).
+- Windows: a text that starts with "/" reaches the hub as typed when a session sends it from its Bash. `hub slash
+  "/ship maps-1"`, `hub send <session> "/…"`, the task of `hub session new … --cwd DIR` and `claude -p "/…"` used to
+  arrive as "C:/Program Files/Git/ship maps-1": Git Bash took the text for a path. Now only a real path (its first
+  folder exists, as `/tmp/…` or `/c/…`) is converted, as before. Needs `hub restart`. — thanks: @Enwimo
+- An update no longer rolls back a hub that is up but still reading its journal. After a reboot or on a big journal the
+  page needs minutes to read it, and the update's check (3 minutes from the start) did not see "the core came up" until
+  then: the new release was taken back, marked as not coming up and not offered again. Now `/api/about` tells when the
+  core started from the end of the journal at once, so the check passes while the page reads, also for the update that
+  brings this release; a page whose journal reading has failed still tells no start. Needs `hub restart`.
+
+## 2026-11-20
+- A message in a session's feed has "Copy" beside "Reply": it puts the whole message on the clipboard, and the button
+  says "Copied" for a moment (in the Clean theme it shows a tick). A file a session sent you and your own message with
+  only attachments get "Reply" too: the quote is the file's caption or its name, and a press on that quote leads back
+  to the file. Reload the page (⌘R / Ctrl+R). — thanks: @visualpharm
+- A triple click on a message selects the whole message, not one paragraph, and "Copy" on the bar over the selection
+  keeps its paragraphs. A double click selects a word without the bar popping up; dragging on from it into a phrase
+  brings the bar. The bar stands just above the first selected line, inside the feed column, and never covers the
+  selected words: at the top of the feed, under the head, it goes just under the selection. A plugin or a module that
+  shows messages of its own gets the same once it marks a message's text (Plugin API 1.39, `data-hub-message`): a
+  triple click selects all of it, and a selected piece gets the bar with "Copy". Reload the page (⌘R / Ctrl+R). — thanks: @visualpharm
+- A session's message taller than the feed has a second "Reply" under it, at the bottom right, besides the top one, so
+  after reading it to the end there is no scrolling back up to reply (the same arrow in Clean, the same quiet link in
+  Classic). Whether it is taller is measured after it is drawn; a short message and one folded to two lines keep a single
+  button. Nothing to do; reload the page (⌘R / Ctrl+R), no restart — thanks: @x6y9kax
+- Reactions: the 👍 the hub puts under your message when a session answered it now leads to that answer. Press it and
+  the feed scrolls to the session's reply and highlights it (older pages load if needed). In Classic, "Reaction" next to
+  it changes the reaction; in Clean your own message carries the badge alone, with no "Reaction" control — a reaction
+  taken off your own message cannot be put back in Clean (in Classic it can). While the page looks for the reply further
+  back it says so under your message, and when the reply is not in the feed it says that for a few seconds instead of
+  staying silent; a picker left open on the waiting 👀 closes when the link arrives; the 👍 is a finger-sized target with
+  a spoken label. Clients read where it leads from the snapshot's `reactions.links` (API 1.39). Works with the
+  "Reactions" module on; for answers after the update. Needs `hub restart`. — thanks: @visualpharm
+- Deputies: in the contacts book, say what a person decides for you while you are away. Tell the hub "Masha decides
+  the map tiles frontend for me", or "set Masha up as a deputy" and answer its one form (her area, what she does not
+  decide); in a terminal, `hub contacts deputy "Masha" "<area>"`. `hub contacts` and Settings → External hubs show the
+  area. Go away with the flag — `/away deputies` (or `/away deputies Masha`, `hub away --deputies`): a card whose every
+  question lies in one deputy's area goes to her hub (or to the session that holds her Teams), saying who asks, on
+  what task and why her; her answer comes back to the session that asked. Her word settles questions of her area only:
+  never money, prod, publishing, a message in your name, the irreversible or access, and no gate of the hub passes
+  with it. Your return summary has "Decided by your deputies" and the cards still at them; `/away` without the flag is
+  as before. Needs `hub restart`.
+- An update (or Claude Code, or an app part) that downloads over a poor link no longer stops at the same place for
+  good. The download kept only whole 1 MiB blocks: a link that went silent in the middle of a block threw away what had
+  come of it, so a link that gave less than a block each time never moved past "13.6 MB kept". Every byte that comes is
+  now written at once; a try that brought bytes does not use up the run's four tries (a run is at most 16 tries); and
+  a server or a proxy that answers the continuing request with the whole file is read past what is already held,
+  instead of the held part being thrown away. Nothing to do: it arrives with the update. A hub already stuck on a
+  broken download is on the old code until the layer arrives: `hub update` continues the same file.
+- The liaison's refusal now reaches the session that asked. Before, when a session sent it words by a file or in any
+  way the liaison could not carry ("send them the text from the file …": it cannot read files) and the liaison
+  refused with nothing sent, its reason stayed in its own result: the session never saw it and took the letter for
+  sent. Now, when the liaison's turn on a session's message did not carry its words out (nothing went to the bus
+  for it), its result comes to that session as a message, once per turn; when nothing at all was sent, it is not
+  shown to the owner a second time: the session tells them itself. A turn that sent or passed the words, or that
+  closed an item of another hub or answered a person's message, is the same as before. Needs `hub restart` —
+  thanks: @GreatMedivack
+- Settings → Secrets: the buttons of a secret's card ("Copy password", "Copy login", "Change", "Remove"), the form's
+  "Save" and "Cancel", and the button under a warning of the vault stood flush against each other, in every theme. They
+  borrowed the class of the page-key row, whose rule left with that setting when the page password came. They now have
+  the rule of their own, with the same 8 px gap as the other rows of buttons. Nothing to do: it arrives with the update
+  (no restart: the page's styles are served from disk).
+- An answer to a card with one question in the feed names the options not chosen along with the one chosen: "Chose
+  Northern road; not chosen: Southern road · Coast road". Only when the page knows the picks: a card with several
+  questions, own words typed in the card, or a pick with a comment that another page sent stay "Answer: …"; the
+  Telegram message itself is unchanged; a tap the core refused does not color an answer given later elsewhere. Reload the page (⌘R / Ctrl+R).
+  — thanks: @visualpharm
+- The daily stops audit of the agents (`agent-dev-stops`) no longer shows red right after a hub start. A journal
+  rotation removes `state.json` until hubd saves it again, and a check that fired in that gap failed with "no hub
+  state"; it now takes the state from the journal then. A hub with `state.json` in place reads as before. Nothing to do:
+  it arrives with the update. — thanks: @ManyLattice
+- The page draws plugins sooner after it opens: it asks for every plugin's main file at once instead of one after
+  another (the last of twenty plugins was fetched only after the nineteen before it had loaded and run); the plugins
+  still run and register one after another, in the same order as before. A core module's page plugin can list its stylesheets in `module.json`, `"css": ["web/look.css"]` (Module API
+  2.11, as the plugins' `css`): the page puts them into its `<head>`, so what the plugin draws is styled from the first
+  frame, and the stylesheet can keep the place of what comes later. A look the person switched off stays off from the
+  first frame of the next load: the plugin turns its listed sheet off with `hub.addStyle(file, { on: false })` (Plugin
+  API 1.39); a plugin that stops asking gets its sheet back; an `async register()` that fails is reported as a failed
+  load, as a sync one. The fold of a long message is measured against the feed
+  as it stays once the field's task strip is in (a message just over the fold's bar came whole when the plugins
+  registered before the page drew again). Needs `hub restart`. — thanks: @visualpharm
+- The page: one message waiting over the input field is headed "In the queue", no "· 1"; the count stays from two
+  messages on, and the folded row on a phone reads the same way. — thanks: @visualpharm
+- Windows with a Russian (or any non-UTF-8) console: `hub on` no longer prints a `UnicodeDecodeError` traceback
+  before it starts the hub. The scheduler's own message was read as UTF-8; it is now read in the console's code page,
+  and if the start fails, the error shown is readable. `hub app undo` reads it the same way. The hub itself started
+  before, so nothing changes in how it runs. Nothing to do: it arrives with the update. — thanks: @summers-julia
+- The hub page: the screen recording's note for the session is now hidden also when the app wrote it without the length
+  ("Screencast: a recording of my screen … — screencast-<id>.mp4"); the bubble showed it whole. When you wrote words
+  before the note on the same line, the " — " before it goes with it: "look at the button", not "look at the button —".
+  A note with the length is hidden whole even when its text has a colon of its own ("Screencast 0:04: a recording of
+  my screen (note: voice) — …"); without the length the label is one word, so "look Screencast: a recording — …" keeps
+  the word "look" and stays whole. As in the phone and Mac apps. A page reload is enough, no `hub restart`. — thanks:
+  @visualpharm
+- "Waits for you": a result that reports something handed or returned to another session - "that is item 14 of the
+  session maps; she asked me to close it, but only she can, so I returned it to her" - no longer becomes an owner to-do
+  item such as "close item 14". The watcher's question now gets the names of the hub's sessions the result mentions, as
+  it already gets the open cards, so "she" after a session's name is that session. A result that also asks the owner
+  ("handed the layout back to maps; from you I need the bank sign-in") still does. Takes effect after `hub restart`. — thanks: @visualpharm
+- Clients tell a hub with a Claude account pool by `accounts` in the snapshot's `features` (Plugin API 1.39): it and
+  `accounts.use` are listed only on a hub with the built-in pool or a login module for session sign-in. A hub without
+  a pool (installed without the built-in accounts, no login module) no longer lists `accounts.use`, so an app does not
+  offer to choose an account there. The page does not change: it already shows no accounts where the snapshot's
+  `accounts` is null. Needs `hub restart`; reload the page (⌘R / Ctrl+R). — thanks: @visualpharm
+- The times the page draws drop the leading zero of a 12-hour clock: "1:09 AM" instead of "01:09 AM" (English, Arabic,
+  Hindi, Korean); 24-hour languages keep "01:09". The same in the feed's times, the Clean theme, the settings lists
+  and the Usage and Flow views; a time written inside a line of text the core puts into the feed stays as it was.
+  Plugin API 1.39: `hub.clock(ts, date?)` gives a plugin the same clock. Reload the page (⌘R / Ctrl+R) after the
+  update; no restart needed — thanks: @visualpharm
+- The open list of a drop-down in the dark theme is readable again: on "Flow" the period list (Now, 1 h, 6 h, Day) and the
+  other lists of the page (the speed, sorting in "Plugins", the "Settings" choices) were light-grey text on the
+  browser's white, about 1.2:1. An item now has the theme's page colour behind it and its text colour, 13:1 and more
+  in Classic and Clean, light and dark; a theme of the catalog gives the list its own page and text colours. A page reload
+  is enough, no restart.
+- Clean on a Mac, an iPhone and an iPad: the emoji in a reaction plate stands in its optical center (Apple's emoji font drew
+  it about 2 px left of the middle and 1 px high); other systems' emoji fonts stay as drawn, and a theme's own adjustment of
+  an emoji (`[data-emoji] { transform }`) replaces the offset. Reload the page (⌘R / Ctrl+R) — thanks: @visualpharm
+- A plugin's view on the page can search with the page's own search field instead of drawing a second one: while such
+  a view is open, the field above the session list shows the view's hint (for example "Find media") and searches
+  inside the view; Esc or × clears it, Cmd+K focuses it. The session list is not filtered meanwhile, and leaving the
+  view gives the field back to the session search with its text. Views without search are unchanged. For plugins:
+  Plugin API 1.39, `search: { placeholder?, query(text) }` in `addView`, `hub.search({ placeholder?, text? })`, and
+  `hub.searchField(...)` — the same search box for the view's own place on a narrow screen;
+  `hub.capabilities.viewSearch === 1`. Reload the page (⌘R / Ctrl+R) after the update; no restart needed. — thanks:
+  @visualpharm
+- Telegram: a voice message whose file did not download because the network to Telegram blinked (DNS, a timeout,
+  429/5xx) is no longer lost with "Could not make out the voice message". The bot keeps it (a bot restart keeps it too),
+  says once that it waits for the network and downloads it again on its own for up to about 15 minutes (after 10 s,
+  30 s, 1, 2 and 5 min), then sends the text as usual. If the network is still down after that, one line asks to send
+  it again. Other failures (a file too big) are reported at once, as before. Nothing to do, `hub restart telegram`
+  after the update — thanks: @Eugenius-S
+- The limit economy card and the pool limit cards say which window's reset the date is: when the date is not the reset of the
+  window named in the reason (the week holds a login in economy after its 5 h window has reset, or another pool account
+  frees first), the card reads "until 20.11 03:00 (reset of the week window)" instead of a bare "reset" next to "window 5 h".
+  Only the wording changes: the mode, when it starts and ends and the queue stay as they were. Nothing to do — thanks:
+  @ManyLattice
+- Telegram: when you answer the card "Spec dN" with words instead of "Accept" or "Drop" (a reply to the card or to its
+  file, say "all yes, except …"), the words go to the spec's executor (a reply to the file used to go to the hub), and
+  now whoever raised it, or the hub, can accept or drop that spec by them (`hub task spec accept|drop dN --for mN`). Before, this was refused as "the owner wrote it to
+  the executor, not to you", and you were asked again. Only that spec counts your reply; it is no word for any other
+  task or command, and words to the executor without replying to the card count as before. Needs `hub restart` —
+  thanks: @GreatMedivack
+- A broken character can no longer become a session icon: a lone surrogate (a byte that was not UTF-8 in the typed icon)
+  reached the hub as the replacement character (U+FFFD), which passed as a sign, so the session got a broken badge. The character
+  and lone surrogates are now refused with the same "an icon is one emoji" answer. Nothing to do: it arrives with the update.
+- Messenger keys in the web page's conversation, as in Telegram Desktop and Slack: in the message field, while it is
+  empty, ⌘↑ (Ctrl+↑ off a Mac) picks the newest feed row to reply to, more presses go to older rows, ⌘↓ back to newer
+  ones and past the newest drops the reply; with the focus on the feed the keys scroll it as before. Esc with a reply
+  quote over the field drops the quote; before, the same Esc also stopped the session's running turn; Esc in the session
+  search only clears the search, and Esc that closes the panel by a selection in the feed now does only that. A letter
+  typed while no field has the focus goes into the conversation's field. Reload the page (⌘R / Ctrl+R) after the update;
+  no restart needed. — thanks: @visualpharm
+- SECURITY.md now says what a hub on Codex sends to OpenAI and how its sessions run (no approvals and no sandbox in
+  `bypassPermissions`, and how the other modes map to Codex's policy and sandbox). Documentation only; no restart needed.
+- Windows: installing or updating a plugin that has a running process no longer fails with "folder is busy" (WinError 32). The hub switches the plugin off, restarts its part so the process lets go of the folder, swaps the folder and brings the plugin back, also when the swap fails. A plugin you had turned off stays off. Nothing to enable; it works on the next `hub market install` / `update`. — thanks: @Eugenius-S
+- Windows: the count of your own edits of the core (the "Updates" band) no longer crashes on a file name with a non-ASCII letter (git output is read as UTF-8, not in the machine code page). — thanks: @Eugenius-S
+
+### For sessions
+- While the owner is away with the deputies, the core lists them with your card: a card whose every question lies in
+  one deputy's area — `hub question route qN <name>`; their answer comes to you on qN, their word, not the owner's.
+  It settles the question — act and close the card: `hub decided --card qN "<what> · <name>, deputy · rollback"`;
+  not theirs — `hub question route qN --owner`.
+- After `hub send liaison …` the liaison may answer you with a message "turn result on your mN": that is a refusal or
+  a note, nothing went out to the other hub. Do not take the letter for sent; put the words into the message
+  itself, not a path to a file: the liaison cannot read files.
+- The hub's feed: the core's lines on a task ("STOPPED d8: b — the turn broke off…", "TIMEOUT d7: a has worked…",
+  "REPLIED d9: a replied to the owner on m5: …") read as words in the hub's language, without the tag and the task
+  and message numbers: those are for the session, which reads the same lines as before, in `hub show` too. In every
+  language the hub speaks; the quoted reply stays as it is. "Detailed" and "Brief" alike. The feed's past gets the
+  new lines as the archives are parsed again in the background (every archive once, at low priority — hours on a big
+  hub; until then the page cuts the tag of an old line itself, as before). Needs `hub restart`. — thanks: @visualpharm
+
 ## 2026-11-19
 - Tailscale is off until you turn it on: a new hub no longer opens its page to your other devices just because the
   computer is already in a tailnet. To turn it on: Settings → Modules → Tailscale (a switch on the card, it takes effect
@@ -216,6 +578,7 @@ attaches to each session's next message only what it has not seen yet; the page 
   end of an answer has only what changed and what waits for you. On three recorded turns, closed items named as open
   went from 7–9 of 9 to none, at the same cost; the rule of going through the queue stays as it was. Needs
   `hub restart`; sessions already running get the rule at their next start and by the text for sessions below.
+
 ### For sessions
 - `hub tools grant <session> <tool> --for mN|qN` of a risky tool: the owner's message, or the question of the card they
   answered, must name the tool by its id ("the browser" does not). When the yes to a card should also connect a risky

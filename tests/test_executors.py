@@ -707,6 +707,18 @@ class Core(unittest.TestCase):
         self.assertIsNotNone(self.ev("schedule.due", "frontend-ci-wait-65a4-1", slot=2600, channel="core", ts=2601))
         self.assertFalse([m for m in self.st["messages"].values() if m.get("schedule")])
 
+    def woken_turn(self, ts, name="frontend-ci"):
+        """A job woke the handed-in executor (reducer._job_wakes): it takes the job's message, answers, and the core puts it
+        to sleep again."""
+        (m,) = [m for m in self.st["messages"].values() if m["session"] == name and m["state"] == "queued"]
+        self.ev("session.started", name, ts=ts)
+        self.ev("turn.started", name, marker=m["id"], prompt_head="x", ts=ts + 1)
+        self.ev("turn.result", name, text="checked", ts=ts + 2)
+        self.ev("turn.stopped", name, ts=ts + 2)
+        self.ev("session.close_requested", name, retire=True, ts=ts + 3)
+        self.ev("session.exited", name, why="sleep", ts=ts + 4)
+        self.assertEqual(self.st["sessions"][name]["state"], "retired")
+
     def test_a_term_does_not_remove_an_executor_still_waiting_for_a_reply(self):
         # an executor was waiting for the owner's comments on a spec (`hub wait --for 4h` and `hub waiting`), the term
         # remove_after_hours=1 removed it after an hour of sleep — there was nobody left to wait for the answer
@@ -716,7 +728,8 @@ class Core(unittest.TestCase):
                 prompt="[waiting for reply] x. Check now; …", wait="x", **by("frontend-ci"), ts=since + 1)
         self.assertEqual(executors.retiring(self.st, since + 3600, keep=3600), [])     # the check is still ahead
         self.ev("schedule.due", "frontend-ci-wait-65a4-1", slot=since + 4 * 3600, channel="core", ts=since + 4 * 3600)
-        self.assertEqual(executors.retiring(self.st, since + 5 * 3600, keep=3600), [("remove", "frontend-ci")])
+        self.woken_turn(since + 4 * 3600 + 10)   # the check woke it (_job_wakes): it looked, answered and sleeps again
+        self.assertEqual(executors.retiring(self.st, since + 6 * 3600, keep=3600), [("remove", "frontend-ci")])
 
     def test_a_term_keeps_a_done_executor_its_live_recurring_job_still_wakes(self):
         # a handed-in executor ran a recurring job until the end of the week, the remove_after_hours term removed it —
@@ -731,6 +744,7 @@ class Core(unittest.TestCase):
                 prompt="briefly", **by("frontend-ci"), ts=since + 1)
         self.ev("schedule.due", "frontend-ci-once", slot=since + 1800, channel="core", ts=since + 1800)
         self.assertEqual(self.st["schedule"]["frontend-ci-once"]["state"], "done")
+        self.woken_turn(since + 1810)
         self.assertEqual(executors.retiring(self.st, since + 3 * 3600, keep=3600), [])  # the recurring one is ahead — it holds
         self.ev("schedule.remove_requested", "frontend-ci-lock", **by("frontend-ci"), ts=since + 3 * 3600)
         # a fired one-off and a recurring one past its term (the clock has not removed it yet) do not hold
@@ -779,6 +793,169 @@ class Core(unittest.TestCase):
                 **by("frontend-ci"), ts=since + 1)
         self.assertEqual(executors.retiring(self.st, since + 3600, keep=3600), [])
         self.assertEqual(executors.retiring(self.st, since + 3 * 86400 + 1, keep=3600), [("remove", "frontend-ci")])
+
+    def idle_after_report(self, name="frontend-ci", raiser="frontend"):
+        self.run_task(name, who=raiser)
+        self.start(name, raiser=raiser)
+        (d,) = [d for d in self.st["delegations"].values() if d["session"] == name]
+        self.ev("session.started", name)
+        self.ev("turn.started", name, marker=d["message"], prompt_head="task", ts=2000)
+        self.ev("turn.result", name, text="Done, MR !12", ts=2001)
+        self.ev("turn.stopped", name, ts=2001)
+
+    def test_an_idle_executor_with_its_own_one_shot_job_ahead_is_not_put_to_sleep(self):
+        # the executor set itself `hub schedule add --at` and reported: put to sleep (retired) after RETIRE_AFTER, the job
+        # then fired into a dormant session — its message went to whoever raised it with "wake it", the window never started
+        self.idle_after_report()
+        due = 2001 + 3600
+        self.assertIsNone(self.ev("schedule.set", "frontend-ci-at", session="frontend-ci", at=due, prompt="start the window",
+                                  **by("frontend-ci"), ts=2002))
+        end = 2001 + executors._after(self.st, self.st["sessions"]["frontend-ci"])
+        self.assertEqual(executors.retiring(self.st, end), [])                       # the job is ahead — it holds
+        self.assertEqual(executors.retiring(self.st, due - 1), [])
+        self.assertIsNone(self.ev("schedule.due", "frontend-ci-at", slot=due, channel="core", ts=due))
+        # fired: the message went to the executor itself, not to whoever raised it
+        (m,) = [m for m in self.st["messages"].values() if m.get("schedule") == "frontend-ci-at"]
+        self.assertEqual(m["session"], "frontend-ci")
+        self.assertEqual(executors.retiring(self.st, due + executors.RETIRE_AFTER), [])   # it works on the message
+        self.assertEqual(self.st["schedule"]["frontend-ci-at"]["state"], "done")
+
+    def test_an_idle_executor_is_put_to_sleep_when_its_one_shot_job_is_far_ahead_or_not_its_own(self):
+        self.idle_after_report()
+        end = 2001 + executors._after(self.st, self.st["sessions"]["frontend-ci"])
+        self.ev("schedule.set", "far", session="frontend-ci", at=end + executors.SCHEDULED_HOLD + 1, prompt="x",
+                **by("frontend-ci"), ts=2002)
+        self.ev("schedule.set", "other", session="frontend", at=2001 + 3600, prompt="x", **by("frontend-ci"), ts=2002)
+        self.assertEqual(executors.retiring(self.st, end), [("sleep", "frontend-ci")])
+        self.ev("schedule.set", "near", session="frontend-ci", at=end + executors.SCHEDULED_HOLD, prompt="x",
+                **by("frontend-ci"), ts=2003)
+        self.assertEqual(executors.retiring(self.st, end), [])
+        # a command that wakes it holds nothing: `hub session wake` raises a sleeper itself
+        self.ev("schedule.remove_requested", "near", **by("frontend-ci"), ts=2004)
+        self.ev("schedule.set", "rewake", command="hub session wake frontend-ci 'x'", at=end + 3600, **by("frontend"), ts=2004)
+        self.assertEqual(executors.retiring(self.st, end), [("sleep", "frontend-ci")])
+
+    def retired_with_job(self, setter="frontend-ci", **job):
+        """The executor reported with a session job addressed to it ahead (set by itself or by whoever raised it) and the
+        core put it to sleep (retired) — a recurring job or a far one-shot does not hold it awake."""
+        self.idle_after_report()
+        self.assertIsNone(self.ev("schedule.set", "frontend-ci-tick", session="frontend-ci", prompt="check the pipeline",
+                                  **(job or {"every": "1h"}), **by(setter), ts=2002))
+        self.assertEqual(executors.retiring(self.st, 2001 + executors.RETIRE_AFTER), [("sleep", "frontend-ci")])
+        self.ev("session.close_requested", "frontend-ci", retire=True, ts=2200)
+        self.ev("session.exited", "frontend-ci", why="sleep", ts=2201)
+        self.assertEqual(self.st["sessions"]["frontend-ci"]["state"], "retired")
+        (d,) = [d for d in self.st["delegations"].values() if d["session"] == "frontend-ci"]
+        self.assertEqual(d["state"], "replied")
+        return d
+
+    def fire(self, at=5400):
+        self.assertIsNone(self.ev("schedule.due", "frontend-ci-tick", slot=at, channel="core", ts=at))
+        return [m for m in self.st["messages"].values() if m.get("schedule") == "frontend-ci-tick"]
+
+    def test_a_job_the_executor_set_itself_wakes_it_after_it_handed_in(self):
+        # a colleague's hub, four times a day: an executor set itself a job (`hub schedule add … --session <itself>`), reported
+        # and was put to sleep (retired); the firing went to whoever raised it with "wake it" — the executor never woke, and
+        # the raiser got someone else's alarm. The job wakes it as its raiser would (`hub session wake --about dN`): its
+        # handed-in task is in progress again, and the turn's result goes to the raiser as a continuation
+        d = self.retired_with_job()
+        (m,) = self.fire()
+        self.assertEqual((m["session"], m["to"]), ("frontend-ci", "frontend-ci"))
+        self.assertNotIn("routing_note", m)
+        self.assertIn("check the pipeline", m["text"])
+        self.assertNotEqual(self.st["sessions"]["frontend-ci"]["state"], "retired")
+        d = self.st["delegations"][d["id"]]
+        self.assertEqual((d["state"], d["message"]), ("working", m["id"]))
+        self.assertFalse([x for x in self.st["messages"].values() if x["session"] == "frontend" and x.get("schedule")])
+
+    def test_a_far_one_shot_job_of_the_raiser_wakes_its_handed_in_executor(self):
+        # the raiser scheduled a recheck for its executor two days ahead (a session job): it came back to the raiser itself
+        d = self.retired_with_job(setter="frontend", at=2002 + 2 * 86400)
+        (m,) = self.fire(at=2002 + 2 * 86400)
+        self.assertEqual(m["session"], "frontend-ci")
+        self.assertEqual(self.st["delegations"][d["id"]]["state"], "working")
+
+    def test_a_job_another_session_set_for_a_handed_in_executor_goes_to_its_raiser_as_before(self):
+        self.ev("session.requested", "seo", cwd="/seo", session_id="s-seo", **OWNER)
+        self.ev("session.started", "seo")
+        d = self.retired_with_job(setter="seo")
+        (m,) = self.fire()
+        self.assertEqual(m["session"], "frontend")
+        self.assertIn("hub session wake frontend-ci", m["routing_note"])
+        self.assertEqual(self.st["sessions"]["frontend-ci"]["state"], "retired")
+        self.assertEqual(self.st["delegations"][d["id"]]["state"], "replied")
+
+    def test_an_own_job_of_a_handed_in_executor_waits_for_a_place_like_its_raisers_wake(self):
+        # no place under the raiser (here: the queue is paused): the wake waits in the core's queue, as the raiser's own
+        # `hub session wake` would, and nothing goes to the raiser; once there is room the executor gets the job
+        d = self.retired_with_job()
+        self.st["queue_paused"] = {"by": "owner", "why": "x"}
+        self.assertEqual(self.fire(), [])
+        run = self.st["runs"]["frontend-ci"]
+        self.assertEqual((run["by"], run["wake"]["about"]), ("frontend", d["id"]))
+        self.assertIn("check the pipeline", run["wake"]["text"])
+        self.assertEqual(self.st["sessions"]["frontend-ci"]["state"], "retired")
+        self.assertFalse([x for x in self.st["messages"].values() if x["session"] == "frontend" and "check the pipeline" in x["text"]])
+        # the next firing while it waits is one copy (as a queued job message): not a second wake, nothing to the raiser
+        self.assertEqual(self.fire(at=9000), [])
+        job = self.st["schedule"]["frontend-ci-tick"]
+        self.assertEqual((job["runs"], job["skipped"]), (1, 1))
+        self.st["queue_paused"] = None
+        self.assertIsNone(self.ev("task.run_go", "frontend-ci", ts=9100, **OWNER))   # its place came
+        (go,) = [x for x in self.st["messages"].values() if x["session"] == "frontend-ci" and x["state"] == "queued"]
+        self.assertIn("check the pipeline", go["text"])
+        self.assertEqual((go["schedule"], go["from"]), ("frontend-ci-tick", {"kind": "schedule"}))   # not the raiser's words
+        self.assertNotIn("sender", go)
+        self.assertEqual((self.st["delegations"][d["id"]]["state"], self.st["delegations"][d["id"]]["message"]),
+                         ("working", go["id"]))
+        self.assertNotIn("frontend-ci", self.st["runs"])
+
+    def test_a_waiting_job_wake_carries_the_news_of_its_later_checks(self):
+        # a job with a precheck: news found while the wake waits for a place goes onto it, as onto a queued job message
+        d = self.retired_with_job(every="1h", check="./new.sh")
+        self.st["queue_paused"] = {"by": "owner", "why": "x"}
+        self.assertIsNone(self.ev("schedule.due", "frontend-ci-tick", slot=5400, exit=3, out="build 1 failed", channel="core",
+                                  ts=5400))
+        self.assertIsNone(self.ev("schedule.due", "frontend-ci-tick", slot=9000, exit=0, channel="core", ts=9000))
+        self.assertIsNone(self.ev("schedule.due", "frontend-ci-tick", slot=12600, exit=3, out="build 2 failed",
+                                  channel="core", ts=12600))
+        w = self.st["runs"]["frontend-ci"]["wake"]
+        self.assertIn("build 1 failed", w["text"])
+        self.assertIn("More news", w["text"])
+        self.assertIn("build 2 failed", w["text"])
+        self.st["queue_paused"] = None
+        self.assertIsNone(self.ev("task.run_go", "frontend-ci", ts=13000, **OWNER))
+        (go,) = [x for x in self.st["messages"].values() if x["session"] == "frontend-ci" and x["state"] == "queued"]
+        self.assertIn("build 2 failed", go["text"])
+        self.assertEqual(self.st["delegations"][d["id"]]["message"], go["id"])
+
+    def test_a_waiting_job_wake_is_dropped_when_the_job_or_the_executor_is_gone(self):
+        # the job was removed while its wake waited for a place: nobody is woken for it; the executor removed — the raiser
+        # gets no "your wake failed" about a wake it never asked for
+        for gone in ("job", "executor"):
+            with self.subTest(gone=gone):
+                self.setUp()
+                d = self.retired_with_job()
+                self.st["queue_paused"] = {"by": "owner", "why": "x"}
+                self.assertEqual(self.fire(), [])
+                if gone == "job":
+                    self.assertIsNone(self.ev("schedule.remove_requested", "frontend-ci-tick", ts=6000, **by("frontend-ci")))
+                else:
+                    self.assertIsNone(self.ev("session.remove_requested", "frontend-ci", retired=True, ts=6000))
+                before = set(self.st["messages"])
+                self.st["queue_paused"] = None
+                self.assertIsNone(self.ev("task.run_go", "frontend-ci", ts=9100, **OWNER))
+                self.assertEqual([self.st["messages"][m]["session"] for m in set(self.st["messages"]) - before], [])
+                self.assertNotEqual(self.st["delegations"][d["id"]]["state"], "working")
+
+    def test_an_own_job_of_a_handed_in_executor_whose_raiser_has_no_executors_goes_to_the_raiser(self):
+        # its raiser went "solo" meanwhile: nobody wakes its executors (_wake_refusal), its alarm comes to the raiser as before
+        d = self.retired_with_job()
+        self.st["owner"]["parallel"], self.st["sessions"]["frontend"]["solo"] = 3, True
+        self.assertIsNotNone(executors.refused(self.st, "frontend"))
+        (m,) = self.fire()
+        self.assertEqual(m["session"], "frontend")
+        self.assertEqual(self.st["delegations"][d["id"]]["state"], "replied")
 
     def test_a_one_shot_job_holds_only_the_executor_it_names(self):
         self.done_and_asleep()

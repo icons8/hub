@@ -267,9 +267,24 @@ class StopsAudit(Hub):
 
     def test_an_error_is_one_line(self):
         os.remove(os.path.join(self.h, "state.json"))
+        os.remove(os.path.join(self.h, "journal.jsonl"))
         rc, out = self.run_()
         self.assertEqual(rc, 1)
         self.assertEqual(len(out.strip().splitlines()), 1, out)
+
+    def test_without_the_state_file_after_a_rotation_the_journal_gives_the_agents(self):
+        with open(os.path.join(self.h, "state.json")) as f:
+            sessions = json.load(f)["state"]["sessions"]
+        os.remove(os.path.join(self.h, "state.json"))
+        path = os.path.join(self.h, "journal.jsonl")
+        with open(path, encoding="utf-8") as f:
+            cards = f.read()
+        snap = {"seq": 9, "ts": time.time() - 4000, "type": "core.snapshot", "entity": None,
+                "data": {"why": "rotate", "state": {"seq": 9, "sessions": sessions}}}
+        self.write(path, json.dumps(snap, separators=(",", ":")) + "\n" + cards)
+        rc, out = self.run_()
+        self.assertEqual(rc, 3, out)
+        self.assertIn("Agents with a file: 2", out)
 
     def test_extract_never_calls_the_model_in_tests(self):
         self.run_("--bundle")

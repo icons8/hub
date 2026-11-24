@@ -262,6 +262,11 @@ def load_agents():
     """Agents of the hub with their own CLAUDE.md: {name: {path, sha, size}}. The file is agents/<profile>/CLAUDE.md in
     the state folder; the profile is the session's `profile` or its session id (hosts/streamjson.agent_file)."""
     st = load_json(os.path.join(hub_dir(), "state.json"), {})
+    if not st and os.path.exists(os.path.join(hub_dir(), "journal.jsonl")):
+        # a journal rotation removes state.json until hubd saves it again: the state is the journal's
+        core_on_path()
+        from core import journal
+        st = journal.load_state(hub_dir())
     if not st:
         raise RuntimeError(f"no hub state {os.path.join(hub_dir(), 'state.json')}")
     st = st.get("state", st)

@@ -16,10 +16,11 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 import platforms  # noqa: E402
+platforms.current.nested_args()   # the Git Bash wrapper's switch is not for what this command starts
 platforms.current.utf8_mode([os.path.realpath(__file__)] + sys.argv[1:])
 from core import perms  # noqa: E402
 perms.private()   # hub files are for its user only (core/perms.py)
-from core import journal, layout, minihub, reducer, restart, spool, workspace  # noqa: E402
+from core import journal, layout, minihub, parking, reducer, restart, spool, workspace  # noqa: E402
 from core.daemon import claude_command, default_state_dir  # noqa: E402
 
 STATE = default_state_dir()
@@ -1045,6 +1046,17 @@ def answer(name, words):
     and --why says why and how to roll back (spec d2549241: a session may have a permission and a card at once)."""
     from core import i18n
     card, words = value_of(words, "--card")
+    if "--route" in words:   # a deputy's words through the session of their channel (core/deputyroute.py)
+        route, words = value_of(words, "--route")
+        who, words = value_of(words, "--from")
+        msg, words = value_of(words, "--msg")
+        text = " ".join(text_words(words)).strip()
+        if not (card and route and who and msg and text):
+            sys.exit(i18n.t("cli.answer.route_usage"))
+        from core import deputycli
+        put("question.deputy_answered", name, {"id": card, "route": route, "from": who, "msg": msg, "text": text,
+                                               **deputycli.card_address(current(), card)})
+        return
     why, replies = value_of(words, "--why")
     if (current()["sessions"].get(ME or "") or {}).get("kind") == "hub" and (card is None) != (why is None) or \
             why is not None and not why.strip():
@@ -1397,12 +1409,13 @@ def status(as_json):
     if off:
         print(off)
     print("\n" + i18n.t("cli.status.sessions_head"))
-    from core import executors, owner
+    from core import deputyroute, executors, owner
     asleep = [s["name"] for s in st["sessions"].values() if executors.dormant(s)]
     taken = minihub.busy_if_needed(st)   # who has work: one pass, if someone is waiting for a handover
     waits, queue = minihub.waits(st), minihub.queue(st)   # mini-hubs wait for executors; their queue is under them
     from core import specmode
     specs = specmode.open_by_session(st)   # executors' open specs, one pass
+    now = time.time()   # one clock for every row
     for s in st["sessions"].values():
         if s["state"] == "removed" or (executors.dormant(s) and "--all" not in sys.argv):
             continue   # executors that handed in sleep and do not interfere (owner decision 2026-10-04: the hub forgets them permanently)
@@ -1435,6 +1448,10 @@ def status(as_json):
                          path=specmode.abs_path(STATE, sp["spec"]["path"])))
         if s.get("spec"):
             print(i18n.t("cli.status.specs_on"))
+        starting = parking.mcp_wait(s, now)   # a new process that has not read its input: not a free "idle"
+        if starting:
+            print(i18n.t("cli.status.mcp_wait_row" if starting["servers"] else "cli.status.mcp_wait_row_all",
+                         servers=', '.join(starting["servers"]), left=max(0, round(starting["until"] - now))))
         if (s.get("info") or {}).get("mcp_auth"):  # MCP waits for sign-in: no tools until they sign in and restart
             print(i18n.t("cli.status.mcp_auth_row", servers=', '.join(s['info']['mcp_auth']), name=s['name']))
         failed = (s.get("info") or {}).get("mcp_failed")
@@ -1453,6 +1470,11 @@ def status(as_json):
                 print(i18n.t("cli.status.request_row", tool=r['tool'], why=r.get('why') or '', who=who, name=s['name']))
         for ask in owner.open_asks(s, time.time()):   # qN cards (13.10: the "what is waiting for the owner" summary used to be dug out of the journal)
             shown = i18n.t("cli.status.ask_shown_in", where=ask['shown']) if ask.get("shown") else ""
+            if deputyroute.at(ask):   # a card at a deputy waits for their answer, not the owner's
+                key = "ask_row_answered" if ask["deputy"]["state"] == deputyroute.ANSWERED else "ask_row_routed"
+                print(i18n.t(f"cli.status.{key}", id=ask['id'], shown=shown, text=owner.question_text(ask)[:160],
+                             name=ask["deputy"].get("name") or "?"))
+                continue
             print(i18n.t("cli.status.ask_row", id=ask['id'], shown=shown, text=owner.question_text(ask)[:160]))
         for req in s.get("pending") or []:
             if req["tool"] == "AskUserQuestion":
@@ -1754,9 +1776,10 @@ def service_cmd(cmd, printing=False):
         os.unlink(os.path.join(STATE, restart.HELD))
     except FileNotFoundError:
         pass
-    r = subprocess.run(c["on"], capture_output=True, text=True)
+    r = subprocess.run(c["on"], capture_output=True)   # bytes: schtasks writes in the console's OEM code page, not UTF-8
     if r.returncode != 0:
-        sys.exit(i18n.t("cli.service.on_failed", error=(r.stderr or r.stdout).strip()[:300]))
+        error = platforms.current.output_text(r.stderr or r.stdout or b"")
+        sys.exit(i18n.t("cli.service.on_failed", error=error.strip()[:300]))
     print(i18n.t("cli.service.turned_on", id=unit['id'], url=url))
 
 
@@ -1800,7 +1823,7 @@ def main(argv):
     ARGV = list(argv)
     cmd, rest = argv[0], argv[1:]
     from core import liaison as _liaison
-    if ME == _liaison.NAME and cmd not in (*_liaison.COMMANDS, "contacts"):
+    if ME == _liaison.NAME and cmd not in (*_liaison.COMMANDS, "contacts") and not _liaison.closes_form(argv):
         # the hub bus's liaison reads another hub's words: its commands are the bus's (core/liaison.COMMANDS, the same
         # list as its guard); local ones (a browser, a file copy) never reach the core's checks. `hub contacts` refuses
         # it itself, with its own reason (not_for_liaison)
@@ -2088,17 +2111,29 @@ def main(argv):
     elif cmd == "take" and len(rest) == 1:
         take(rest[0])
     elif cmd == "away" and "--status" in rest:
-        o = current().get("owner") or {}
+        st = current()
+        o = st.get("owner") or {}
         if o.get("state") == "away":
             until = o.get("until")
-            from core import owner
+            from core import deputycli, owner
             print(i18n.t("cli.away.status_until", time=owner._local(until, o.get('tz') or 'UTC').strftime('%H:%M')) if until
                   else i18n.t("cli.away.status_open"))
+            for line in deputycli.away_lines(st, status=True):   # the deputies of this away and their cards (d2679763)
+                print(line)
         else:
             print(i18n.t("cli.away.status_no"))
     elif cmd == "away":
-        hours, _ = value_of(rest, "--hours")
-        put("owner.away", None, {"hours": positive(hours, "--hours") if hours is not None else None})
+        hours, words = value_of(rest, "--hours")
+        ref, words = value_of(words, "--for")
+        data = {"hours": positive(hours, "--hours") if hours is not None else None, **({"for": ref} if ref else {})}
+        if "--deputies" in words:   # all deputies, or the ones named after the flag (core/deputies.py, spec d2679763)
+            names = [w for w in words[words.index("--deputies") + 1:] if not w.startswith("--")]
+            data["deputies"] = names or True
+        seq = put("owner.away", None, data)
+        if "deputies" in data and seq is not None and seq not in REJECTED:
+            from core import deputycli
+            for line in deputycli.away_lines(current()):
+                print(line)
     elif cmd == "back":
         put("owner.back", None, {})
     elif cmd == "post" and len(rest) >= 2:  # plugin channel (API 1.2): a post in your name
@@ -2166,9 +2201,14 @@ def main(argv):
         # a lone command word or flag ("list", "undo 5", "--all") is a guess at a subcommand, not a decision: it was
         # recorded as one ("hub decided list" → the decision "list"); a phrase that merely starts with such a word stays,
         # and so does a short one ("Show thumbnails"): a second word counts only as a number or an id (5, m90, q41)
+        card, rest = value_of(rest, "--card")   # on a deputy's answer: the card closes (core/deputyroute.py)
         rest = text_words(rest)   # `-` / `--file PATH`: the text as typed, not the word "-"
+        if card and not " ".join(rest).strip():
+            sys.exit(i18n.t("cli.decided.card_text"))
         words = " ".join(rest).split()
-        if words == ["list"]:   # the last recorded decisions, a withdrawn one marked
+        # with --card no subcommand: the liaison may run only the close of its form (a "list" or "undo N" is refused
+        # below as a guess), not the local read of the owner's decisions
+        if words == ["list"] and not card:   # the last recorded decisions, a withdrawn one marked
             decisions = current().get("decisions") or []
             for d in decisions[-20:]:
                 print(f"#{d['seq']} {time.strftime('%Y-%m-%d %H:%M', time.localtime(d['ts']))} {d.get('by') or '-'}: "
@@ -2176,16 +2216,19 @@ def main(argv):
             if not decisions:
                 print(i18n.t("cli.decided.none"))
             return
-        if len(words) == 2 and words[0] == "undo" and words[1].lstrip("#").isdigit():
+        if len(words) == 2 and words[0] == "undo" and words[1].lstrip("#").isdigit() and not card:
             seq = put("owner.decided_revoked", None, {"seq": int(words[1].lstrip("#"))})
             if REJECT_WHY.get(seq) == "unknown event type":   # hubd started before this command existed
                 print(i18n.t("cli.decided.old_core"))
             return
         guess = words and (words[0].casefold() in ("list", "ls", "show", "undo", "help")
                            or re.fullmatch(r"--?[A-Za-z][\w-]*", words[0]))
-        if guess and (len(words) == 1 or len(words) == 2 and re.fullmatch(r"[a-z]?\d+", words[1])):
+        if guess and (len(words) == 1 or len(words) == 2 and re.fullmatch(r"#?[a-z]?\d+", words[1])):
             sys.exit(i18n.t("cli.decided.reserved", word=words[0]))
-        put("owner.decided", None, {"text": " ".join(rest)})
+        if card:   # on a deputy's answer: their addresses in the book now go with it (core/deputyroute.py)
+            from core import deputycli
+            card_data = {"card": card, **deputycli.card_address(current(), card)}
+        put("owner.decided", None, {"text": " ".join(rest), **(card_data if card else {})})
     elif cmd == "notify" and rest[:1] == ["--resolve"] and len(rest) == 2:
         # the cause is gone: clear your own notification (push spec, §2.6); the banner on the phone disappears
         put("owner.notify_resolved", None, {"id": rest[1], "source": os.environ.get("HUB_SCHEDULE_JOB")})
@@ -2207,6 +2250,12 @@ def main(argv):
         # withdraw a question to the owner qN: one's own (session) or any (hub); 07.10, a duplicate of one question from two sessions
         qid, why = rest[1], (rest[2] if len(rest) == 3 else "")
         put("question.withdrawn", asker_or_exit(qid), {"id": qid, "why": why})
+    elif cmd == "question" and rest[:1] == ["route"] and len(rest) >= 3:
+        # a card to a deputy of this away, or back to the owner (core/deputyroute.py, spec d2679763 A7)
+        from core import deputycli
+        qid, words = rest[1], rest[2:]
+        note, words = value_of(words, "--note")
+        sys.exit(deputycli.route(asker_or_exit(qid), qid, words, note, put, current, REJECT_WHY))
     elif cmd == "question" and rest[:1] == ["show"] and len(rest) == 2:
         # a session's question goes to the hub chat as the same card (12.10: the hub used to ask it again, leaving the owner two cards)
         if ME and (current()["sessions"].get(ME) or {}).get("kind") != "hub":   # to read a card use hub status (13.10)
@@ -2969,8 +3018,12 @@ def main(argv):
         if rest[:1] in (["link"], ["unlink"], ["rename"], ["remove"]):   # the owner's book edits (core/buscli)
             from core import buscli
             sys.exit(buscli.main(["contacts", *rest], put, current, STATE, me=ME, outsider=OUTSIDER, rejected=REJECT_WHY))
+        if rest[:1] in (["deputy"], ["deputies"]):   # the owner's deputies: a fact of the core (core/deputycli, d2679763)
+            from core import deputycli
+            sys.exit(deputycli.main(rest, put, current, REJECT_WHY))
         from modules.contacts.contacts import main as contacts_main
-        sys.exit(contacts_main(rest, view=busd.read_view(STATE), owner=not (ME or OUTSIDER), by=ME or OUTSIDER))
+        sys.exit(contacts_main(rest, view=busd.read_view(STATE), owner=not (ME or OUTSIDER), by=ME or OUTSIDER,
+                               deputies=current().get("deputies")))
     elif cmd == "direction":  # the "Directions" module: the backlog of a large task of a long-lived session (modules/directions)
         from modules.directions.direction import main as direction_main
         from modules.directions import minibacklog

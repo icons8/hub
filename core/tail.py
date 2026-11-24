@@ -42,6 +42,8 @@ class Tail:
         self.feed_marks = {}   # what each channel of feed_posts was copied from (_feeds)
         self.records = {}   # state["modules"] of the same snapshot: whether modules are ready (core/modstate.view) - without the read lock
         self.dedup = {}     # state["web_dedup"] of the same snapshot: what the core accepted from the page (receipts) - without the read lock
+        self.early, self.early_lock = (-1e9, None), threading.Lock()   # core_started: what the journal's end said, and when
+        self.failed = None   # run died with this exception (the first pass did not finish): core_started is None then
         self.started = None   # state["started"] of the same snapshot: when the core came up ("About the hub") - without the read lock
         # state["updates"] of the same snapshot (the last 20, with their notes): the "Updates" screen reads them through
         # /api/about - without the read lock, and during a re-read from the start it is the previous list, not an empty one
@@ -81,6 +83,28 @@ class Tail:
         if job:
             self.checkpoint.write(job)   # hashing the journal and writing the file - without holding page requests
         return fed
+
+    EARLY_FOR = 10.0   # seconds an answer of the journal's end is kept (one read for every poll of that time)
+
+    def core_started(self):
+        """When the core came up: from the published snapshot; before the first pass over the journal is done — from the
+        journal's end, where the start's own event is, while that pass is still going: the update's watchdog asks it
+        (/api/about) and does not wait for a fold that takes minutes on a big journal of a machine that has just booted.
+        A pass that failed (the thread of run is gone with the exception) gives None: the page that cannot read its
+        journal is not a hub that came up. A pass that hangs cannot be told from a slow one: no answer of its own, the
+        hub's own checks (hub status) show it."""
+        with self.changed:
+            started, known = self.started, self.published
+        if known:
+            return started
+        if self.failed:
+            return None
+        with self.early_lock:   # one read for everyone who asks at once
+            at, got = self.early
+            if time.monotonic() - at > (self.EARLY_FOR if got is not None else 1.0):   # no start yet: look again soon
+                got = journal.last_started(self.path)
+                self.early = (time.monotonic(), got)
+            return got
 
     BUSY = object()
 
@@ -247,9 +271,13 @@ class Tail:
             return [dict(a) for a in self._alerts[1]]
 
     def run(self, stop, every=0.3):
-        while not stop.is_set():
-            self.poll()
-            stop.wait(every)
+        try:
+            while not stop.is_set():
+                self.poll()
+                stop.wait(every)
+        except BaseException as e:   # the thread ends here as it did: the page serves what it had; core_started knows it
+            self.failed = repr(e)
+            raise
 
 
 # --- hub show: the parsed journal sits next to it, the next call reads only what is new (07.10: 10.7 s on 14.7 MB) ---

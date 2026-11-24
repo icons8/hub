@@ -1,5 +1,5 @@
 // The bottom of a session: question cards, the task list, the ❯ field with attachments, the status line (model, mode, turn).
-import { el, lookSig, placeNodes } from "./dom.js";
+import { el, lookSig, placeNodes, SPIN } from "./dom.js";
 import { slotNodes } from "./ext.js";
 import { S, isRunner, render, sessionName } from "./state.js";
 import { answered, askCard, permCard, specCard, toolCard } from "./cards.js";
@@ -12,6 +12,7 @@ import { limitsLine } from "./limits.js";
 import { refreshStrip } from "./strip.js";
 import { isFolded } from "./askfold.js";
 import { buildComposer } from "./composer.js";
+import { dropReply, keep, replyIn } from "./drafts.js";
 import { spaceHint } from "./voice.js";
 import { moreMenu } from "./menu.js";
 import { banner, post } from "./api.js";
@@ -253,6 +254,9 @@ export function refreshTodosAndStatus(dockEl, s) {
   // clips its edges and the upward menu would not fit; next to it is the reasoning level, built the same way
   const mod = live ? modelControl(s) : null, eff = live ? effortControl(s) : null;
   left.append(stat);   // empty (no effort) — hidden by the style, the tooltip with the folder and the turn summary stays
+  // the conversation is being compacted (the core's /compact or Claude Code's own at its threshold): nothing else shows
+  // it, and a message or a wake-up looks like a hang for the minute it takes
+  if (s.compacting && live) left.append(compactingNote());
   // the session's folder, short (~/.../parent/folder), the full path on hover; a click opens it in "Files" (the folder
   // matters enough to always show, even abbreviated)
   if (s.cwd) {
@@ -328,6 +332,16 @@ function askNumber(s, n, set) {
     f, () => { const v = Number(f.value); if (/^\d+$/.test(f.value.trim()) && v <= OWN_MAX) set(v); else banner(t("web.dock.par_number_bad", { max: OWN_MAX })); });
 }
 
+// "Compacting the conversation…" with the spinner of a working session (base.css .spin turns by itself)
+function compactingNote() {
+  const m = el("span", "stat-compact"), g = el("span", "g spin", SPIN[0]);
+  g.setAttribute("aria-hidden", "true");
+  m.append(g, document.createTextNode(` ${t("web.dock.compacting")}`));
+  m.setAttribute("role", "status");
+  m.title = t("web.dock.compacting_title");
+  return m;
+}
+
 // conversation size: tokens and the share of the compaction threshold (S.snap.context_limit); yellow from 75%, red from 90%
 function contextMeter(s) {
   const n = Number(s.context) || 0, limit = Number(S.snap?.context_limit) || 0;
@@ -360,15 +374,18 @@ const HINTS = {
   busy: t("web.dock.hint_busy"),
 };
 
-// the target the last message went with, per session: the props are recreated on every snapshot, and a send failure
-// arrives later — exactly that target has to be restored
-const usedTarget = {};
+// the target a message went with (the send's own body → the target): the props are recreated on every snapshot, and a
+// send failure arrives later — exactly that target has to be restored
+const usedTarget = new WeakMap();
 // the board cards that went with a message (the send's own body → the cards): the failure of that very send puts them back
 const riding = new WeakMap();
+// body -> the question card it answers (a voice message keeps its card while it is transcribed; the field is free meanwhile)
+const answering = new WeakMap();
 
 // the session input field's props (js/composer.js): recomputed on every snapshot from the fresh session, the field is not recreated
 function composerProps(s) {
-  const mine = () => (S.replyTarget && S.replyTarget.view === s.name ? S.replyTarget : null);   // the "Reply" target — in this feed
+  keep(s.name);   // this field's draft outlives a page reload (drafts.js)
+  const mine = () => replyIn(s.name);   // the "Reply" target — in this feed, also while another one is open
   const target = mine();
   const hub = s.kind === "hub";
   const direction = (S.snap.directions || []).includes(s.name);   // board cards picked on its board ride with its messages
@@ -387,6 +404,7 @@ function composerProps(s) {
   }
   // aimed at a question card: the bar over the field names the card and its marked option, "Cancel" takes the aim off
   const aimed = aimOf(s), stale = !aimed && staleAim(s);
+  const aimNow = () => ({ target: mine(), picks: direction ? pickedList(s.name) : [] });
   if (aimed) {
     const label = aimLabel(askKeys(s).find(([k]) => k === aimed)[1]), pick = picksOf(aimed);
     reply = { text: pick ? t("web.dock.aim_chip_pick", { label, pick }) : t("web.dock.aim_chip", { label }), cancel: () => aim(s, aimed) };
@@ -404,7 +422,7 @@ function composerProps(s) {
       const lost = (why, open) => {
         S.drafts[s.name] = text + (S.drafts[s.name] ? "\n" + S.drafts[s.name] : "");
         S.errors[s.name] = why;
-        if (open && !S.cardAim && S.replyTarget?.view !== s.name) S.cardAim = { view: s.name, key: k };
+        if (open && !S.cardAim && !replyIn(s.name)) S.cardAim = { view: s.name, key: k };
         render();
       };
       // the card collapses and takes the aim off itself (__done, with a render); a refusal here leaves the aim on, with
@@ -425,22 +443,41 @@ function composerProps(s) {
       : dormant(s) ? (s.stopped ? (s.stopped.by === "owner" ? STOPPED : t("web.dock.stopped_by", { name: sessionName(s.stopped.by) })) : DORMANT)
       : HINTS[s.state] || t("web.dock.hint_default"),
     reply,
-    body: (text, files) => {
-      if (aimed) { usedTarget[s.name] = null; return { session: s.name, text, attachments: files.map((p) => p.meta) }; }
-      const t = usedTarget[s.name] = mine();
+    // what a message is addressed with right now. A voice message takes it when "send" is pressed and keeps it while
+    // the recording is transcribed (composer.js lock): the reply and the cards the owner sets meanwhile are the next message's
+    aim: aimNow,
+    body: (text, files, aim = aimNow()) => {
+      if (aimed) {
+        const body = { session: s.name, text, attachments: files.map((p) => p.meta) };
+        answering.set(body, aimed);
+        return body;
+      }
+      const t = aim.target, picks = aim.picks;
       const body = { session: t ? t.session : s.name, text, attachments: files.map((p) => p.meta) };
-      if (direction && (!t || t.session === s.name) && pickedList(s.name).length) {   // also with a quote: it is the same session
-        riding.set(body, pickedList(s.name));
-        Object.assign(body, carry(s.name, text));
+      if (t) usedTarget.set(body, t);
+      if ((!t || t.session === s.name) && picks.length) {   // also with a quote: it is the same session
+        riding.set(body, picks);
+        Object.assign(body, carry(s.name, text, picks));
       }
       if (!t && dormant(s)) body.wake = true;   // a worker that handed in: the owner's message in its field wakes it
       if (t?.delegation) body.reply_to = t.delegation;
       if (t?.quote) body.quote = t.quote;
       return body;
     },
-    // the cards leave with the message (the row of chips above the field empties) and come back if this very send fails
-    before: (body) => { if (usedTarget[s.name]) S.replyTarget = null; if (riding.has(body)) clearPicks(s.name); render(); },
-    failed: () => { if (usedTarget[s.name]) S.replyTarget = usedTarget[s.name]; render(); },
+    // the cards leave with the message (the row of chips above the field empties) and come back if this very send fails;
+    // pressed — a voice message's "send": the card's aim leaves the field too (a typed answer collapses its card itself)
+    before: (body, pressed) => {
+      if (usedTarget.has(body)) dropReply(s.name);
+      if (riding.has(body)) clearPicks(s.name);
+      if (pressed && answering.has(body) && S.cardAim?.key === answering.get(body)) S.cardAim = null;
+      render();
+    },
+    // a target or an aim the owner has set since stays: it is his newer choice
+    failed: (body) => {
+      if (usedTarget.has(body) && !replyIn(s.name) && !S.cardAim) S.replyTarget = usedTarget.get(body);
+      if (answering.has(body) && !S.cardAim && !replyIn(s.name)) S.cardAim = { view: s.name, key: answering.get(body) };
+      render();
+    },
     restore: (body) => { if (riding.has(body)) restorePicks(s.name, riding.get(body)); },
     tray: direction ? pickTray(s.name) : null,
   };

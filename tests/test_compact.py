@@ -44,11 +44,37 @@ class Host(unittest.TestCase):
                     {"type": "result", "subtype": "success", "num_turns": 0, "result": "", "total_cost_usd": 0.06}):
             host.inbox.put(("a", msg))
         facts = host.poll()
-        self.assertEqual([f[0] for f in facts], ["session.info", "session.compacted"])
-        self.assertEqual(facts[1][2], {"ok": True, "before": 6604, "after": 1685})
+        # the start is a fact too (the page says "compacting"); the end of the core's /compact is session.compacted
+        # alone — an earlier on:False (compact_result) would let delivery and a relaunch in before it (review high)
+        self.assertEqual([f[0] for f in facts], ["session.compacting", "session.info", "session.compacted"])
+        self.assertEqual(facts[0][2], {"on": True})
+        self.assertEqual(facts[2][2], {"ok": True, "before": 6604, "after": 1685})
         # the next real turn — as usual
         host.inbox.put(("a", {"type": "result", "result": "done", "num_turns": 3}))
         self.assertEqual([f[0] for f in host.poll()], ["turn.result"])
+
+    def test_claude_compacting_by_itself_is_a_fact_at_its_start(self):
+        # live, Claude Code 2.1.311 at its own threshold: the same `status: compacting` line as for /compact (the trigger
+        # "auto" comes only in compact_boundary, at the end); a failed one ends with compact_result "failed" and nothing else
+        from hosts.streamjson import StreamHost, StreamProcess
+        host = StreamHost(tempfile.mkdtemp(prefix="cmp-"))
+        popen = type("P", (), {"stdin": Pipe(), "poll": lambda self: None, "pid": 1})()
+        host.procs["a"] = StreamProcess(popen)
+        host.inbox.put(("a", {"type": "system", "subtype": "status", "status": "compacting"}))
+        self.assertEqual(host.poll(), [("session.compacting", "a", {"on": True})])
+        host.inbox.put(("a", {"type": "system", "subtype": "status", "status": None, "compact_result": "failed"}))
+        self.assertEqual(host.poll(), [("session.compacting", "a", {"on": False})])   # no session.compacted: only the end
+        host.inbox.put(("a", {"type": "system", "subtype": "status", "status": "requesting"}))
+        self.assertEqual(host.poll(), [])   # other statuses are not it
+        # the core's /compact that failed ends with its session.compacted too, not earlier: nothing slips in before it
+        self.assertEqual(host.compact("a"), "sent")
+        for msg in ({"type": "system", "subtype": "status", "status": "compacting"},
+                    {"type": "system", "subtype": "status", "status": None, "compact_result": "failed"},
+                    {"type": "result", "subtype": "success", "num_turns": 0, "result": ""}):
+            host.inbox.put(("a", msg))
+        self.assertEqual(host.poll(), [("session.compacting", "a", {"on": True}),
+                                       ("session.compacted", "a", {"ok": False, "before": None, "after": None})])
+        self.assertEqual(host.procs["a"].compacts, 0)
 
     def test_what_to_keep_goes_with_the_command(self):
         # review: "/compact keep only the API decisions" — instructions for Claude Code's compaction; don't lose the tail
@@ -176,6 +202,99 @@ class Core(unittest.TestCase):
         self.assertIsNone(self.ev("session.compact_requested", "a", text="  keep the API decisions ", **OWNER))
         self.assertEqual(self.steps(("turn.result", "a", {"text": "done"}), ("turn.stopped", "a", {})),
                          [{"do": "compact", "session": "a", "text": "keep the API decisions"}])
+
+    def row(self, name="a", now=None):
+        """The session's row in the snapshot, the way the page and clients get it."""
+        r = views.Reader()
+        r.state = self.st
+        return next(x for x in r.snapshot(now=now or 100 + self.seq)["sessions"] if x["name"] == name)
+
+    def test_compaction_by_claude_itself_is_said_until_it_ends(self):
+        # the owner's wake-up and the lag: the page said nothing for the 43 s of a compaction. The state is the core's
+        # `compacting` of /compact, set by the host's fact too; the row carries it, the status is working, not idle
+        self.assertNotIn("compacting", self.row())
+        self.assertEqual(self.row()["status"], "idle")
+        self.ev("session.compacting", "a", on=True)
+        row = self.row()
+        self.assertEqual((row["compacting"], row["state"], row["status"]), (self.st["sessions"]["a"]["compacting"], "idle", "working"))
+        self.assertNotIn("compacting", self.row("b"))
+        self.ev("session.compacted", "a", session_id="s-a")                      # the hook: it is over
+        self.assertNotIn("compacting", self.row())
+        self.assertEqual(self.row()["status"], "idle")
+
+    def test_the_start_of_a_compaction_the_core_ordered_keeps_its_own_time(self):
+        self.ev("session.compact_requested", "a", **OWNER)
+        self.ev("host.done", "a", do="compact", result="sent")
+        began = self.st["sessions"]["a"]["compacting"]
+        self.ev("session.compacting", "a", on=True)                               # the host saw it begin: the same field
+        self.assertEqual(self.st["sessions"]["a"]["compacting"], began)
+        self.ev("session.compacted", "a", ok=True, before=9000, after=2000)
+        self.assertNotIn("compacting", self.st["sessions"]["a"])
+
+    def test_a_failed_compaction_by_claude_itself_ends_with_its_own_fact(self):
+        # compact_result "failed" has no session.compacted after it: without the end fact the mark would stay
+        self.ev("session.compacting", "a", on=True)
+        self.ev("session.compacting", "a", on=False)
+        self.assertNotIn("compacting", self.st["sessions"]["a"])
+        self.assertNotIn("compacting", self.row())
+
+    def test_a_process_that_died_in_the_middle_takes_the_mark_with_it(self):
+        self.ev("session.compacting", "a", on=True)
+        self.ev("session.exited", "a", crash=True)
+        self.assertNotIn("compacting", self.st["sessions"]["a"])
+        self.ev("session.started", "a", pid=3)
+        self.ev("session.compacting", "a", on=True)
+        self.ev("session.started", "a", pid=4)                                    # release+spawn: a new process
+        self.assertNotIn("compacting", self.st["sessions"]["a"])
+
+    def test_the_mark_does_not_outlive_the_wait_for_a_command(self):
+        # a lost end fact: for the page and for parking the compaction runs no longer than the core waits for /compact
+        from core.machines import COMMAND_CONFIRM_SECONDS
+        self.ev("session.compacting", "a", on=True)
+        began = self.st["sessions"]["a"]["compacting"]
+        self.assertIn("compacting", self.row(now=began + COMMAND_CONFIRM_SECONDS - 1))
+        self.assertNotIn("compacting", self.row(now=began + COMMAND_CONFIRM_SECONDS + 1))
+
+    def test_a_sleeping_session_does_not_show_a_compaction_left_in_its_state(self):
+        self.ev("session.compacting", "a", on=True)
+        self.st["sessions"]["a"]["state"] = "asleep"
+        self.assertNotIn("compacting", self.row())
+
+    def test_a_mark_that_ran_out_gives_way_to_a_new_start(self):
+        # review: the end fact was lost, the mark ran out (the page and parking no longer see it); the next compaction of
+        # the same process must start a new time, not keep the old one — or it would never show again
+        from core.machines import COMMAND_CONFIRM_SECONDS
+        self.ev("session.compacting", "a", on=True)
+        old = self.st["sessions"]["a"]["compacting"]
+        self.seq += COMMAND_CONFIRM_SECONDS                                       # the events' time runs 100 + seq
+        self.ev("session.compacting", "a", on=True)
+        self.assertGreater(self.st["sessions"]["a"]["compacting"], old + COMMAND_CONFIRM_SECONDS - 1)
+        self.assertIn("compacting", self.row())
+
+    def test_a_late_start_after_the_process_went_does_not_mark_a_sleeping_session(self):
+        self.ev("session.ended", "a", reason="prompt_input_exit")
+        self.ev("session.compacting", "a", on=True)
+        self.assertNotIn("compacting", self.st["sessions"]["a"])
+
+    def test_a_message_waits_while_claude_compacts_by_itself(self):
+        self.ev("session.compacting", "a", on=True)
+        mid = f"m{self.seq + 1}"
+        self.ev("message.received", None, to="a", text="hello", **OWNER)
+        self.assertEqual(self.types(), [])
+        self.ev("session.compacting", "a", on=False)                              # a failed one is over: the queue types again
+        self.assertEqual(self.types(), [mid])
+
+    def test_nothing_but_a_session_may_write_it(self):
+        # the host's own fact: a mailbox file cannot put a session into "compacting" (core/admit.py)
+        from core import admit
+        self.assertIn("session.compacting", admit.CORE_ONLY)
+
+    def test_the_feed_has_no_line_for_the_fact(self):
+        r = views.Reader()
+        for seq, (type, data) in enumerate([("session.requested", {"cwd": "/w", "session_id": "s"}), ("session.started", {}),
+                                            ("session.compacting", {"on": True}), ("session.compacting", {"on": False})], 1):
+            r.feed({"seq": seq, "ts": seq, "type": type, "entity": "a", "data": data})
+        self.assertEqual([it["seq"] for it in r.timelines["a"] if it["seq"] > 2], [])   # the page says it above the input, not in the feed
 
     def test_who_may_ask(self):
         self.assertIsNotNone(self.ev("session.compact_requested", "a", channel="session", sender="b"))

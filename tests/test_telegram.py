@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import quote
 
@@ -54,6 +55,16 @@ class FakeBotApi:
                         self.close_connection = True
                         self.connection.shutdown(2)
                         return
+                    if code == "cut":   # the answer breaks off in the middle of the body: http.client.IncompleteRead
+                        self.close_connection = True
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", "100")
+                        self.end_headers()
+                        self.wfile.write(b'{"ok":tr')
+                        self.wfile.flush()
+                        self.connection.shutdown(2)
+                        return
                     why = f"fail {code}"
                     if isinstance(code, tuple):   # (status, the Bot API description) - "message is not modified" and the like
                         code, why = code
@@ -77,6 +88,18 @@ class FakeBotApi:
                 self.reply({"ok": True, "result": result})
 
             def do_GET(self):
+                fail = api.fail.get("file")   # the file itself (GET /file/bot…): an HTTP status or a dropped connection
+                if fail:
+                    code = fail.pop(0)
+                    if code == "drop":
+                        self.close_connection = True
+                        self.connection.shutdown(2)
+                        return
+                    self.send_response(code)
+                    self.send_header("Content-Length", "4")
+                    self.end_headers()
+                    self.wfile.write(b"fail")
+                    return
                 self.send_response(200)
                 self.send_header("Content-Length", "8")
                 self.end_headers()
@@ -1254,6 +1277,26 @@ class TelegramTest(unittest.TestCase):
         (reply,) = self.fake.sent()
         self.assertIn("already here", reply["text"])
 
+    def test_away_with_the_deputies_names_them_in_the_confirmation(self):
+        # spec d2679763 A5: /away deputies [<person> …] — the questions of the deputies' areas go to them
+        self.j.append("contact.deputy_set", None, {"person": {"id": "c0000a0b1", "name": "Anna Lee"}, "names": ["Anna"],
+                                                   "zone": "map tiles", "path": {"kind": "via", "session": "hub",
+                                                                                 "address": {"teams_chat": "19:a"}},
+                                                   "channel": "cli", "owner": True})
+        self.command("/away 2 deputies Anna", mid=51)
+        (ev,) = self.spooled()
+        self.assertEqual((ev["data"]["hours"], ev["data"]["deputies"]), (2.0, ["Anna"]))
+        self.j.append(ev["type"], ev.get("entity"), ev["data"], src=ev["src"])
+        self.bot.tick()
+        (ok,) = self.fake.sent()
+        self.assertIn("Questions in the deputies' areas go to them: Anna Lee («map tiles»)", ok["text"])
+        self.fake.calls.clear()
+        self.command("/away deputies", mid=52)
+        (ev,) = self.spooled()
+        self.assertIs(ev["data"]["deputies"], True)
+        self.command("/away soon deputies", mid=53)   # a word that is not hours: the usage, nothing put
+        self.assertEqual(self.spooled(), [])
+
     def test_a_superseded_away_is_not_confirmed_late(self):
         # the confirmation failed to send; meanwhile he came back and went away again from the page (also with no end):
         # the retry must not confirm the old /away as if it held now
@@ -1463,7 +1506,7 @@ class TelegramTest(unittest.TestCase):
         hang = threading.Event()
         self.addCleanup(hang.set)
         self.bot.hub_config = lambda: cfg
-        self.bot.transcribe = lambda media, cfg: hang.wait() and (None, "stopped")   # the process dies midway
+        self.bot.transcribe = lambda media, cfg: hang.wait() and (None, "stopped", False)   # the process dies midway
         self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
         self.bot.poll(timeout=0)
         self.bot.drain_voice()
@@ -1487,7 +1530,7 @@ class TelegramTest(unittest.TestCase):
         # an exception while parsing already transcribed text: from drain_voice it crashed the bot loop and the text was lost
         def boom(m):
             raise ValueError("bad")
-        self.bot.transcribe = lambda media, cfg: ("buy bread", None)
+        self.bot.transcribe = lambda media, cfg: ("buy bread", None, False)
         self.bot.hub_config = lambda: {"voice": {"cmd": "asr {wav}"}}
         self.bot.voice_sync = True
         self.fake.updates = [self.msg(None, 9, voice={"file_id": "v9", "duration": 3})]
@@ -1496,6 +1539,270 @@ class TelegramTest(unittest.TestCase):
         self.bot.drain_voice()
         (ev,) = self.spooled()
         self.assertTrue(ev["data"]["text"].startswith(VOICE + "buy bread"), ev["data"]["text"])
+
+    def net_down(self, times):
+        """getFile fails with a DNS error (socket.gaierror, as on 16.11: the VPN dropped name resolution) `times` times — then passes."""
+        import socket
+        left = [times]
+        real = self.bot.api.keep_alive
+
+        def flaky(verb, url, *a, **kw):
+            if "/getFile" in url and left[0] > 0:
+                left[0] -= 1
+                raise socket.gaierror(8, "nodename nor servname provided, or not known")
+            return real(verb, url, *a, **kw)
+        self.bot.api.keep_alive = flaky
+        return left
+
+    def voice_cfg(self):
+        d = tempfile.mkdtemp(prefix="tg-voice-")
+        ffmpeg = exe.script(os.path.join(d, "ffmpeg"), "import sys, shutil\na = sys.argv\nshutil.copy(a[a.index('-i') + 1], a[-1])\n")
+        asr = exe.script(os.path.join(d, "asr"),
+                         "import sys, json\nprint(json.dumps({'text': 'hello ' + open(sys.argv[1]).read()}))\n")
+        return {"voice": {"cmd": f"{asr} {{wav}}", "ffmpeg": ffmpeg}}
+
+    def test_a_voice_waits_out_a_network_blink_instead_of_failing(self):
+        """16.11: the VPN dropped DNS for a minute — four voice messages in a row got "could not make out: getFile: [Errno 8]
+        nodename nor servname…" and were lost (the transcription queue was cleared). A network failure while downloading keeps
+        the voice in the queue and retries it on the clock; the owner hears once that it waits for the network, then gets the text."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        self.net_down(3)
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        replies = lambda: [c["text"] for c in self.fake.sent() if (c.get("reply_parameters") or {}).get("message_id") == 6]  # noqa: E731
+        for _ in range(3):
+            self.bot.drain_voice()
+            self.assertEqual(self.spooled(), [])
+            self.bot.drain_voice()   # not due yet — no attempt, nothing said again
+            now[0] += 120
+        self.bot.drain_voice()       # due: this attempt passes
+        self.bot.drain_voice()
+        (ev,) = self.spooled()
+        self.assertEqual(ev["data"]["text"], VOICE + "hello JPEGDATA")
+        self.assertEqual(ev["data"]["tg"], {"chat": OWNER, "id": 6})
+        self.assertEqual(replies(), [i18n.t("telegram.voice_net_wait")])   # one line, no "could not make out"
+        self.assertEqual(self.bot.st["voice_wait"], {})
+        self.assertEqual(self.bot.st["transcribe"], {})
+
+    def test_a_voice_waiting_for_the_network_survives_a_bot_restart(self):
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        self.net_down(1)
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        self.bot.drain_voice()
+        self.assertEqual(self.spooled(), [])
+        again = tg.Bot(self.state, tg.Api("1:x", base=self.fake.base), clock=lambda: now[0] + 600)   # a new process — like serve()
+        again.hub_config, again.voice_sync = (lambda: cfg), True
+        again.catch_up()
+        again.drain_voice()
+        again.drain_voice()
+        (ev,) = self.spooled()
+        self.assertEqual(ev["data"]["text"], VOICE + "hello JPEGDATA")
+        self.assertEqual(again.st["voice_wait"], {})
+
+    def test_a_voice_without_network_for_a_quarter_of_an_hour_asks_to_send_it_again(self):
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        self.net_down(10 ** 6)
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        for _ in range(60):          # 30 min of the bot loop
+            self.bot.drain_voice()
+            now[0] += 30
+        replies = [c["text"] for c in self.fake.sent() if (c.get("reply_parameters") or {}).get("message_id") == 6]
+        self.assertEqual(len(replies), 2, replies)
+        self.assertEqual(replies[0], i18n.t("telegram.voice_net_wait"))
+        self.assertIn("nodename", replies[1])
+        self.assertTrue(replies[1].startswith(i18n.t("telegram.voice_net_failed", why="", count=15).split("(")[0][:20]), replies[1])
+        self.assertEqual(self.spooled(), [])
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_a_voice_the_telegram_refuses_fails_at_once(self):
+        """Not the network: "file is too big" will not pass on a retry — as before, at once."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        self.fake.fail["getFile"] = [400]
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        self.bot.drain_voice()
+        replies = [c["text"] for c in self.fake.sent() if (c.get("reply_parameters") or {}).get("message_id") == 6]
+        self.assertEqual(len(replies), 1)
+        self.assertTrue(replies[0].startswith("Could not make out the voice message: getFile"), replies[0])
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def voice_waiting(self, times=10 ** 6):
+        """A voice message whose download failed on the network and now waits in voice_wait."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        left = self.net_down(times)
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        self.bot.drain_voice()
+        self.assertIn("6", " ".join(self.bot.st["voice_wait"]))
+        return now, left
+
+    def replies_to(self, mid):
+        return [c["text"] for c in self.fake.sent() if (c.get("reply_parameters") or {}).get("message_id") == mid]
+
+    def reactions(self):
+        return [r["emoji"] for c in self.fake.sent("setMessageReaction") for r in c["reaction"]]
+
+    def test_a_voice_whose_file_request_blinks_waits_for_the_network_too(self):
+        """getFile passed, but the file itself (GET /file/bot…) got a 502 or a dropped connection: that is the network too,
+        the voice waits and is transcribed later instead of "could not make out"."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        self.fake.fail["file"] = [502, "drop", "drop", 503]
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        for _ in range(20):
+            self.bot.drain_voice()
+            got = self.spooled()
+            if got:
+                break
+            now[0] += 120
+        (ev,) = got
+        self.assertEqual(ev["data"]["text"], VOICE + "hello JPEGDATA")
+        self.assertEqual(self.replies_to(6), [i18n.t("telegram.voice_net_wait")])
+        self.assertNotIn("👎", self.reactions())
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_a_voice_whose_file_is_refused_fails_at_once(self):
+        """A 404 on the file is not the network: as before, at once."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        self.fake.fail["file"] = [404]
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        self.bot.drain_voice()
+        (line,) = self.replies_to(6)
+        self.assertTrue(line.startswith("Could not make out the voice message: getFile: HTTP 404"), line)
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_a_voice_whose_file_answer_is_cut_waits_for_the_network_too(self):
+        """getFile's answer broke off in the middle (http.client.IncompleteRead, an HTTPException, not an OSError): that is
+        the network too, the voice waits and is transcribed later instead of "could not make out"."""
+        cfg = self.voice_cfg()
+        self.bot.hub_config = lambda: cfg
+        self.bot.voice_sync = True
+        now = [1000.0]
+        self.bot.clock = lambda: now[0]
+        self.fake.fail["getFile"] = ["cut", "cut"]
+        self.fake.updates = [self.msg(None, 6, voice={"file_id": "v2", "duration": 3})]
+        self.bot.poll(timeout=0)
+        for _ in range(20):
+            self.bot.drain_voice()
+            got = self.spooled()
+            if got:
+                break
+            now[0] += 120
+        (ev,) = got
+        self.assertEqual(ev["data"]["text"], VOICE + "hello JPEGDATA")
+        self.assertEqual(self.replies_to(6), [i18n.t("telegram.voice_net_wait")])
+        self.assertNotIn("👎", self.reactions())
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_a_retry_longer_than_the_last_pause_sends_the_text_once(self):
+        """A retry in the background took longer than VOICE_NET_PAUSES[-1] (the cloud transcriber backs off 10+30+90+270 s):
+        when it ended, the next drain_voice saw the entry out of `voicing` with `next` in the past and started a second
+        download and transcription before it read the first result — the text went to the session twice."""
+        now, left = self.voice_waiting()
+        left[0] = 0   # the network is back
+        started = []
+
+        class Later:   # the background thread of start_voice, run by the test when it wants
+            def __init__(self, target, daemon=None):
+                started.append(target)
+
+            def start(self):
+                pass
+        real = self.bot.transcribe
+
+        def slow(media, cfg):
+            now[0] += tg.VOICE_NET_PAUSES[-1] + 60
+            return real(media, cfg)
+        self.bot.transcribe = slow
+        self.bot.voice_sync = False
+        only_bot = type(threading)("threading")   # the fake server's own threads stay real
+        only_bot.__dict__.update(vars(threading), Thread=Later)
+        with mock.patch.object(tg, "threading", only_bot):
+            now[0] += 600
+            self.bot.drain_voice()
+            self.assertEqual(len(started), 1)
+            started.pop()()          # the attempt runs longer than the last pause and ends
+            self.bot.drain_voice()
+            self.bot.drain_voice()
+        self.assertEqual(started, [])   # no second download
+        (ev,) = self.spooled()
+        self.assertEqual(ev["data"]["text"], VOICE + "hello JPEGDATA")
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_a_waiting_voice_is_dropped_when_voice_is_turned_off(self):
+        """Voice was turned off while the voice message waited for the network: no more downloads, the owner hears that
+        voice is off (as for a new voice message), the entry is gone."""
+        now, left = self.voice_waiting()
+        tries = left[0]
+        self.bot.hub_config = lambda: {}
+        now[0] += 600
+        self.bot.drain_voice()
+        self.bot.drain_voice()
+        self.assertEqual(left[0], tries)   # no download
+        self.assertEqual(self.bot.st["voice_wait"], {})
+        self.assertEqual(self.replies_to(6)[-1], i18n.t("telegram.voice_off"))
+        self.assertEqual(self.spooled(), [])
+
+    def test_no_thumbs_down_when_the_give_up_line_did_not_go(self):
+        """Past the quarter of an hour the "send it again" line could not be sent: no 👎 alone without words; both go
+        together once sending works."""
+        now, _ = self.voice_waiting()
+        self.fake.fail["sendMessage"] = [502] * 10 ** 4
+        for _ in range(40):
+            self.bot.drain_voice()
+            now[0] += 30
+        self.assertNotIn("👎", self.reactions())
+        self.assertTrue(self.bot.st["voice_wait"])
+        self.fake.fail["sendMessage"] = []
+        for _ in range(20):
+            self.bot.drain_voice()
+            now[0] += 30
+        self.assertEqual(self.reactions().count("👎"), 1)
+        self.assertEqual(len(self.replies_to(6)), 2, self.replies_to(6))
+        self.assertEqual(self.bot.st["voice_wait"], {})
+
+    def test_transcribe_always_returns_text_why_and_net(self):
+        cfg = self.voice_cfg()
+        media = {"file_id": "v2", "duration": 3}
+        self.assertEqual(self.bot.transcribe(media, cfg), ("hello JPEGDATA", None, False))
+        self.fake.fail["getFile"] = [400]
+        text, why, net = self.bot.transcribe(media, cfg)
+        self.assertEqual((text, net), (None, False))
+        self.assertIn("getFile", why)
+        self.assertEqual(self.bot.transcribe({"file_id": "x", "mime_type": "application/zip"}, cfg)[0::2], (None, False))   # a type it does not accept
+
+    def test_the_give_up_line_counts_minutes_in_the_language(self):
+        key = "telegram.voice_net_failed"
+        self.assertNotEqual(i18n.tr("en", key, why="x", count=1), i18n.tr("en", key, why="x", count=2))
+        self.assertNotEqual(i18n.tr("ru", key, why="x", count=2), i18n.tr("ru", key, why="x", count=5))
+        self.assertIn(" 15 ", i18n.tr("en", key, why="x", count=15))
 
     def test_an_unexpected_transcription_failure_still_answers(self):
         # a transcription failure outside known errors (a malformed recognition reply) — "could not make it out", not 👀 forever

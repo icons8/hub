@@ -42,8 +42,8 @@ The Clean theme, the default look of the page: Copyright (c) 2026 Ilnur Kalimull
 `modules/web/static/clean/LICENSE`. Changed for the core: comments in English, strings from the hub's catalogs, logical
 CSS properties.
 
-Its characters, the 24 session pictures `modules/web/static/clean/a/*.png`, are AI-generated images made for the theme by
-its author, who gives them under the Apache License 2.0, as the hub.
+Its characters, the 24 session pictures and the Hub's own head `modules/web/static/clean/a/*.png`, are AI-generated
+images made for the theme by its author, who gives them under the Apache License 2.0, as the hub.
 
 Its fonts: Geist (Copyright 2024 The Geist Project Authors, https://github.com/vercel/geist-font) and Lora (Copyright
 2011 The Lora Project Authors, https://github.com/cyrealtype/Lora-Cyrillic), SIL Open Font License 1.1; the license

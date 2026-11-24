@@ -221,7 +221,7 @@ def dismissal(m):
     return bool(m.get("card_dismissed")) or str(m.get("text") or "").startswith(DISMISSED)
 
 
-def owner_word(st, data, ts, own=False, lead=None, cards=False, lift=False, trainer=False):
+def owner_word(st, data, ts, own=False, lead=None, cards=False, lift=False, trainer=False, spec=None, deputy=None):
     """"--for mN": the owner's word to the hub (owner decision 2026-09-30) — his "yes" in the chat counts as permission.
     own — for the session's own executor (hub task run): then the owner's word to the session itself counts too
     (friction digest 16.10: the mini-hub passes the executor what was said to it — 15 task.run refusals, followed by
@@ -237,26 +237,38 @@ def owner_word(st, data, ts, own=False, lead=None, cards=False, lift=False, trai
     an install on his word, but its approvals (module consents) start from scratch. Installing, granting and
     launching keep the rule.
     trainer — agent-dev may cite too (a skill for an agent, owner 2026-11-17): only the owner's message to it or his
-    answer to its own card, never one written to someone else."""
+    answer to its own card, never one written to someone else.
+    spec — the task whose open spec is accepted or dropped (hub task spec accept|drop dN): his reply to that spec's
+    card, written to its executor (the message's spec_card, reducer._spec_card), counts too.
+    deputy — the gate (its event type) takes "--for qN" closed on the decision of a deputy who decides everything in
+    their area (core/deputyroute.py word: still a ground — the same appointment, channel and away), as his answer to
+    that card would be: their word, never his — the result names them ("deputy"), and the owner's summary has the gate.
+    Only the gates that pass it (tools, executors, specs, roles); naming a deputy never does."""
     sender = st["sessions"].get(data.get("sender") or "") or {}
     hub = sender.get("kind") == "hub"
     own = own or (trainer and bool(sender) and sender.get("name") == st.get("trainer")
                   and data.get("channel") == "session")
     ref = str(data.get("for") or "")
     card = cards and re.fullmatch(r"q\d+", ref) and card_answer(st, ref)
-    msg = card or st["messages"].get(ref)
+    if deputy and cards and not card and re.fullmatch(r"q\d+", ref):
+        from core import deputyroute   # deputyroute imports this module
+        dep = deputyroute.word(st, ref)
+    else:
+        dep = None
+    msg = card or dep or st["messages"].get(ref)
     trusted = hub or (own and sender and data.get("channel") == "session")
     # action gate: "Deny" and × are his messages to the hub, but not a "yes" (forwarding his words, hub send --for,
     # is fine)
-    no = cards and (dismissal(msg or {}) or (msg or {}).get("card_declined"))
+    no = cards and not dep and (dismissal(msg or {}) or (msg or {}).get("card_declined"))
     if trusted and no:
         raise Rejected(FOR_DENIED.format(ref=ref))
     # which condition failed, first (13.11: one phrase for every reason, and a session repeated the same --for)
     why = None if not trusted or not ref else (
         (FOR_NO_ANSWER if cards and re.fullmatch(r"q\d+", ref) else FOR_NO_MESSAGE) if not msg else
-        FOR_NOT_OWNER if not msg.get("from_owner") else
+        FOR_NOT_OWNER if not (msg.get("from_owner") or dep) else
         FOR_OLD.format(hours=int((ts - msg["created"]) // 3600)) if ts - msg["created"] > OWNER_WORD_TTL else
-        FOR_ELSEWHERE.format(to=msg["session"]) if not (msg["session"] in (sender["name"], lead) or hub and (card or lift))
+        FOR_ELSEWHERE.format(to=msg["session"]) if not (msg["session"] in (sender["name"], lead) or hub and (card or dep or lift)
+                                                        or spec and msg.get("spec_card") == spec)
         else None)
     if not trusted or why or not msg:
         raise Rejected(coretext.join(*([FOR_WHY.format(ref=ref), why, ". "] if why else []),
@@ -265,7 +277,23 @@ def owner_word(st, data, ts, own=False, lead=None, cards=False, lift=False, trai
                                      *([FOR_OWN] if own and not hub else
                                        [FOR_ASK_HUB] if cards and sender and not hub else   # not trusted: nothing else helps
                                        [FOR_LEAD.format(lead=lead)] if lead and lead != sender.get("name") else [])))
+    if dep:   # the deputy's decision: what it opened goes into the owner's summary (a refused event drops it)
+        deputyroute.opened(st, ref, deputy)
+        return {"message": ref, "text": msg["text"][:2000], "deputy": dep["deputy"]}
     return {"message": msg["id"], "text": msg["text"][:300]}
+
+
+FOR_DEPUTY_DATA = T("core.tools.for_deputy_data",
+                    "{tool} holds the owner's own data (risk owner-data): it is granted on the owner's word only, not on "
+                    "the decision of the deputy {name} — the request waits for the owner")
+
+
+def deputy_may(words, info, tool):
+    """A tool on a deputy's decision (owner_word deputy): never one the catalog marks as holding the owner's own data
+    (risk owner-data: his mail, chats, browser sign-ins): the owner keeps his personal data and correspondence to
+    himself."""
+    if words.get("deputy") and "owner-data" in (info.get("risk") or []):
+        raise Rejected(FOR_DEPUTY_DATA.format(tool=tool, name=words["deputy"]))
 
 
 def names_tool(st, words, tool):
@@ -401,8 +429,9 @@ def apply(st, ev, data, ctx=None):
             raise Rejected("already has it: base")
         if asleep:
             if not from_owner(data):
-                words = owner_word(st, data, ts, cards=True, trainer=True)
+                words = owner_word(st, data, ts, cards=True, trainer=True, deputy=kind)
                 # checked before the request changes: a journal replay folds a refusal in place
+                deputy_may(words, info, tool)
                 if info.get("risk") and not names_tool(st, words, tool):
                     raise Rejected(FOR_NOT_NAMED.format(ref=data.get("for"), tool=tool))
                 req["owner_words"] = words
@@ -413,7 +442,8 @@ def apply(st, ev, data, ctx=None):
             raise Rejected("no live session")
         words = None
         if info.get("risk") and not from_owner(data) and data.get("for"):
-            words = owner_word(st, data, ts, cards=True, trainer=True)
+            words = owner_word(st, data, ts, cards=True, trainer=True, deputy=kind)
+            deputy_may(words, info, tool)
             if not names_tool(st, words, tool):
                 # "find skills for maps" or "show me the status" is not a yes to a hook or a server with his data — the
                 # owner's card is (it names what runs); the same stops a page, a mail or a skill's text making the hub

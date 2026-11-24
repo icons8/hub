@@ -63,6 +63,12 @@ JOIN_STEPS = ("parsed", "joined", "contact", "intro_sent", "linked")
 JOIN_OPEN = ("active", "expired", "cancelling")   # a join that still takes A's answer
 OUTCOMES = ("passed", "answered", "declined", "asked_owner")
 CARD_TAG = "bus-"          # the request_id of the core's cards on the liaison: bus-o<seq>, bus-b<seq>, bus-i<fp>
+# the core's own marks the liaison reads in its prompt: the label of a message (reducer.MARKER: [hub:mN], [hub:mN from
+# X, …]) and the fence lines around another hub's words (liaison.fence: <<<bus-… / bus-…>>>) — this hub's frame, not
+# words; they do not go out in the liaison's own text (own_words). A session's words by reference go as written
+CORE_LINE_LABEL = re.compile(r"(?m)^([ \t]*)(?:\[hub:m\d+[^\]\n]*\][ \t]*)+(\r?\n|\Z)?")
+CORE_LABEL = re.compile(r"[ \t]*\[hub:m\d+[^\]\n]*\]")
+CORE_FENCE = re.compile(r"<<<bus-[0-9a-f]{8}[ \t]*(?:\r?\n)?|(?:\r?\n)?[ \t]*bus-[0-9a-f]{8}>>>")
 # the mark of another hub's words delivered by the core: no `from` kind of its own (the Plugin API names the kinds; the
 # page shows the bus in slice S3) — the channel `hubbus` and the frame say what it is; never the owner's word
 ORIGIN = forms.ORIGIN_CORE + ", hub bus"
@@ -1280,6 +1286,10 @@ def _reset(st, ev, actions):
 
 OFF_REQUEST = T("core.busstate.off_request", "The hub bus is turned off: your request to the liaison {id} (contact "
                                              "{contact}) was not sent and will not be.")
+REQUEST_DECLINED = T("core.busstate.request_declined", "The liaison declined your request {id} (contact {contact}): "
+                                                       "nothing was sent. Its reason: {why}.")
+REQUEST_DECLINED_BARE = T("core.busstate.request_declined_bare", "The liaison declined your request {id} (contact "
+                                                                 "{contact}): nothing was sent.")
 
 
 def _off(st, ev, actions):
@@ -1298,8 +1308,7 @@ def _off(st, ev, actions):
     for oid, o in b["out"].items():   # held or not yet decided: refused, its source told (and its request closed)
         if o.get("kind") == "message" and o.get("status") in ("requested", "held"):
             _refused(st, ev, oid, "bus_off")
-            req = b["requests"].get(o.get("basis") or "")
-            if req is not None:
+            for req in _requests_of(b, oid):
                 req["why"] = "bus_off"
     for mid, req in b["requests"].items():
         if req.get("outcome") is None:
@@ -1404,10 +1413,17 @@ def _from_liaison(st, ev, kind, data, actions):
         if item.get("status", "ok") != "ok":
             return T("core.busstate.waits_owner", "{id} waits for the owner's decision ({status}) — not the liaison's"
                      ).format(id=data.get("inbox"), status=item.get("status"))
-        why = " ".join(str(data.get("why") or "").split())[:300] or None
+        if key in bus["requests"] and _live_answer(bus, item):   # its answer is on its way: not a decline any more
+            return T("core.busstate.basis_sent", "{id} is already sent (or waits for a card)").format(id=key)
+        why = " ".join(own_words(str(data.get("why") or "")).split())[:300] or None
         item.update(outcome="declined" if decline else "read", why=why, done=ts)
-        if decline:
+        # only another hub's request is answered with the refusal; a session's request the liaison does not send is this
+        # hub's own matter — the other hub asked nothing, and the reason is for the session (even in the request's thread)
+        if decline and key in bus["inbox"]:
             _decline_notice(bus, item, ev, actions)
+        elif decline:
+            _say(st, ev, item.get("session"), (REQUEST_DECLINED if why else REQUEST_DECLINED_BARE).format(
+                id=key, contact=item.get("contact"), why=why), "s")
         return None
     if kind == "bus.pass_requested":
         why = pass_refusal(st, data.get("inbox"), data.get("session"), ts)
@@ -1465,6 +1481,8 @@ ECHO_SENT = ("signed", "handed", "delivered")   # the core sealed it: gone out, 
 
 
 ECHO_QUIET = ("session.gist", "bus.note")   # its line about itself, its own notes: nothing anybody is told
+ECHO_ITEM = ("bus.done_requested", "bus.decline_requested", "chat.send_requested", "chat.pass_requested",
+             "chat.done_requested")   # an item of another hub or a message of a person decided or answered: the turn is on it
 
 
 def echo_mark(st, ev):
@@ -1485,6 +1503,8 @@ def echo_mark(st, ev):
         mark.setdefault("pass", []).append([data["inbox"], data["session"], had])
     else:
         mark["off"] = True
+        if kind in ECHO_ITEM:
+            mark["item"] = True
 
 
 def echo_refused(st, data):
@@ -1493,6 +1513,25 @@ def echo_refused(st, data):
     sess = st["sessions"].get(liaison.NAME)
     if sess is not None and data.get("sender") == liaison.NAME:
         sess.setdefault("turn_echo", {})["off"] = True
+
+
+def unserved(st, sess, askers):
+    """Which of the sessions that wrote to the liaison in this turn learn of its result from the core: those whose words
+    it was not asked to carry (a refusal, a rule — nothing went out for them, and only the result says so). None when the
+    turn passed an item or decided one (an item of another hub, a message of a person in the owner's chats): the result
+    is about that, not about the letters. A session whose words went out is told by the echo (echo_of)."""
+    mark = sess.get("turn_echo") or {}
+    if mark.get("pass") or mark.get("item"):
+        return []
+    out = (st.get("bus") or {}).get("out") or {}
+    served = {whose(out.get(oid) or {}) for oid in mark.get("out") or ()}
+    return [w for w in askers if w not in served]
+
+
+def nothing_sent(sess):
+    """The liaison's turn asked the core to send nothing: the result is only a refusal or a note, and whoever is told
+    of it (unserved) tells the owner in its stead (reducer._merged_into)."""
+    return not (sess.get("turn_echo") or {}).get("out")
 
 
 def echo_of(st, sess):
@@ -1570,7 +1609,7 @@ def _send_request(st, ev, data, actions):
     agent = data.get("agent")
     if agent is not None and not (isinstance(agent, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", agent)):
         return T("core.busstate.agent_hint", "the addressee hint is a session name")
-    basis, via, source, asker, auto = data.get("text_from"), None, liaison.NAME, None, False
+    basis, via, source, asker, auto, answers = data.get("text_from"), None, liaison.NAME, None, False, []
     if (basis is None) == (data.get("text") is None):
         return T("core.busstate.text_one_of", "one of these is needed: --text-from mN (a session's words) or --text "
                                               "(your own)")
@@ -1596,7 +1635,8 @@ def _send_request(st, ev, data, actions):
         if msg.get("bus_to") is not None and msg["bus_to"] != name:
             return T("core.busstate.wrong_basis", "wrong_contact: {id} was written for {other}, not for {name}"
                      ).format(id=basis, other=msg["bus_to"], name=name)
-        if any(o.get("basis") == basis and o.get("status") not in ("refused",) for o in bus["out"].values()):
+        if any(o.get("basis") == basis and o.get("status") not in ("refused",) for o in bus["out"].values()) \
+                or (basis in bus["requests"] and _live_answer(bus, bus["requests"][basis])):   # or the liaison's own words
             return T("core.busstate.basis_sent", "{id} is already sent (or waits for a card)").format(id=basis)
         via = msg.get("bus_to_via")
         text = msg.get("text")
@@ -1605,8 +1645,16 @@ def _send_request(st, ev, data, actions):
         if thread is None and kept and auto_thread_ok(bus, kept, name, source, ts):
             thread, auto = kept, True
     else:
-        text = data.get("text")
+        text = own_words(data.get("text"))
         asker = _asker(st, name)
+        # its own words on the asker's requests to this contact the turn is on answer them as the words by reference
+        # do: in the thread the core kept for them (one), and they are closed by this message's fate (_request_outcome)
+        answers = [m["id"] for m, who in (_turn_words(st) or ()) if asker and who == asker and m.get("bus_to") == name
+                   and _unanswered(bus, m["id"])]
+        kept = {bus["requests"][mid].get("thread") for mid in answers}
+        if thread is None and len(kept) == 1 and None not in kept and auto_thread_ok(bus, next(iter(kept)), name, asker,
+                                                                                     ts):
+            thread, auto = next(iter(kept)), True
     if not isinstance(text, str) or not text.strip():
         return EMPTY_TEXT
     if len(text.encode("utf-8")) > SEND_MAX:
@@ -1635,9 +1683,15 @@ def _send_request(st, ev, data, actions):
                        "ts": ts, "of": ev["seq"], **({"asker": asker} if asker else {}),
                        **({"thread_auto": True} if auto else {}),
                        **({"root": root, **({"via_schedule": True} if sched else {})} if root else {}),
-                       **({"in_owner_turn": True} if mine else {})}
-    if basis in bus["requests"]:
-        bus["requests"][basis]["out"] = oid
+                       **({"in_owner_turn": True} if mine else {}),
+                       **({"answers": answers} if answers else {})}
+    for req in [bus["requests"][k] for k in [basis] + answers if k in bus["requests"]]:
+        if req.get("outcome") == "declined" and req.get("out") and _live_answer(bus, req) is None:
+            # the core refused the earlier answer (not the liaison's decline): this one decides, its 30 minutes anew
+            for k in ("outcome", "why", "stale"):
+                req.pop(k, None)
+            req["since"] = ts
+        req["out"] = oid
     actions.append({"do": "bus_send", "session": None, "out": oid, "of": ev["seq"]})
     return None
 
@@ -1688,14 +1742,50 @@ def _held(st, ev, data):
     o["status"] = "held"
     o["finding"] = data.get("finding")
     o["card"] = _card(st, ev, CARD_TAG + data["out"], data.get("card") or {}, "out")
-    _request_outcome(bus, o, "asked_owner")
+    _request_outcome(bus, data["out"], "asked_owner")
     return _last(bus, data, "held")
 
 
-def _request_outcome(bus, o, outcome):
-    req = bus["requests"].get(o.get("basis") or "")
-    if req is not None and req.get("outcome") in (None, "asked_owner"):
-        req["outcome"] = outcome
+def own_words(text):
+    """The liaison's own text without the core's marks it copied from its prompt (CORE_LABEL, CORE_FENCE): only those
+    forms go — labels at a line's start with the spaces after them (the indent stays; a line of labels only goes
+    whole), a label inside a line with the spaces before it; every word of its and the layout stay."""
+    if not isinstance(text, str) or not (CORE_LABEL.search(text) or CORE_FENCE.search(text)):
+        return text
+    text = CORE_LINE_LABEL.sub(lambda m: "" if m.group(2) is not None else m.group(1), text)
+    return CORE_FENCE.sub("", CORE_LABEL.sub("", text)).strip("\r\n")
+
+
+def _unanswered(bus, mid):
+    """A session's request the liaison's own words may answer: open, or its earlier answer refused by the core (a
+    decline of the liaison is its decision and stays)."""
+    req = bus["requests"].get(mid)
+    if req is None:
+        return False
+    if req.get("outcome") is None:
+        return not req.get("out")
+    return req.get("outcome") == "declined" and bool(req.get("out")) and _live_answer(bus, req) is None
+
+
+def _requests_of(bus, oid):
+    """The sessions' requests the outgoing message oid answers: the one its words are by reference (basis), or those
+    the liaison's own words answer (answers, _send_request) — while it is their answer (a retry after a refusal moves
+    `out` to the new one: the old one's fate is not theirs any more)."""
+    o = bus["out"].get(oid) or {}
+    return [bus["requests"][k] for k in [o.get("basis")] + list(o.get("answers") or ())
+            if k in bus["requests"] and bus["requests"][k].get("out") == oid]
+
+
+def _live_answer(bus, req):
+    """The outgoing message that answers this request and is not refused (on its way, at the owner's card, sent)."""
+    o = bus["out"].get(req.get("out") or "")
+    return o if o is not None and o.get("status") != "refused" else None
+
+
+def _request_outcome(bus, oid, outcome):
+    for req in _requests_of(bus, oid):
+        if req.get("outcome") in (None, "asked_owner"):
+            req["outcome"] = outcome
 
 
 def _out(st, ev, data):
@@ -1734,7 +1824,9 @@ def _out(st, ev, data):
     th = bus["threads"].get(thread)
     if th is None:
         th = bus["threads"][thread] = {"contact": o["contact"], "source": whose(o), "ts": ts, "n": 1,
-                                       **({"owner": True} if o.get("press") else {})}
+                                       **({"owner": True} if o.get("press") else {}),
+                                       # a card's own thread to a deputy (core/deputyroute.py): the answer is on it
+                                       **({"route": o["route"]} if o.get("route") else {})}
     else:
         th["n"] = th.get("n", 0) + 1
         if th.get("source") is None and whose(o):
@@ -1753,7 +1845,7 @@ def _out(st, ev, data):
         for item in bus["inbox"].values():   # the liaison answered in the thread: those items have an outcome
             if item.get("thread") == thread and item.get("contact") == o["contact"] and item.get("outcome") is None:
                 item.update(outcome="answered", done=ts)
-    _request_outcome(bus, o, "sent")
+    _request_outcome(bus, oid, "sent")
     return _last(bus, data, "signed")
 
 
@@ -1772,6 +1864,13 @@ NOT_DELIVERED = T("core.busstate.not_delivered", "Not delivered to the hub {cont
                                                  "7 days.")
 
 
+def _route_lost(st, ev, o, code):
+    """A card's message to a deputy did not go or did not arrive: the card is the owner's again (core/deputyroute.py)."""
+    if o.get("route"):
+        from core import deputyroute
+        deputyroute.not_sent(st, ev, o, code)
+
+
 def _refused(st, ev, oid, code, data=None):
     from core import liaison
     bus = _bus(st)
@@ -1781,7 +1880,8 @@ def _refused(st, ev, oid, code, data=None):
     o.update(status="refused", code=code, done=ev["ts"])
     o.pop("envelope", None)
     _drop_card(st, o.pop("card", None))
-    _request_outcome(bus, o, "declined")
+    _request_outcome(bus, oid, "declined")
+    _route_lost(st, ev, o, code)
     if o.get("for") == "owner" or o.get("press"):   # the owner's own words: the liaison has no part in it (no turn), nothing went — no body kept
         o.pop("text", None)
         return _last(bus, data or {}, code)
@@ -1815,6 +1915,7 @@ def _delivered(st, ev, data):
     if status == "refused":
         o.update(status="refused", code=f"remote:{data.get('code') or '-'}", done=ev["ts"])
         o.pop("envelope", None)
+        _route_lost(st, ev, o, o["code"])
         text = REMOTE_REFUSED.format(contact=o["contact"], out=oid, code=data.get("code") or "—")
         if o.get("press"):   # the owner's own words: the page shows the refusal under them, no session is told
             return None
@@ -1849,6 +1950,7 @@ def _expired(st, ev, data):
         return T("core.busstate.out_decided", "this outgoing message is already decided")
     o.update(status="expired", done=ev["ts"])
     o.pop("envelope", None)
+    _route_lost(st, ev, o, "expired")
     text = NOT_DELIVERED.format(contact=o["contact"], out=oid)
     if o.get("press"):
         return None
@@ -1963,6 +2065,7 @@ def _received(st, ev, data):
         **({"chat": True} if data.get("for") == "owner" else {}),   # a hub of the previous release wrote it as a chat
         **({"finding": data["finding"]} if data.get("finding") else {}),
         **({"cls": data["cls"]} if data.get("cls") in CLASSES else {}),
+        **({"route": live["route"]} if live.get("route") else {}),
         **{k: live[k] for k in THREAD_KEYS if live.get(k)}}
     contact = bus["contacts"].get(name) or {}
     if remote and _owned(st, ev, bid, item, source):   # no session to give it to: the liaison, nobody reads the page
@@ -2026,10 +2129,12 @@ def _deliver(st, ev, bid, item, to, note, direct=False, owned=False):
     """The words of another hub to a session, in the core's frame: passed by the liaison, or — an answer in a thread
     of that session's own request — by the core at once (`direct`: no turn of the liaison). `owned`: an owner's words
     on a hub nobody sits at (spec d2505378, part D, remote) — the frame of the owner's task; a session name — the thread was that session's."""
-    from core import liaison, reducer
-    frame = liaison.owned(item, item["marker"], rules_for(_bus(st), item["contact"]), direct,
-                          of=owned if isinstance(owned, str) else None) if owned \
-        else liaison.passed(item, item["marker"], note, direct)
+    from core import deputyroute, liaison, reducer
+    # a deputy's answer on the card the thread was opened for (core/deputyroute.py): its own frame
+    frame = deputyroute.reply(st, ev, item, to) if item.get("route") and direct and to == item.get("source") else None
+    frame = frame or (liaison.owned(item, item["marker"], rules_for(_bus(st), item["contact"]), direct,
+                                    of=owned if isinstance(owned, str) else None) if owned
+                      else liaison.passed(item, item["marker"], note, direct))
     # the answer to the request its source wrote in a turn of the owner's, given to that source: its turn on it is
     # an answer to him (reducer: turn_bus_owner) — to another session it is only words of another hub
     asked = item.get("in_owner_turn") and to == item.get("source")
@@ -2312,8 +2417,19 @@ def liaison_refusal(st, kind, data):
     from core import liaison
     if kind in LIAISON_MAY or not liaison.from_liaison(st, data):
         return None
+    if kind == "owner.decided" and _deputy_answered(st, data.get("card")):
+        return None   # its own form answered by a deputy who decides everything: it closes it (core/deputyroute.py)
     return T("core.busstate.liaison_closed", "this is closed to the liaison ({kind}): only hub bus "
                                              "send/pass/done/note/decline and a form to the owner").format(kind=kind)
+
+
+def _deputy_answered(st, qid):
+    """Card qid is the liaison's own form, at a deputy who decides everything, with their answer."""
+    from core import liaison
+    ask = next((a for a in ((st.get("sessions") or {}).get(liaison.NAME) or {}).get("asks") or []
+                if a.get("id") == qid), None)
+    dep = (ask or {}).get("deputy") or {}
+    return bool(qid) and dep.get("all") is True and dep.get("state") == "answered"
 
 
 def message_refusal(st, data, name, now=0):

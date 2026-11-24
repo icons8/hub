@@ -338,11 +338,18 @@ def card(st, data, tz):
     ql = T("core.budget.queued", "in the queue now {count}: {names}").format(count=len(queued), names=coretext.join(
         *[x for i, item in enumerate(items) for x in ([", "] if i else []) + [item]], " …" if len(queued) > 8 else "")) \
         if queued else T("core.budget.queue_empty", "the queue is empty for now")
-    when = T("core.budget.reset_at", "; reset — {at}").format(at=at(data["until"])) if data.get("until") else ""
+    of_account = lambda name: T("core.budget.eta_account", " of account {account}").format(account=name)  # noqa: E731
+    held, when = _held_by(st, data), ""
+    if held:   # the date is another window's reset: the card names it, not the window in why
+        when = T("core.budget.until_held", "; until {at} (reset of the {window} window{account})").format(
+            at=at(data["until"]), window=_window_text(held[0]), account=of_account(held[1]) if held[1] else "")
+    elif held == "":
+        when = T("core.budget.until_at", "; until {at}").format(at=at(data["until"]))
+    elif data.get("until"):
+        when = T("core.budget.reset_at", "; reset — {at}").format(at=at(data["until"]))
     # a forecast later than the window reset is not a forecast: it will last until the reset
     late = data.get("eta") and data.get("resets") and data["eta"] >= data["resets"]
-    of = T("core.budget.eta_account", " of account {account}").format(account=data["account"]) \
-        if data.get("account") else ""
+    of = of_account(data["account"]) if data.get("account") else ""
     eta = T("core.budget.eta", "; forecast: at this pace window {window}{account} runs out at {at}").format(
         window=_window_text(data.get("window")), account=of, at=at(data["eta"])) if data.get("eta") and not late else ""
     if not gate(st):   # the owner is not asked: the queue will rise by itself after the reset
@@ -350,6 +357,27 @@ def card(st, data, tz):
     if data["mode"] == "owner":
         return CARD_POOL_WORD.format(why=why_of(data), when=when, queue=ql, buttons=CARD_BUTTONS)
     return CARD_ECONOMY.format(why=why_of(data), when=when, eta=eta, queue=ql, buttons=CARD_BUTTONS)
+
+
+def _held_by(st, data):
+    """The window of the mode's until when until is not the reset of the window in why: (window, account), account None -
+    the mode's own (_free_at takes the latest reset of the windows above the level; in a pool - the account that frees
+    first). "" - another date (a busy account's deadline, a Codex hold), None - the reset of the window in why."""
+    until, account = data.get("until"), data.get("account")
+    near = lambda t: isinstance(t, (int, float)) and abs(t - until) <= 60   # noqa: E731 - as daemon.budget_mode
+    if not until or near(data.get("resets")):
+        return None
+    if account:   # Claude's pool and a hub on Codex; the mode's account first
+        pools = [st.get("account"), (st.get("codex") or {}).get("account")]
+        rows = sorted(((n, sn) for p in pools for n, sn in ((p or {}).get("seen") or {}).items() if n),
+                      key=lambda r: r[0] != account)
+    else:
+        rows = [(None, st.get("limits"))]
+    for name, seen in rows:
+        for key in _keys(seen):
+            if near(_resets(seen, key)):
+                return None if (key, name) == (data.get("window"), account) else (key, None if name == account else name)
+    return ""
 
 
 def _window_text(window):

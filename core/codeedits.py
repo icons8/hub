@@ -27,7 +27,7 @@ ZONES = (
                 "hosts/codex_sandbox.py", "hosts/codex_liaison.py", "core/guards.py", "core/admit.py", "core/tools.py", "core/perms.py",
                 "core/redact.py", "core/plugrights.py", "core/marketplace.py", "core/marketplaces.py", "core/mpinstall.py",
                 "core/pgpsig.py", "core/fetch.py", "core/wheels.py", "core/claudeinstall.py", "core/ownclaude.py", "core/codexinstall.py", "core/realclaude.py", "core/configwatch.py",
-                "core/specmode.py", "core/hubrun.py", "core/runjobs.py",
+                "core/specmode.py", "core/hubrun.py", "core/runjobs.py", "core/deputies.py", "core/deputyroute.py",
                 "platforms/runwrap.py", "modules/secrets/", "modules/web/secretsweb.py")),
     # ^ what a session may run or reach, who may answer for the owner, which plugins and programs are trusted, which
     # settings a session changed behind the owner's back, the vault of secrets and what hands its values out
@@ -76,7 +76,7 @@ def zone(path, st=None):
 
 
 def _git(repo, *args):
-    r = subprocess.run(["git", "--no-optional-locks", *args], cwd=repo, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(["git", "--no-optional-locks", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if r.returncode:
         raise OSError(r.stderr.strip()[-200:])
     return r.stdout

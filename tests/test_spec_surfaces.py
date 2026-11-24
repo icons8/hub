@@ -205,6 +205,39 @@ class InTelegram(unittest.TestCase):
         self.assertEqual((ev["type"], ev["entity"], ev["data"]["channel"]), ("delegation.spec_accepted", did, "telegram"))
         self.assertEqual(ev["data"]["sha256"], hashlib.sha256(b"# Export\n\nThree slices.\n").hexdigest())
 
+    def test_words_in_reply_to_the_card_name_its_spec_and_whoever_raised_it_accepts_by_them(self):
+        # a colleague's hub: he answered the card with words, not a button; they went to the executor, and the raiser's
+        # hub task spec accept dN --for mN was refused — nothing tied the words to the card
+        did = spec_journal(self.j, state=self.state)
+        self.bot.tick()
+        card = self.fake.sent()[-1]
+        self.assertIn("reply_markup", card)
+        self.poll({"update_id": 72, "message": {"message_id": 72, "from": {"id": OWNER},
+                                                 "chat": {"id": OWNER, "type": "private"}, "text": "all yes, except X",
+                                                 "reply_to_message": {"message_id": self.bot.st["cards"][f"spec:{did}"],
+                                                                      "text": card["text"]}}})
+        (ev,) = self.spooled()
+        self.assertEqual((ev["type"], ev["data"]["to"], ev["data"]["spec_card"]), ("message.received", "maps-1", did))
+        word = f"m{self.j.append(ev['type'], ev['entity'], ev['data'])['seq']}"
+        self.j.append("delegation.spec_accepted", did, {"sha256": "ab" * 32, "for": word, **by("maps"),
+                                                        "pending": f"specs/{did}/.accepted-abababababab-00000000.md"})
+        self.bot.tick()
+        self.assertEqual(self.bot.reader.state["messages"][word]["session"], "maps-1")
+        self.assertEqual(self.bot.reader.state["delegations"][did]["spec"]["by"], "maps")
+
+    def test_a_reply_to_the_spec_file_names_its_spec_too(self):
+        self.fake.results["sendDocument"] = lambda body: {"message_id": 555}
+        did = spec_journal(self.j, state=self.state)
+        self.bot.tick()
+        self.assertTrue(self.fake.sent("sendDocument"))
+        self.poll({"update_id": 73, "message": {"message_id": 73, "from": {"id": OWNER},
+                                                 "chat": {"id": OWNER, "type": "private"}, "text": "drop it",
+                                                 "reply_to_message": {"message_id": 555, "caption": tg.i18n.t(
+                                                     "telegram.spec_ready", id=did, name="maps-1")}}})
+        (ev,) = self.spooled()
+        self.assertEqual((ev["data"]["to"], ev["data"]["spec_card"]), ("maps-1", did))
+        self.assertNotIn("quote", ev["data"])   # the bot's own heading is no quote
+
     def test_a_press_whose_answer_fails_on_the_network_does_not_stop_the_bot(self):
         # release review 2026-11-09: a transient TgError from on_callback left poll() and serve() (which catch nothing) —
         # the bot process died, the press already read

@@ -1,0 +1,168 @@
+{
+ "id": "needs-other-session",
+ "title": "The watchdog's “waits for the owner” question: an item handed back to the session that owns it, or an ask of another session, is not a wait on the owner; the same ask addressed to the owner is",
+ "note": "Live case: a result reported that a to-do item was returned to the session that had set it (“she asked me to close the item, but only she can close it, so I returned it to her”); the model read “only she can” as the owner, and the owner got a to-do “close the item”. Texts are made up and neutral. Input = the language line + the SESSIONS block the watchdog adds when the result names sessions of the hub (⟦SESSIONS⟧, absent before) + the end of the result (no open cards). The last four turns are the neighbors that must stay a wait on the owner.",
+ "prompt": {
+  "file": "modules/watch/watch.py",
+  "name": "NEEDS_PROMPT",
+  "schema_name": "NEEDS_SCHEMA"
+ },
+ "turns": [
+  {
+   "id": "returned-to-author",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧The link https://example.com is already in the profile @example.shop — that is item t:302 of the session maps. She asked me to close the item itself, but only she can close it, so I returned it to her.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "maps"
+     },
+     "optional": true
+    }
+   }
+  },
+  {
+   "id": "returned-plural-they",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧Item 14 is the session maps' item. They asked me to close it, but only they can close it, so I handed it back to them.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "maps"
+     },
+     "optional": true
+    }
+   }
+  },
+  {
+   "id": "asks-other-session",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧Asked the session maps to close its item 14: the link is already in place, and only the author of an item can close it. Close item 14, maps — that is the whole message I sent.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "maps"
+     },
+     "optional": true
+    }
+   }
+  },
+  {
+   "id": "only-agent-can",
+   "input": "Owner's language: English.\nOnly the release agent can publish the build, so I passed it the branch and the notes. The tests are green, the page is checked on a phone.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": false
+    }
+   ]
+  },
+  {
+   "id": "handed-back-and-owner-login",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧Handed the layout back to the session maps: only it can rebuild it. From you I need the bank sign-in: the statement is behind it and only you can sign in — sign in and write me “done”.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "maps"
+     },
+     "optional": true
+    }
+   }
+  },
+  {
+   "id": "owner-she",
+   "input": "Owner's language: English.\nThe contract draft is ready and sent to the lawyer. She answered that only you can sign it: sign the PDF and send it back to me.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ]
+  },
+  {
+   "id": "session-asks-owner",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧The session sales returned the price list to me: they can't choose between the two layouts, only you can. Which one do we take, A or B?",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "sales"
+     },
+     "optional": true
+    }
+   }
+  },
+  {
+   "id": "session-then-person",
+   "input": "Owner's language: English.\n⟦SESSIONS⟧Item 14 went back to the session sales. Separately, the accountant called: she waits for your signature on the tax form today — sign it and send me the scan.",
+   "checks": [
+    {
+     "id": "needs",
+     "type": "field",
+     "name": "needs",
+     "equals": true
+    }
+   ],
+   "consts": {
+    "SESSIONS": {
+     "file": "modules/watch/watch.py",
+     "name": "SESSIONS_HEAD",
+     "format": {
+      "names": "sales"
+     },
+     "optional": true
+    }
+   }
+  }
+ ]
+}

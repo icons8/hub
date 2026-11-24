@@ -20,7 +20,7 @@ from unittest import mock
 from core import i18n, journal, reducer, views
 from modules.testchrome import chrome as testchrome
 from modules.web import attach
-from tests import test_web
+from tests import test_web, waiting
 from tests.fakes import cut
 
 CHROME = testchrome.find()   # HUB_TEST_CHROME, else headless-shell / Chrome for Testing, else the system Chrome (with its
@@ -104,14 +104,26 @@ class PageInChrome(test_web.WebTest):
                 pass
         shutil.rmtree(self.profile, ignore_errors=True)
 
+    zone = None   # five_am(): the page's time zone in every page() of the test
+
     def page(self, *steps):
+        if self.zone:   # its step goes first and is not among the results: the steps keep their numbers
+            steps = ({"tz": self.zone}, *steps)
         r = subprocess.run(["node", CDP, str(self.cdp), json.dumps(list(steps))], capture_output=True, text=True,
                            timeout=60)
         self.assertEqual(r.returncode, 0, f"step failed: {r.stdout}\nscreen:\n{r.stderr[:1500]}")
-        return json.loads(r.stdout)
+        got = json.loads(r.stdout)
+        return got[1:] if self.zone else got
 
     def ev(self, type, entity=None, **data):
         self.j.append(type, entity, data)
+
+    def five_am(self):
+        """The page from now on in a whole-hour zone where now is between 5 and 6 AM: a time the test knows, with a one-digit
+        hour in a 12-hour locale, whatever the machine's clock and zone (call it right after the events)."""
+        off = (5 - time.gmtime().tm_hour) % 24
+        off = off - 24 if off > 14 else off   # Etc/GMT zones run from UTC-12 to UTC+14; the sign in their names is reversed
+        self.zone = f"Etc/GMT{-off:+d}" if off else "Etc/GMT"
 
     def files_server(self, found):
         """A stub "Files" service for image previews: found(path) -> whether the file exists (exists: a 1×1 image, otherwise 404)."""
@@ -1161,6 +1173,37 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual(got[9]["eval"], 1)                                          # the cancel went out
         self.assertIn("Failed - try again", got[11]["eval"])                          # the message stayed, and the page says so
         self.assertEqual(got[12]["eval"], ["fail"])                                  # a hook for themes: the row of a failed removal
+
+    def test_a_single_queued_message_has_no_count_in_its_heading(self):
+        # one message waiting over the field was headed "In the queue · 1": a count of one says nothing. Now the heading
+        # alone; from two on the count is back, on a phone the folded row likewise ("In the queue ▸", "In the queue · 2 ▸")
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("turn.started", "a", marker=None)
+        self.ev("message.received", None, to="a", text="in queue 1", channel="web", owner=True)
+        queued = ("(() => { const {S, render} = window.__m; const ids = S.snap.timelines.a.filter((i) => i.kind === 'in').map((i) => i.id); "
+                  "ids.forEach((id) => { S.snap.messages[id] = {...S.snap.messages[id], state: 'queued', removable: true}; }); "
+                  "S.snap.sessions.find((x) => x.name === 'a').state = 'busy'; render(); return ids.length; })()")
+        heads = "JSON.stringify([...document.querySelectorAll('.strip-row .k, .strip-row .strip-toggle')].map((k) => k.textContent))"
+        shot = lambda width: {"shot": os.path.join(self.state, f"queue-{width}.png"), "width": width, "height": 800}
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "in queue 1"}, {"eval": self.PREP}, {"sleep": 400},
+                        {"eval": queued}, {"sleep": 300}, shot(1300), {"eval": heads}, shot(390), {"sleep": 300}, {"eval": heads})
+        shots = os.environ.get("HUB_TEST_SHOTS")   # a folder: the row as pictures, Classic and Clean, light and dark
+        for look in (("classic", "clean") if shots else ()):
+            for theme in ("light", "dark"):
+                pic = lambda width: {"shot": os.path.join(shots, f"queue-one-{look}-{theme}-{width}.png"), "width": width, "height": 500, "theme": theme}
+                self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a", **({"look": None} if look == "clean" else {})}, pic(1300),
+                          {"wait": "in queue 1"}, {"eval": self.PREP}, {"sleep": 400}, {"eval": queued}, {"sleep": 300}, pic(1300),
+                          pic(390), {"sleep": 300}, pic(390))
+        self.assertEqual(got[4]["eval"], 1)
+        self.assertEqual(json.loads(got[7]["eval"]), ["In the queue"])             # desktop: the heading, no "· 1"
+        self.assertEqual(json.loads(got[10]["eval"]), ["In the queue ▸"])          # phone: the folded row, no "· 1"
+        self.ev("message.received", None, to="a", text="in queue 2", channel="web", owner=True)
+        # the window is still a phone's after the last shot: widen it first, the folded row hides the second text
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, shot(1300), {"wait": "in queue 2"}, {"eval": self.PREP}, {"sleep": 400},
+                        {"eval": queued}, {"sleep": 300}, {"eval": heads}, shot(390), {"sleep": 300}, {"eval": heads})
+        self.assertEqual(json.loads(got[7]["eval"]), ["In the queue · 2"])         # two: the count is back
+        self.assertEqual(json.loads(got[10]["eval"]), ["In the queue · 2 ▸"])
 
     def test_hooks_for_themes_on_feed_rows_the_hub_thread_chip_and_the_restart_dialog(self):
         # a theme reaches these places by class, not by the row's key or the button's colour: the ask and the terminal
@@ -3455,7 +3498,7 @@ class PageInChrome(test_web.WebTest):
                                  "document.querySelector('form.inputbox .pchip')?.textContent || '']"},
                         {"eval": "(window.__in.set({text: '', files: []}), JSON.stringify(window.__in.draft()))"},
                         {"eval": "JSON.stringify(Object.keys(window.__in).sort())"})
-        self.assertEqual(json.loads(got[3]["eval"]), [{"composerTransport": 1, "composerLeading": 1, "views": 1, "viewToolbar": 1, "openSettings": 1, "receipt": 1, "banner": 1, "subgroups": 1, "dictate": 1, "sidebar": 1, "inputRecord": 1, "messageAt": 1, "viewBadge": 1, "themeOptions": 1}, True])
+        self.assertEqual(json.loads(got[3]["eval"]), [{"clock": 1, "composerTransport": 1, "composerLeading": 1, "views": 1, "viewToolbar": 1, "openSettings": 1, "receipt": 1, "banner": 1, "subgroups": 1, "dictate": 1, "sidebar": 1, "inputRecord": 1, "messageAt": 1, "viewBadge": 1, "themeOptions": 1, "viewSearch": 1}, True])
         self.assertEqual(got[8]["eval"], "In queue: will go later.")   # the plugin transport's phrase, as is
         bodies = json.loads(got[13]["eval"])
         self.assertEqual(len(bodies), 2)
@@ -4170,6 +4213,53 @@ class PageInChrome(test_web.WebTest):
         self.assertTrue(any(r.startswith("maps: q") and "→ tiles.toml · short · rename the file" in r
                             for r in got[3]["eval"]), got[3]["eval"])
 
+    AWAY_SEEN = ("(() => { const vis = (n) => !!n && getComputedStyle(n).display !== 'none' && n.getBoundingClientRect().height > 0; "
+                 "const h = document.querySelector('.composer .cmd-answer'); "
+                 "return {hint: h ? h.innerText : null, hintShown: vis(h), strip: vis(document.getElementById('away')), "
+                 "chip: vis(document.querySelector('.head > .chip.away')), "
+                 "chipTitle: document.querySelector('.head > .chip.away')?.title || null}; })()")
+
+    def away_stand(self):
+        own = {"channel": "cli", "owner": True}
+        self.ev("session.requested", "hub", session_id="s-hub", cwd="/h", kind="hub", **own)
+        self.ev("session.started", "hub", session_id="s-hub")
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", **own)
+        self.ev("session.started", "a", session_id="s-a")
+        self.core_decides()
+
+    def test_away_typed_in_the_field_is_answered_where_it_was_typed(self):
+        # owner report: "/away deputies" in the field seemed to do nothing (he typed it four times): the answer sat in a hint line
+        # that a phone hides, the "Away" strip is in the list (a screen away on a phone), and a repeat said the same as the first.
+        # Now: the answer is under the field on every width (the line Telegram sends and the deputies' lines), the header carries
+        # the mark on a phone, and a repeat while away says it is already away
+        self.away_stand()
+        shots = os.environ.get("HUB_TEST_SHOTS") or self.state   # a folder: the answer as pictures
+        url = f"http://127.0.0.1:{self.port}/#/s/a"
+        type_ = lambda text: [{"eval": self.fn(self.TYPE, "#msg", text)}, {"eval": self.fn(self.KEY, "#msg", False)}]
+        shot = lambda name, width: {"shot": os.path.join(shots, f"away-{name}-classic-{width}.png"), "width": width, "height": 700,
+                                    "theme": "dark"}
+        for width in (390, 1300):
+            self.ev("owner.back", None, channel="cli", owner=True)
+            self.page({"go": url}, {"until": "!!document.querySelector('#msg')"}, shot("before", width), *type_("/away deputies"),
+                      {"until": "!!document.querySelector('.composer .cmd-answer')?.innerText", "ms": 6000})
+            got = self.page({"until": "document.querySelector('.composer .cmd-answer')?.innerText.includes('away')", "ms": 6000},
+                            {"until": "!document.getElementById('away').hidden", "ms": 6000},   # the snapshot with the away state
+                            shot("answer", width), {"eval": self.AWAY_SEEN},   # the width counts from the picture on
+                            *type_("/away deputies"), {"until": "document.querySelector('.composer .cmd-answer')?.innerText.includes('Already away')",
+                                                       "ms": 6000},
+                            shot("again", width), {"eval": self.AWAY_SEEN})
+            first, again = got[3]["eval"], got[-1]["eval"]
+            self.assertTrue(first["hintShown"], (width, first))                       # the answer is on screen, on a phone too
+            self.assertIn("you are away until /back", first["hint"])                   # the line Telegram sends
+            self.assertIn("No deputy is active for this away", first["hint"])         # and what this away hands the deputies
+            self.assertTrue(first["strip"] or width < 761, (width, first))             # beside the feed — the strip over the list
+            self.assertEqual(first["chip"], width < 761, (width, first))              # a phone: the mark is in the header
+            if width < 761:
+                self.assertIn("Away", first["chipTitle"])
+            self.assertTrue(again["hintShown"], (width, again))
+            self.assertIn("Already away (since", again["hint"])                       # a repeat is not silence and not "noted" again
+            self.assertIn("until /back", again["hint"])
+
     def test_a_card_the_hub_never_took_is_not_left_in_its_queue_after_the_owner_is_back(self):
         # the hub was busy while the owner was away: the card for it waited in its queue, and after his return the page
         # still showed it under the hub's feed (the hub's answer is refused from then on)
@@ -4726,25 +4816,72 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual(got[18]["eval"], [True, None])    # no level: quiet is not concluded
         self.assertTrue(got[-1]["until"])                  # the limit still works
 
-    def test_a_transcription_ready_while_a_file_uploads_stays_in_the_field(self):
-        # the words were recognized while an attachment was still uploading: the send is refused ("wait for the files"), and
-        # the field was redrawn from the empty draft — the transcription was lost, neither in the field nor in the feed
+    def test_a_voice_message_whose_file_fails_to_upload_while_recognized_is_not_sent_without_it(self):
+        # review: a file in the field at "send" rides with the voice message. Its upload failed while the words were
+        # recognized: before, the failed file was already out of the field, the words went without it and its error was
+        # wiped. Now nothing is sent; the words stay in the field next to the file's error
         from unittest import mock
         self.ev("session.requested", "a", session_id="s-a", cwd="/w")
         self.ev("session.started", "a", session_id="s-a")
         disk = os.path.join(self.state, "disk")
         os.makedirs(disk)
-        with open(os.path.join(disk, "pic.txt"), "w") as f:
-            f.write("x")
+        with open(os.path.join(disk, "pic.png"), "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                                  "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"))
         mic = "form.composer .btn.round.mic"
         press = (f"document.querySelector('{mic}').dispatchEvent(new PointerEvent('pointerdown', {{button: 0, bubbles: true}})), "
                  "document.dispatchEvent(new PointerEvent('pointerup', {bubbles: true})), 1")
         stub = ("navigator.permissions.query = () => Promise.resolve({state: 'granted'}); "
                 "navigator.mediaDevices.getUserMedia = () => Promise.resolve(new AudioContext({sinkId: {type: 'none'}})"
-                ".createMediaStreamDestination().stream); "
+                ".createMediaStreamDestination().stream); window.__sends = []; "
+                "const of = window.fetch; window.fetch = (u, o) => { const p = String(u); "
+                "if (p.startsWith('/api/upload')) return new Promise((ok) => { window.__up = () => ok(new Response("
+                "JSON.stringify({error: 'too big'}), {status: 413, headers: {'Content-Type': 'application/json'}})); }); "
+                "if (p.startsWith('/api/send')) window.__sends.push(JSON.parse(o.body)); "
+                "if (p.startsWith('/api/voice')) return new Promise((ok) => { window.__voice = () => ok(new Response("
+                "JSON.stringify({text: 'make a report'}), {status: 200})); }); "
+                "return of(u, o); }; 1")
+        err = "((document.querySelector('form.composer .error-text') || {}).textContent || '')"
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": f"!!document.querySelector('{mic}')"},
+                            {"eval": stub}, {"eval": press}, {"until": "!!document.querySelector('[data-rec-clock]')", "ms": 5000},
+                            # the file is in the field at "send", still uploading
+                            {"dropfiles": [os.path.join(disk, "pic.png")], "on": "form.composer"},
+                            {"until": "!!document.querySelector('form.composer .pchip') && !!window.__up", "ms": 5000},
+                            {"eval": "document.querySelector('form.composer .btn.round.stop').click(), 1"},
+                            {"until": "!!window.__voice", "ms": 5000},
+                            # the upload fails while the words are recognized, then the words come
+                            {"eval": "window.__up(), 1"}, {"until": f"{err}.includes('too big')", "ms": 5000},
+                            {"eval": "window.__voice(), 1"}, {"sleep": 1200},
+                            {"eval": f"[window.__sends.length, document.querySelector('#msg').value, {err}]"})
+        self.assertTrue(got[4]["until"] and got[6]["until"] and got[8]["until"] and got[10]["until"], got)
+        sends, field, error = got[-1]["eval"]
+        self.assertEqual(sends, 0, got)                 # not sent without its file
+        self.assertIn("make a report", field, got)      # the words wait in the field
+        self.assertIn("too big", error, got)            # next to the file's error
+
+    def test_a_file_dropped_after_send_stays_in_the_field_and_the_words_go(self):
+        # the words were recognized while an attachment dropped after "send" was still uploading. Before, the send was
+        # refused ("wait for the files") and the field was redrawn from the empty draft: the transcription was lost. A file
+        # added after the press is the owner's next message (what was in the field then rides with the voice message): the
+        # words go at once; the screenshot with its "[Image #1]" mark and the words typed after "send" stay in the field
+        from unittest import mock
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a", session_id="s-a")
+        disk = os.path.join(self.state, "disk")
+        os.makedirs(disk)
+        with open(os.path.join(disk, "pic.png"), "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                                  "1f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082"))
+        mic = "form.composer .btn.round.mic"
+        press = (f"document.querySelector('{mic}').dispatchEvent(new PointerEvent('pointerdown', {{button: 0, bubbles: true}})), "
+                 "document.dispatchEvent(new PointerEvent('pointerup', {bubbles: true})), 1")
+        stub = ("navigator.permissions.query = () => Promise.resolve({state: 'granted'}); "
+                "navigator.mediaDevices.getUserMedia = () => Promise.resolve(new AudioContext({sinkId: {type: 'none'}})"
+                ".createMediaStreamDestination().stream); window.__sends = []; "
                 "const of = window.fetch; window.fetch = (u, o) => { const p = String(u); "
                 "if (p.startsWith('/api/upload')) return new Promise(() => {}); "   # the upload never ends
-                "if (p.startsWith('/api/send')) window.__sent = (window.__sent || 0) + 1; "
+                "if (p.startsWith('/api/send')) window.__sends.push(JSON.parse(o.body)); "
                 "if (p.startsWith('/api/voice')) return new Promise((ok) => { window.__voice = () => ok(new Response("
                 "JSON.stringify({text: 'make a report'}), {status: 200})); }); "
                 "return of(u, o); }; 1")
@@ -4757,15 +4894,20 @@ class PageInChrome(test_web.WebTest):
                             {"eval": "document.querySelector('form.composer .btn.round.stop').click(), 1"},
                             {"until": "!!window.__voice", "ms": 5000},
                             # the file is dropped during the recognition and does not finish uploading
-                            {"dropfiles": [os.path.join(disk, "pic.txt")], "on": "form.composer"},
+                            {"dropfiles": [os.path.join(disk, "pic.png")], "on": "form.composer"},
                             {"until": "!!document.querySelector('form.composer .pchip')", "ms": 5000},
+                            {"eval": "(() => { const m = document.querySelector('#msg'); m.value += ' see this'; "
+                                     "m.dispatchEvent(new Event('input', {bubbles: true})); return m.value; })()"},
                             {"eval": "window.__voice(), 1"},
-                            {"until": f"{field}.includes('make a report')", "ms": 5000}, {"eval": field}, {"eval": err})
-        self.assertTrue(got[-3]["until"], "the transcription vanished from the field")
-        self.assertIn("make a report", got[-2]["eval"])
-        # the voice message waits for the file in the field (it goes out with it once uploaded), it is not refused
-        self.assertNotIn("Wait for the files", got[-1]["eval"])
-        self.assertFalse(self.page({"sleep": 600}, {"eval": "window.__sent || 0"})[-1]["eval"])
+                            {"until": "window.__sends.length > 0", "ms": 5000}, {"sleep": 600},
+                            {"eval": f"[window.__sends.map((b) => [b.text, (b.attachments || []).length]), {field}, "
+                                     f"document.querySelectorAll('form.composer .pchip').length, {err}]"})
+        self.assertTrue(got[-3]["until"], "the transcription was not sent")
+        sends, value, chips, error = got[-1]["eval"]
+        self.assertEqual(sends, [[f"🎤 {i18n.t('web.voice.head')}: make a report", 0]])
+        self.assertEqual(value, "[Image #1] see this")   # the later file and words wait in the field for the next message
+        self.assertEqual(chips, 1)
+        self.assertNotIn("Wait for the files", error)
 
     def test_a_screenshot_added_while_recording_goes_out_with_the_voice_message(self):
         # owner report (Android, Clean): while a voice message records, a screenshot cannot be added — "+" was hidden,
@@ -4930,6 +5072,243 @@ class PageInChrome(test_web.WebTest):
         self.assertIn("[Image #1]", sends[0]["text"])
         self.assertEqual(len(sends[0].get("attachments") or []), 1, sends)
         self.assertEqual(got[-1]["eval"], ["", 0])   # back in the session: nothing left to send again
+
+    VP_MIC = "form.composer .btn.round.mic"
+    VP_STOP = "form.composer .btn.round.stop"
+    VP_CLICK = (f"document.querySelector('{VP_MIC}').dispatchEvent(new PointerEvent('pointerdown', {{button: 0, bubbles: true}})), "
+                "document.dispatchEvent(new PointerEvent('pointerup', {bubbles: true})), 1")
+    VP_RECORDING = "!!document.querySelector('[data-rec-clock]')"
+    VP_ERROR = "!!document.querySelector('.composer .error-text')?.textContent"
+    # a microphone, a level and a recorder of the test's own; /api/voice answers only when the test says so
+    # (window.__go(body, status)): the owner does other things meanwhile. Every /api/send body is kept in window.__posts
+    VP_FAKES = (
+        "window.__posts = []; window.__voice = 0; "
+        "navigator.mediaDevices.getUserMedia = () => Promise.resolve({getTracks: () => [{stop() {}}]}); "
+        "window.AudioContext = class { constructor() { this.state = 'running'; } resume() { return Promise.resolve(); } "
+        "close() { return Promise.resolve(); } createMediaStreamSource() { return {connect() {}}; } "
+        "createAnalyser() { return {fftSize: 0, getFloatTimeDomainData(b) { b.fill(0.5); }}; } }; "
+        "window.MediaRecorder = class { constructor() { this.mimeType = 'audio/webm'; } start() {} "
+        "stop() { this.ondataavailable({data: new Blob([new Uint8Array([1, 2, 3, 4])], {type: 'audio/webm'})}); this.onstop(); } }; "
+        "const f = window.fetch; window.fetch = (u, o) => { "
+        "if (String(u).includes('/api/voice')) { window.__voice++; return new Promise((ok) => { window.__go = (body, status = 200) => "
+        "ok(new Response(JSON.stringify(body), {status, headers: {'Content-Type': 'application/json'}})); }); } "
+        "if (String(u).endsWith('/api/send')) window.__posts.push(JSON.parse(o.body)); "
+        "return f(u, o); }; 1")
+
+    def vp_read(self, expr, name):
+        """Steps that read a value of a page module (expr is a JS expression over `m`, the module) into window[name]."""
+        module, value = expr
+        return [{"eval": f"delete window.{name}, import('/static/js/{module}').then((m) => {{ window.{name} = {value}; }}), 1"},
+                {"until": f"window.{name} !== undefined", "ms": 3000}, {"eval": f"window.{name}"}]
+
+    def test_a_voice_message_goes_with_the_reply_of_the_moment_send_was_pressed(self):
+        # owner report: the "Reply" quote of a voice message was read when the transcription came back, not when "send"
+        # was pressed — what the owner did meanwhile changed the message already spoken. Now the press addresses it: the
+        # reply leaves the field at once and goes with the words; the reply he sets while they are transcribed is his next
+        # message's; a failed transcription gives the field the reply of its press back. A recording made in a and stopped
+        # on b's page is a's and goes with a's reply (each feed keeps its own, drafts.js), and that reply leaves a's field
+        from unittest import mock
+        for n in "ab":
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w")
+            self.ev("session.started", n, session_id=f"s-{n}")
+        shown = lambda n: {"until": f"document.querySelector('main').dataset.for === '{n}' && !!document.querySelector('form.composer')", "ms": 5000}
+        reply = lambda q: [{"eval": f"delete window.__set, import('/static/js/feed.js').then((m) => {{ m.replyTo({{session: 'a', quote: '{q}'}}); "
+                                    f"window.__set = 1; }}), 1"}, {"until": "window.__set === 1", "ms": 3000}]
+        quote = lambda: self.vp_read(("state.js", "m.S.replyTarget?.quote || null"), "__rt")
+        record = [{"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000}, {"eval": self.VP_CLICK},
+                  {"until": self.VP_RECORDING, "ms": 3000}]
+        stop = {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}
+        posts = lambda n: [{"until": f"window.__posts.length === {n}", "ms": 5000}, {"sleep": 500},
+                           {"eval": "window.__posts.map((p) => [p.session, p.quote || null, p.text])"}]
+        steps, at = [], {}
+        def mark(name, *more):
+            steps.extend(more)
+            at[name] = len(steps) - 1
+        # 1. recorded in a with a reply, stopped on b's page
+        steps += [{"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": f"!!document.querySelector('{self.VP_MIC}')"}, {"eval": self.VP_FAKES},
+                  *reply("from a"), *record, {"eval": "(location.hash = '#/s/b', 1)"}, shown("b"), {"sleep": 500}, stop,
+                  {"until": "window.__voice === 1", "ms": 5000}, {"eval": "window.__go({text: 'from b'}), 1"}]
+        mark("b", *posts(1))
+        steps += [{"eval": "(location.hash = '#/s/a', 1)"}, shown("a")]
+        mark("left_a", *quote())   # a's reply went with it: not over a's field any more
+        # 2. in a with a reply; the owner replies to something else while it is transcribed
+        steps += [*reply("about A"), *record, stop,
+                  {"until": "window.__voice === 2", "ms": 5000}]
+        mark("taken", *quote())   # the quote left with the message at once
+        steps += [*reply("the next one"), {"eval": "window.__go({text: 'checking'}), 1"}]
+        mark("sent", *posts(2))
+        mark("kept", *quote())    # the later reply is the next message's
+        # 3. the next one takes that reply; its transcription fails: the reply is back over the field, nothing is sent
+        steps += [*record, stop, {"until": "window.__voice === 3", "ms": 5000}]
+        mark("taken2", *quote())
+        steps += [{"eval": "window.__go({error: 'transcription failed'}, 502), 1"}, {"until": self.VP_ERROR, "ms": 5000}]
+        mark("back", *quote())
+        mark("posts", {"eval": "window.__posts.length"})
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page(*steps)
+        head = f"🎤 {i18n.t('web.voice.head')}"
+        self.assertEqual(got[at["b"]]["eval"], [["a", "from a", f"{head}: from b"]])
+        self.assertIsNone(got[at["left_a"]]["eval"])
+        self.assertIsNone(got[at["taken"]]["eval"])
+        self.assertEqual(got[at["sent"]]["eval"][1:], [["a", "about A", f"{head}: checking"]])
+        self.assertEqual(got[at["kept"]]["eval"], "the next one")
+        self.assertIsNone(got[at["taken2"]]["eval"])
+        self.assertEqual(got[at["back"]]["eval"], "the next one")   # failed: the reply of its press is back
+        self.assertEqual(got[at["posts"]]["eval"], 2)
+
+    def test_a_voice_message_carries_the_board_cards_picked_when_send_was_pressed(self):
+        # the same for the cards picked on a direction's board: the ones under the field when "send" was pressed leave
+        # with the voice message; a card picked while it was transcribed stays for the next message; a failed
+        # transcription puts the cards of its press back
+        from unittest import mock
+        self.picking_board()
+        pick = lambda i, title: (f"import('/static/js/mention.js').then((m) => {{ m.set('maps', [{{id: 'TASK-{i}', title: '{title}', status: 'To Do'}}]); "
+                                 f"window.__picked = {i}; }}), 1")
+        ids = lambda: self.vp_read(("mention.js", "m.ids('maps')"), "__ids")
+        record = [{"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000}, {"eval": self.VP_CLICK},
+                  {"until": self.VP_RECORDING, "ms": 3000}, {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}]
+        steps, at = [], {}
+        def mark(name, *more):
+            steps.extend(more)
+            at[name] = len(steps) - 1
+        steps += [{"go": f"http://127.0.0.1:{self.port}/#/s/maps"}, {"until": f"!!document.querySelector('{self.VP_MIC}')"}, {"eval": self.VP_FAKES},
+                  {"eval": pick(2, "Slice 2: import")}, {"until": "window.__picked === 2", "ms": 3000},
+                  *record, {"until": "window.__voice === 1", "ms": 5000}]
+        mark("left", *ids())   # the chips left with the message at the press
+        steps += [{"eval": pick(3, "Slice 3: export")}, {"until": "window.__picked === 3", "ms": 3000},
+                  {"eval": "window.__go({text: 'checking'}), 1"}, {"until": "window.__posts.length > 0", "ms": 5000}, {"sleep": 300}]
+        mark("after", *ids())
+        mark("sent", {"eval": "window.__posts.map((p) => (p.tasks || []).map((x) => x.id))"})
+        steps += [*record, {"until": "window.__voice === 2", "ms": 5000}]
+        mark("left2", *ids())
+        steps += [{"eval": "window.__go({error: 'transcription failed'}, 502), 1"}, {"until": self.VP_ERROR, "ms": 5000}]
+        mark("back", *ids())
+        mark("posts", {"eval": "window.__posts.length"})
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page(*steps)
+        self.assertEqual(got[at["left"]]["eval"], [])
+        self.assertEqual(got[at["sent"]]["eval"], [["TASK-2"]])   # it carries that card
+        self.assertEqual(got[at["after"]]["eval"], ["TASK-3"])    # the later one stays picked
+        self.assertEqual(got[at["left2"]]["eval"], [])            # the next one took it
+        self.assertEqual(got[at["back"]]["eval"], ["TASK-3"])     # failed: back under the field
+        self.assertEqual(got[at["posts"]]["eval"], 1)
+
+    def test_a_voice_message_aimed_at_a_card_answers_that_card_whatever_is_aimed_meanwhile(self):
+        # review: a voice message spoken to a question card ("reply" on the card) is that card's answer even when the owner
+        # points the field at another card while it is transcribed — the way it goes is fixed by the press, as its reply is
+        from unittest import mock
+        self.two_cards()
+        aim = lambda n: f"document.querySelectorAll('.ask-card .card-aim')[{n}].click(), 1"
+        aimed = lambda n: {"until": f"document.querySelectorAll('.ask-card')[{n}]?.classList.contains('aimed')", "ms": 3000}
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page(
+                {"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "document.querySelectorAll('.ask-card .card-aim').length > 1"},
+                {"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000}, {"eval": self.VP_FAKES},
+                {"eval": aim(1)}, aimed(1),
+                {"eval": self.VP_CLICK}, {"until": self.VP_RECORDING, "ms": 3000},
+                {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}, {"until": "window.__voice === 1", "ms": 5000},
+                {"eval": aim(0)}, aimed(0),
+                {"eval": "window.__go({text: 'after the tests'}), 1"},
+                {"until": "document.querySelectorAll('.ask-card')[1]?.classList.contains('sent')", "ms": 5000}, {"sleep": 600},
+                {"eval": "window.__posts.length"},
+            )
+        self.assertTrue(got[5]["until"] and got[11]["until"], got)
+        sent = [e["data"] for e in self.spooled() if e["type"] == "permission.answered"]
+        self.assertEqual([(d["request_id"], d["answers"]) for d in sent],
+                         [("r2", {"What about Runs?": f"🎤 {i18n.t('web.voice.head')}: after the tests"})])
+        self.assertEqual(got[-1]["eval"], 0)   # not a plain message to the session as well
+
+    def test_a_voice_message_sent_with_no_card_aimed_stays_a_message_when_a_card_is_aimed_meanwhile(self):
+        # the other way round: "send" pressed with the field aimed at nothing is a plain message to the session, even when
+        # the owner aims the field at a question card while it is transcribed; that aim stays for his next message.
+        # Aimed at a card at the press, the aim leaves the field at once
+        from unittest import mock
+        self.two_cards()
+        aim = lambda n: f"document.querySelectorAll('.ask-card .card-aim')[{n}].click(), 1"
+        aimed = lambda n: {"until": f"document.querySelectorAll('.ask-card')[{n}]?.classList.contains('aimed')", "ms": 3000}
+        cards = "[...document.querySelectorAll('.ask-card')].map((c) => c.classList.contains('aimed'))"
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page(
+                {"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "document.querySelectorAll('.ask-card .card-aim').length > 1"},
+                {"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000}, {"eval": self.VP_FAKES},
+                {"eval": self.VP_CLICK}, {"until": self.VP_RECORDING, "ms": 3000},
+                {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}, {"until": "window.__voice === 1", "ms": 5000},
+                {"eval": aim(0)}, aimed(0),
+                {"eval": "window.__go({text: 'after the tests'}), 1"},
+                {"until": "window.__posts.length > 0", "ms": 5000}, {"sleep": 600},
+                {"eval": f"[window.__posts.map((p) => [p.session, p.text]), {cards}]"},
+                # the next one is aimed at card 1 at the press: the aim leaves with it
+                {"eval": aim(1)}, aimed(1), {"eval": self.VP_CLICK}, {"until": self.VP_RECORDING, "ms": 3000},
+                {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}, {"until": "window.__voice === 2", "ms": 5000},
+                {"sleep": 300}, {"eval": cards},
+            )
+        self.assertTrue(got[9]["until"] and got[11]["until"], got)
+        posts, after = got[13]["eval"]
+        self.assertEqual(posts, [["a", f"🎤 {i18n.t('web.voice.head')}: after the tests"]])
+        self.assertEqual(after, [True, False])   # the aim set meanwhile stays for the next message
+        self.assertEqual([e for e in self.spooled() if e["type"] == "permission.answered"], [])
+        self.assertEqual(got[-1]["eval"], [False, False])   # aimed at the press: off the field at once
+
+    def test_a_voice_message_shows_in_the_feed_at_once_and_the_cores_row_takes_its_place(self):
+        # owner report: after "send" on a recording nothing was in the feed until the transcription came back and the
+        # core took the message. Now its bubble is there at once ("Recognizing…"), the words fill it, and the core's row
+        # with the receipt's seq takes its place: one send, never both at once, never neither; a failed transcription
+        # takes the bubble away
+        from unittest import mock
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("session.said", "a", text="an earlier line")   # the bubble is not the first row: a row after another has a gap above
+        self.core_decides()
+        bubble = "document.querySelector('.feed .row.outgoing')"
+        # the core's row: in the feed, or in the queue under the field while the session has not taken it
+        rows = ("[...document.querySelectorAll('.feed .row.mine:not(.outgoing), .strip-row[data-k=queue]')]"
+                ".filter((r) => r.textContent.includes('bubble check')).length")
+        # every change of the page: the bubble and the core's row are never there both, and once the words are in the
+        # bubble one of them is always there
+        watch = (f"window.__both = 0; window.__none = 0; window.__filled = false; new MutationObserver(() => {{ const b = {bubble}, n = {rows}; "
+                 "if (b && n) window.__both++; if (b && b.textContent.includes('bubble check')) window.__filled = true; "
+                 "if (window.__filled && !b && !n) window.__none++; }).observe(document.body, {childList: true, subtree: true, characterData: true}); 1")
+        record = [{"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000}, {"eval": self.VP_CLICK}, {"until": self.VP_RECORDING, "ms": 3000},
+                  {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"}, {"until": "window.__voice > 0", "ms": 5000}]
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page(
+                {"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": f"!!document.querySelector('{self.VP_MIC}')"}, {"eval": self.VP_FAKES},
+                {"eval": watch}, *record,
+                # 1. the transcription is still on its way: the bubble is in the feed, the field is back under the strip with
+                # its "Cancel"
+                {"until": f"!!{bubble} && {bubble}.textContent", "ms": 3000},
+                {"eval": "[!!document.querySelector('.recstrip'), !!document.querySelector('#msg'), window.__posts.length]"},
+                # 2. the words came and went to the core: while the session has not taken the message the bubble keeps
+                # its place with the words, and the strip above the field does not say them a second time ("Sending")
+                {"eval": "window.__go({text: 'bubble check'}), 1"},
+                {"until": "window.__posts.length === 1", "ms": 5000}, {"sleep": 1500},
+                {"eval": f"[!!{bubble} && {bubble}.textContent.includes('bubble check'), {rows}, window.__both, window.__none]"},
+                {"eval": f"{bubble}.getBoundingClientRect().top"},
+            )
+            # the session takes the message: the core's row is in the feed, in the bubble's place
+            with open(self.j.path, encoding="utf-8") as f:
+                sent = [e for e in map(json.loads, f) if e["type"] == "message.received"][-1]
+            self.ev("turn.started", "a", marker=f"m{sent['seq']}", prompt_head="x")
+            got += self.page(
+                {"until": f"!{bubble} && {rows} === 1", "ms": 10000}, {"sleep": 500},
+                {"eval": f"[window.__posts.length, {rows}, window.__both, window.__none, window.__filled]"},
+                {"eval": "[...document.querySelectorAll('.feed .row.mine')].pop().getBoundingClientRect().top"},
+                # 3. a failed transcription: the bubble goes, the reason is under the field, nothing is sent
+                {"eval": "window.__voice = 0, 1"}, *record,
+                {"until": f"!!{bubble}", "ms": 3000},
+                {"eval": "window.__go({error: 'transcription failed'}, 502), 1"},
+                {"until": f"!{bubble} && !!document.querySelector('.composer .error-text')?.textContent", "ms": 5000},
+                {"eval": f"[window.__posts.length, {rows}]"},
+            )
+        n = len(record)
+        self.assertIn(i18n.t("web.voice.recognizing_dots"), got[4 + n]["until"] or "")   # the bubble before the transcription's answer
+        self.assertEqual(got[5 + n]["eval"], [True, True, 0])             # the strip can still cancel it; nothing sent yet
+        self.assertEqual(got[9 + n]["eval"], [True, 0, 0, 0])             # sent, not taken yet: the bubble, no line in the strip
+        self.assertTrue(got[11 + n]["until"])                             # the core's row took the bubble's place
+        self.assertEqual(got[13 + n]["eval"], [1, 1, 0, 0, True])         # one send, one row, never both, never neither
+        self.assertEqual(got[14 + n]["eval"], got[10 + n]["eval"])        # at the very height the bubble stood at: no jump
+        self.assertTrue(got[-2]["until"])                                 # failed: the bubble went
+        self.assertEqual(got[-1]["eval"], [1, 1])                         # and nothing more was sent
 
     def test_retry_transcription_keeps_the_words_typed_after_the_failure(self):
         # the transcription failed; the person typed a line into the field and pressed "Retry transcription": the voice words
@@ -5718,6 +6097,7 @@ class PageInChrome(test_web.WebTest):
 
     def test_a_session_with_news_opens_at_the_last_read_line_with_a_jump_button(self):
         seen = self.unread_session(more=2)
+        self.five_am()
         self.settle()
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "New result about the beacon", "ms": 15000},
                         {"until": "!!document.querySelector('.feed .row.newdiv')", "ms": 8000}, {"sleep": 600},
@@ -5726,7 +6106,7 @@ class PageInChrome(test_web.WebTest):
         self.assertIsNotNone(d, "the \"Last read\" line is missing")
         self.assertEqual(d["n"], 1)
         self.assertEqual(d["tag"], "New · 3")               # answers below the mark — three, the turn steps do not count
-        self.assertRegex(d["since"], r"^since \d\d:\d\d( [AP]M)?$")           # time of the first unread
+        self.assertRegex(d["since"], r"^since 5:\d\d AM$")                  # time of the first unread, the hour without a zero
         self.assertTrue(d["in"])                               # the mark is in the feed window — not at the end
         self.assertGreater(d["gap"], 100)                      # there is still unread below
         self.assertEqual(d["above"], seen)                     # above the mark — the last read one
@@ -5925,12 +6305,13 @@ class PageInChrome(test_web.WebTest):
 
     def test_the_last_read_line_is_a_labelled_separator(self):
         self.unread_session()
+        self.five_am()
         self.settle()
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "New result about the beacon", "ms": 15000},
                         {"until": "!!document.querySelector('.feed .row.newdiv')", "ms": 8000},
                         {"eval": "(() => { const d = document.querySelector('.feed .row.newdiv'); return [d.getAttribute('role'), d.getAttribute('aria-label')]; })()"})
         self.assertEqual(got[3]["eval"][0], "separator")
-        self.assertRegex(got[3]["eval"][1], r"^New · 1 since \d\d:\d\d( [AP]M)?$")
+        self.assertRegex(got[3]["eval"][1], r"^New · 1 since 5:\d\d AM$")
 
     def test_the_jump_button_pressed_with_the_keyboard_hands_focus_to_the_input(self):
         # the button goes away when the end of the feed is shown — focus was lost from it into body
@@ -6155,6 +6536,107 @@ class PageInChrome(test_web.WebTest):
             for x in said:
                 self.assertIn(x, got[2]["eval"], (lang, feed))
             self.assertNotIn("REPLIED", got[2]["eval"], (lang, feed))
+
+    def test_the_cores_stopped_and_timeout_lines_in_the_hub_feed_read_as_words(self):
+        # the hub's feed showed the core's lines as the session reads them: "STOPPED d8: b — the turn broke off with an
+        # error, no reply to the owner", "TIMEOUT d7: a has worked on the task longer than 90 minutes", "REPLIED d9: a
+        # replied to the owner on m5: …" — the tag and the task and message numbers are for the session; the owner
+        # reads only the words (the core's label, core/coretext.py T(shown=…)). "Detailed" and "Brief" alike; Russian
+        self.core_lines_in_the_hub_feed("ru")
+
+    def test_the_cores_stopped_and_timeout_lines_read_as_words_in_english(self):
+        # an English hub: the label is there too (before, English had no label and the page cut the tag itself)
+        self.core_lines_in_the_hub_feed("en")
+
+    def test_the_cores_stopped_and_timeout_lines_read_as_words_in_chinese(self):
+        self.core_lines_in_the_hub_feed("zh-CN")
+
+    def test_the_cores_stopped_and_timeout_lines_read_as_words_in_japanese(self):
+        self.core_lines_in_the_hub_feed("ja")
+
+    def core_lines_in_the_hub_feed(self, lang):
+        """The core's STOPPED, TIMEOUT and REPLIED lines in the hub's feed in `lang`, detailed and brief: the words of
+        each, the quoted reply as it is (its own d/m/q words stay), no tag and no task or message number. The line to
+        the session that waits for the result (STOPPED_SESSION, with its commands) keeps its form in that session's
+        feed: the session acts on it."""
+        cfg = os.path.join(self.state, f"hub-{lang}.json")
+        with open(cfg, "w") as f:
+            json.dump({"update": {"enabled": False}, "language": lang}, f)
+        env = mock.patch.dict(os.environ, {"HUB_CONFIG": cfg})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(i18n.use, i18n.current())
+        i18n.use(lang)   # the server's texts: the hub's language (core/i18n.py current)
+        self.ev("session.requested", "hub", session_id="s-hub", cwd="/w", kind="hub", **self.OWNER)
+        self.ev("session.started", "hub", session_id="s-hub")
+        for name in ("a", "b", "c"):
+            self.ev("session.requested", name, session_id=f"s-{name}", cwd="/w", **self.OWNER)
+            self.ev("session.started", name, session_id=f"s-{name}")
+        m = self.j.append("message.received", None, {"to": "hub", "text": "collect the logs", **self.OWNER})
+        self.ev("turn.started", "hub", marker=f"m{m['seq']}", prompt_head="collect the logs")
+        # a's task is the owner's message (its reply goes "to the owner on m<seq>"), b's is the hub's own, for session c
+        da = self.j.append("delegation.created", None, {"session": "a", "for": f"m{m['seq']}", "context": "the log of a",
+                                                        "channel": "web", "owner": True, "sender": "hub"})
+        self.ev("turn.started", "a", marker=f"m{da['seq']}")
+        db = self.j.append("delegation.created", None, {"session": "b", "for_session": "c", "context": "the log of b",
+                                                        "channel": "session", "owner": False, "sender": "hub"})
+        self.ev("turn.started", "b", marker=f"m{db['seq']}")
+        self.ev("turn.result", "hub", text="—")
+        self.ev("turn.stopped", "hub")
+        # b breaks off with an error: STOPPED (to the hub, and to c that waits); a is past its deadline: TIMEOUT; then a
+        # replies to the owner on m<seq>: REPLIED — the hub reads each line (a turn on it), as a live hub does
+        read = lambda e, ts: (self.j.append("turn.started", "hub", {"marker": f"m{e['seq']}"}, ts=ts),
+                              self.j.append("turn.result", "hub", {"text": "—"}, ts=ts), self.j.append("turn.stopped", "hub", {}, ts=ts))
+        r = self.j.append("turn.result", "b", {"text": "", "is_error": True})
+        self.ev("turn.stopped", "b")
+        read(r, r["ts"])
+        self.j.append("turn.started", "c", {"marker": f"m{r['seq']}x1"}, ts=r["ts"])   # c reads its line
+        self.j.append("turn.result", "c", {"text": "—"}, ts=r["ts"])
+        self.j.append("turn.stopped", "c", {}, ts=r["ts"])
+        late = da["ts"] + 6000
+        read(self.j.append("timer.fired", f"d{da['seq']}", {"kind": "timeout"}, ts=late), late)
+        quote = "see q3 and the d2 branch: done, run the m4 job"   # the reply's own words look like the core's numbers
+        self.j.append("session.said", "a", {"text": quote}, ts=late + 1)
+        r = self.j.append("turn.result", "a", {"text": quote, "is_error": False}, ts=late + 1)
+        self.j.append("turn.stopped", "a", {}, ts=late + 1)
+        read(r, late + 1)
+        self.settle()
+        from core import journal, reducer
+        st = reducer.fold(reducer.empty(), journal.read(self.j.path))
+        to_hub = [x["text"] for x in st["messages"].values() if x.get("to") == "hub"]
+        for tag in ("STOPPED d", "TIMEOUT d", "REPLIED d"):   # the core's forms, with the numbers: the session's
+            self.assertTrue(any(x.startswith(tag) for x in to_hub), (tag, to_hub))
+        self.assertTrue(any(f"the owner on m{m['seq']}" in x for x in to_hub), to_hub)
+        to_c = [x["text"] for x in st["messages"].values() if x.get("to") == "c"]
+        self.assertTrue(any(x.startswith(f"STOPPED d{db['seq']}: b") and "hub show b" in x for x in to_c), to_c)
+        # the words of each line in lang, from the catalog (core/delegations.py T(shown=…))
+        tr = lambda key, **a: i18n.tr(lang, key, **a)
+        said = (tr("core.delegations.stopped_hub.shown", name="b", cut=tr("core.delegations.cut_error")),
+                tr("core.delegations.timeout.shown", name="a", minutes=90),
+                tr("core.delegations.replied.shown", name="a", target=tr("core.delegations.to_owner.shown"), short=quote))
+        for x in said:
+            self.assertNotRegex(x.replace(quote, ""), r"REPLIED|STOPPED|TIMEOUT|\b[dmq]\d+\b", (lang, x))
+        rows = ("JSON.stringify([...document.querySelectorAll('.feed .row')].map((r) => r.innerText.replace(/\\s+/g, ' '))"
+                f".filter((x) => {json.dumps(said)}.some((s) => x.includes(s))))")
+        shots = os.environ.get("HUB_TEST_SHOTS")   # a folder: the feed as pictures, Classic and Clean, light and dark
+        for look in (("classic", "clean") if shots else ()):
+            for theme in (("light", "dark") if lang in ("en", "ru") else ("light",)):
+                self.page({"go": f"http://127.0.0.1:{self.port}/#/s/hub", "feed": "full", **({"look": None} if look == "clean" else {})},
+                          {"until": f"JSON.parse({rows}).length === 3", "ms": 15000}, {"sleep": 300},
+                          {"shot": os.path.join(shots, f"core-lines-{lang}-{look}-{theme}.png"), "width": 1000, "height": 520, "theme": theme})
+        for feed in ("full", "compact"):
+            got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/hub", "feed": feed},
+                            {"until": f"JSON.parse({rows}).length === 3", "ms": 15000}, {"eval": rows})
+            self.assertTrue(got[1]["until"], (lang, feed, got[2]["eval"]))
+            for row in json.loads(got[2]["eval"]):
+                self.assertNotRegex(row.replace(quote, ""), r"STOPPED|TIMEOUT|REPLIED|\b[dmq]\d+\b", (lang, feed, row))
+            self.assertTrue(any(quote in row for row in json.loads(got[2]["eval"])), (lang, feed, got[2]["eval"]))
+        # c's feed: the line it acts on, as the session reads it — the tag, the number, the commands
+        feed_c = "((document.querySelector('.feed') || {}).innerText || '')"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/c", "feed": "full"},
+                        {"until": f"{feed_c}.includes('hub show b')", "ms": 15000}, {"eval": feed_c})
+        self.assertTrue(got[1]["until"], (lang, got[2]["eval"]))
+        self.assertIn(f"STOPPED d{db['seq']}", got[2]["eval"], lang)
 
     def test_the_new_label_counts_only_what_the_core_calls_new_for_the_owner(self):
         # in the hub's session "New · 17" with one new answer (the rest is core service), the line with an old date
@@ -7493,6 +7975,103 @@ class PageInChrome(test_web.WebTest):
         got = self.page({"wait": "Paragraph 13"}, {"sleep": 1200}, {"eval": gap})
         self.assertLess(abs(got[-1]["eval"] - before), 40, (before, got[-1]["eval"]))   # stayed in the same place
 
+    def test_a_draft_and_the_reply_quote_survive_another_thread_and_a_reload(self):
+        # a half-written message vanished when the page reloaded (the hub updated), and the chosen "Reply" quote
+        # vanished after a look at another thread
+        for n in ("a", "b"):
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w", channel="cli", owner=True)
+            self.ev("session.started", n, session_id=f"s-{n}")
+        self.ev("session.said", "a", text="The report is ready, check the numbers")
+        state = "[document.querySelector('#msg')?.value, document.querySelector('.reply-chip')?.textContent || '']"
+        seen = "(() => { const [text, chip] = %s; return text === %s && chip.includes(%s); })()"
+        mine = seen % (state, "'a draft with [Image #1]'", "'The report is ready'")
+        none = seen % (state, "''", "''")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "The report is ready"},
+                        {"eval": "[...document.querySelectorAll('.reply-btn')].pop().click(), 1"},
+                        {"until": "!!document.querySelector('.reply-chip')?.textContent"},
+                        {"eval": self.fn(self.TYPE, "#msg", "a draft with [Image #1]")},
+                        {"hash": "#/s/b"}, {"until": none, "ms": 8000},
+                        {"hash": "#/s/a"}, {"until": mine, "ms": 8000},
+                        {"until": "(localStorage.getItem('hub.drafts') || '').includes('a draft with')", "ms": 8000},
+                        {"eval": "location.reload(); 1"})
+        self.assertTrue(got[6]["until"], got)                               # b has its own (empty) field and no quote
+        self.assertTrue(got[8]["until"], got)                               # back in a: the text and the quote are in place
+        got = self.page({"until": mine, "ms": 15000}, {"eval": state}, {"hash": "#/s/b"}, {"until": none, "ms": 8000})
+        self.assertTrue(got[0]["until"], got)                               # after the reload: the text, the mark and the quote
+        self.assertTrue(got[3]["until"], got)                               # b still has nothing of a's
+        self.assertEqual(self.sent(), [])                                   # nothing went out on its own
+
+    def test_a_kept_draft_is_not_wiped_by_the_empty_field_of_a_fresh_page(self):
+        # right after a reload the owner jumps between threads before anything is typed: the fields drawn empty on the
+        # way (another thread's, this thread's first draw) must not overwrite the kept text
+        for n in ("a", "b"):
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w", channel="cli", owner=True)
+            self.ev("session.started", n, session_id=f"s-{n}")
+        kept = "(localStorage.getItem('hub.drafts') || '').includes('kept for a')"
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "!!document.querySelector('#msg')"},
+                  {"eval": self.fn(self.TYPE, "#msg", "kept for a")}, {"until": kept, "ms": 8000},
+                  {"eval": "location.hash = '#/s/b'; location.reload(); 1"})
+        hop = "(() => { location.hash = '#/s/a'; location.hash = '#/s/b'; location.hash = '#/s/a'; return 1; })()"
+        got = self.page({"until": "!!document.querySelector('#msg')", "ms": 15000}, {"eval": "document.querySelector('#msg').value"},
+                        {"eval": hop}, {"until": "document.querySelector('#msg')?.value === 'kept for a'", "ms": 8000},
+                        {"hash": "#/s/b"}, {"until": "document.querySelector('#msg')?.value === ''", "ms": 8000},
+                        {"eval": "document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('pagehide')); 1"},
+                        {"eval": kept})
+        self.assertEqual(got[1]["eval"], "")                                # the page came up in b: its field is empty
+        self.assertTrue(got[3]["until"], got)                               # a's text is in a's field
+        self.assertTrue(got[5]["until"], got)
+        self.assertTrue(got[7]["eval"], got)                                # and still kept after the writes on the way out
+        self.assertEqual(self.sent(), [])
+
+    def test_a_kept_draft_goes_out_once_with_its_quote_and_does_not_come_back(self):
+        # the draft that came back after a reload is sent: exactly one message, with the quote it was a reply to, and
+        # the next reload shows an empty field
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("session.said", "a", text="The report is ready, check the numbers")
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "The report is ready"},
+                  {"eval": "[...document.querySelectorAll('.reply-btn')].pop().click(), 1"},
+                  {"until": "!!document.querySelector('.reply-chip')?.textContent"},
+                  {"eval": self.fn(self.TYPE, "#msg", "goes out once")},
+                  {"until": "(localStorage.getItem('hub.drafts') || '').includes('goes out once')", "ms": 8000},
+                  {"eval": "location.reload(); 1"})
+        got = self.page({"until": "document.querySelector('#msg')?.value === 'goes out once' && !!document.querySelector('.reply-chip')?.textContent",
+                         "ms": 15000},
+                        {"eval": self.fn(self.KEY, "#msg", False)}, {"until": "document.querySelector('#msg').value === ''"},
+                        {"until": "!localStorage.getItem('hub.drafts') && !localStorage.getItem('hub.reply')", "ms": 8000},
+                        {"eval": "location.reload(); 1"})
+        self.assertTrue(got[0]["until"], got)                               # the draft and the quote came back
+        self.assertTrue(got[3]["until"], got)                               # sent: nothing is kept any more
+        got = self.page({"wait": "The report is ready", "ms": 15000}, {"until": "!!document.querySelector('#msg')"},
+                        {"eval": "[document.querySelector('#msg').value, document.querySelector('.reply-chip')?.textContent || '']"})
+        self.assertEqual(got[-1]["eval"], ["", ""])                         # the sent text and its quote did not come back
+        sent = self.sent()
+        self.assertEqual(len(sent), 1, sent)                                # one message, not two
+        self.assertEqual(sent[0]["text"], "goes out once")
+        self.assertIn("The report is ready", sent[0].get("quote") or "")   # the quote kept across the reload went with it
+
+    def test_a_send_with_an_unknown_outcome_is_not_doubled_by_a_resend_after_a_reload(self):
+        # the request reached the hub, the answer did not: the text is back in the field. The page reloads, the owner
+        # sends the kept text again — with the same id, so the hub has one message, not two
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        deaf = ("(() => { const of = window.fetch; window.fetch = (u, o) => (u === '/api/send' "
+                "? of(u, o).then(() => { throw new TypeError('no answer'); }) : of(u, o)); return 1; })()")
+        back = "document.querySelector('#msg')?.value === 'was it sent?'"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "!!document.querySelector('#msg')"},
+                        {"eval": deaf}, {"eval": self.fn(self.TYPE, "#msg", "was it sent?")},
+                        {"eval": self.fn(self.KEY, "#msg", False)},
+                        {"until": back + " && (localStorage.getItem('hub.drafts') || '').includes('was it sent?')"
+                                         " && !!localStorage.getItem('hub.unsent')", "ms": 8000},
+                        {"eval": "location.reload(); 1"})
+        self.assertTrue(got[5]["until"], got)                               # the text came back and is kept with its id
+        self.assertEqual(len(self.sent()), 1)                               # and the message did reach the hub
+        got = self.page({"until": back, "ms": 15000}, {"eval": self.fn(self.KEY, "#msg", False)},
+                        {"until": "document.querySelector('#msg').value === '' && !localStorage.getItem('hub.unsent')", "ms": 8000})
+        self.assertTrue(got[0]["until"], got)                               # after the reload the text is in the field
+        self.assertTrue(got[2]["until"], got)                               # sent: the field is empty, the id is forgotten
+        self.assertEqual([d["text"] for d in self.sent()], ["was it sent?"])   # one message, not two
+
     def test_own_answer_is_multiline_shift_enter_newline_enter_sends(self):
         # owner complaint: Shift+Enter for a new line does not work in the message field
         self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
@@ -8142,6 +8721,96 @@ class PageInChrome(test_web.WebTest):
                   {"eval": "document.querySelector('.card-x').click()"}, {"sleep": 400})
         self.assertEqual([e["data"]["request_id"] for e in self.spooled() if e["type"] == "question.dismissed"], ["r2"])
 
+    # the owner's ask: the usual messenger keys in every client. ⌘↑/⌘↓ (Ctrl off a Mac) in an empty field pick a row to
+    # reply to, as in Telegram Desktop: up — older, down — newer, down past the newest drops the reply; with words in the
+    # field the keys stay the system's
+    CHIP = "(document.querySelector('.reply-chip') || {}).textContent || ''"
+
+    def msgr_feed(self):
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("session.said", "a", text="first answer")
+        e = self.j.append("message.received", None, {"to": "a", "text": "my words", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="my")
+        self.ev("session.said", "a", text="second answer")
+        self.ev("turn.result", "a", text="second answer")
+        self.ev("turn.stopped", "a")
+        mac = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "/mac|iphone|ipad/i.test(navigator.userAgentData?.platform || navigator.platform)"})
+        return ["meta"] if mac[-1]["eval"] else ["ctrl"]
+
+    def test_cmd_up_and_down_in_an_empty_field_pick_a_row_to_reply_to(self):
+        mod = self.msgr_feed()
+        up, down = {"key": "ArrowUp", "mods": mod}, {"key": "ArrowDown", "mods": mod}
+        chip = {"eval": self.CHIP}
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "document.querySelector('#msg').focus(), 1"},
+                        up, chip, up, chip, down, chip, down, chip, {"typed": "x"}, up, chip)
+        picks = [s["eval"] for s in got if "eval" in s][1:]
+        self.assertIn("second answer", picks[0])
+        self.assertIn("my words", picks[1])
+        self.assertIn("second answer", picks[2])
+        self.assertEqual(picks[3], "")   # down past the newest — no reply
+        self.assertEqual(picks[4], "")   # words in the field: ⌘↑ is the caret's
+
+    def test_esc_drops_the_reply_quote_without_stopping_the_turn(self):
+        # Esc with a reply quote over the field stopped the busy session's turn and left the quote: now it drops the quote only
+        self.msgr_feed()
+        self.ev("turn.started", "a", marker=None, prompt_head="x")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "[...document.querySelectorAll('.reply-btn')].pop().click(), 1"},
+                        {"until": "!!document.querySelector('.reply-chip')?.textContent"},
+                        {"key": "Escape"}, {"sleep": 400}, {"eval": self.CHIP})
+        self.assertEqual(got[-1]["eval"], "")
+        self.assertFalse([e for e in self.spooled() if e["type"] == "session.interrupt_requested"])
+
+    def test_cmd_up_off_the_field_is_the_feeds_own(self):
+        # ⌘↑/⌘↓ pick a reply only in the message field (as Telegram and Slack): with the focus on the feed they stay the
+        # page's — scrolling it — and no row is picked
+        mod = self.msgr_feed()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "(() => { const f = document.querySelector('main .feed'); f.tabIndex = -1; f.focus(); return 1; })()"},
+                        {"eval": "!!document.activeElement.closest('main .feed')"},
+                        {"key": "ArrowUp", "mods": mod}, {"sleep": 200}, {"eval": self.CHIP},
+                        {"eval": "!!document.activeElement.closest('main .feed')"})
+        self.assertEqual([s["eval"] for s in got if "eval" in s][1:], [True, "", True])
+
+    def test_esc_in_the_session_search_keeps_the_reply_quote(self):
+        # the session search's Esc clears the search and moves the focus to the message field: the same key is not also
+        # the field's Esc — the reply quote stays, the busy turn goes on
+        self.msgr_feed()
+        self.ev("turn.started", "a", marker=None, prompt_head="x")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "[...document.querySelectorAll('.reply-btn')].pop().click(), 1"},
+                        {"until": "!!document.querySelector('.reply-chip')?.textContent"},
+                        {"eval": "document.getElementById('filter').focus(), 1"}, {"typed": "zz"},
+                        {"key": "Escape"}, {"sleep": 300},
+                        {"eval": "[document.getElementById('filter').value, document.activeElement.id]"},
+                        {"eval": self.CHIP})
+        self.assertEqual(got[-2]["eval"], ["", "msg"], got)
+        self.assertIn("second answer", got[-1]["eval"], got)
+        self.assertFalse([e for e in self.spooled() if e["type"] == "session.interrupt_requested"])
+
+    def test_esc_closing_the_selection_panel_does_not_stop_the_turn(self):
+        # one Esc — one thing: closing the panel over a selection in the feed no longer goes on to stop the busy turn
+        self.quote_turn()
+        self.ev("turn.started", "a", marker=None, prompt_head="x")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Second line"}, {"sleep": 300},
+                        {"eval": self.select_js("Second line")},
+                        {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000},
+                        {"key": "Escape"}, {"sleep": 400},
+                        {"eval": "!!document.querySelector('.quote-bar:not([hidden])')"})
+        self.assertFalse(got[-1]["eval"], got)
+        self.assertFalse([e for e in self.spooled() if e["type"] == "session.interrupt_requested"])
+
+    def test_a_letter_typed_outside_the_field_goes_into_it(self):
+        self.msgr_feed()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "second answer"},
+                        {"eval": "document.activeElement.blur(), document.querySelector('main .feed').focus(), 1"},
+                        {"key": "h", "text": True}, {"key": "i", "text": True}, {"sleep": 200},
+                        {"eval": "[document.querySelector('#msg').value, document.activeElement.id]"})
+        self.assertEqual(got[-1]["eval"], ["hi", "msg"])
+
     def test_the_list_with_sleeping_sessions_draws_without_errors(self):
         # commit ec5be4a: `.map(sessionRow)` passed the index and the array as the third argument — shortName failed on
         # under.replace, the list was not drawn, and messages from the page were not sent
@@ -8554,7 +9223,7 @@ class PageInChrome(test_web.WebTest):
 
     def test_without_the_module_the_feed_has_no_reactions(self):
         """The module is off (default): no badge on the owner's own message, no "Reactions" under the reply, and the reply row grid has
-        three columns, as without the module ("Reply" does not shift)."""
+        four columns — the name, the time, "Copy" and "Reply" — with no fifth one for "Reaction"."""
         self.reacted_turn()
         probe = ("(() => ({chips: document.querySelectorAll('.react-chip, .reactions').length, "
                  "add: [...document.querySelectorAll('button')].filter((b) => b.textContent === 'Reaction').length, "
@@ -8562,7 +9231,7 @@ class PageInChrome(test_web.WebTest):
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"sleep": 300},
                         {"eval": probe}, {"eval": self.GRID})
         self.assertEqual(got[-2]["eval"], {"chips": 0, "add": 0, "reply": 2}, got)   # the session's reply and the owner's own message
-        self.assertEqual(got[-1]["eval"], 3, got)
+        self.assertEqual(got[-1]["eval"], 4, got)
 
     def test_receipts_checkbox_hides_the_core_receipts_under_the_own_message_only(self):
         """The "Core receipts" view checkbox (on by default): off, the core's 👀/👍 under the owner's own message are not drawn; a
@@ -8586,16 +9255,19 @@ class PageInChrome(test_web.WebTest):
         said = self.reacted_turn()
         chips = "(() => [...document.querySelectorAll('.react-chip')].map((x) => x.textContent))()"
         picks = "(() => document.querySelectorAll('.react-pick').length)()"
+        # "Reaction" under the session's reply (the owner's answered message has its own, next to the 👍 leading here)
+        add = "(() => { document.querySelector('.row:not(.mine) .react-add').click(); return true; })()"
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"sleep": 300},
                         {"eval": chips}, {"eval": self.GRID},
-                        {"click": "Reaction"}, {"sleep": 200}, {"eval": picks},
-                        {"click": "Reaction"}, {"sleep": 200}, {"eval": picks},
-                        {"click": "Reaction"}, {"sleep": 200},
+                        {"eval": add}, {"sleep": 200}, {"eval": picks},
+                        {"eval": add}, {"sleep": 200}, {"eval": picks},
+                        {"eval": add}, {"sleep": 200},
                         {"eval": "(() => { const b = [...document.querySelectorAll('.react-pick')].find((x) => x.textContent === '👍'); "
                                  "b.click(); return b.getAttribute('aria-pressed'); })()"},
-                        {"sleep": 500})
+                        {"sleep": 500}, {"eval": "(() => document.querySelectorAll('.row.mine .react-add').length)()"})
         self.assertEqual(got[3]["eval"], ["👍"], got)            # on the owner's own message: answered
-        self.assertEqual(got[4]["eval"], 4, got)                 # "Reaction" as the fourth column
+        self.assertEqual(got[4]["eval"], 5, got)                 # "Reaction" as the fifth column, after "Copy" and "Reply"
+        self.assertEqual(got[15]["eval"], 1, got)                # and its own "Reaction" next to that 👍
         self.assertEqual((got[7]["eval"], got[10]["eval"]), (5, 0), got)   # opened and closed
         self.assertEqual(got[13]["eval"], "false", got)
         (ev,) = [e for e in self.spooled() if e["type"] == "message.reacted"]   # the owner put 👍 on the session's reply
@@ -8608,6 +9280,142 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "(() => { document.querySelectorAll('.react-chip')[1].click(); return true; })()"},
                         {"sleep": 300}, {"eval": pressed})
         self.assertEqual(got[-1]["eval"], ["👍"], got)
+
+    def test_the_cores_thumb_leads_to_the_answer_and_reaction_changes_it(self):
+        """The core's 👍 under the owner's message is a way to the row that answered it (reactions.links): every press
+        highlights that row and opens no picker; the reaction changes with "Reaction" next to it, as anywhere."""
+        self.reactions_module(True)
+        self.reacted_turn()
+        own = "document.querySelector('.row.mine .react-chip')"
+        flashed = "(() => [...document.querySelectorAll('.flash')].map((x) => x.textContent.includes('Report ready.')))()"
+        picks = "(() => document.querySelectorAll('.react-pick').length)()"
+        press = f"(() => {{ {own}.click(); return true; }})()"
+        # "Reaction" stands beside the badge, not in the time row: there it wrapped the row on a phone (an empty line in the bubble)
+        beside = "(() => document.querySelector('.row.mine .react-add').parentElement.className)()"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"sleep": 300},
+                        {"eval": f"(() => {own}.title)()"}, {"eval": beside},
+                        {"eval": press}, {"sleep": 300}, {"eval": flashed}, {"eval": picks}, {"sleep": 1700}, {"eval": flashed},
+                        {"eval": press}, {"sleep": 300}, {"eval": flashed}, {"eval": picks},
+                        {"eval": "(() => { document.querySelector('.row.mine .react-add').click(); return true; })()"},
+                        {"sleep": 300}, {"eval": picks})
+        self.assertEqual(got[3]["eval"], "Show the reply", got)
+        self.assertEqual(got[4]["eval"], "reactions", got)
+        self.assertEqual((got[7]["eval"], got[8]["eval"]), ([True], 0), got)     # highlighted the answer, no picker
+        self.assertEqual(got[10]["eval"], [], got)                                # the highlight is a flash: gone after it
+        self.assertEqual((got[13]["eval"], got[14]["eval"]), ([True], 0), got)   # the second press: the same
+        self.assertEqual(got[17]["eval"], 5, got)                                 # "Reaction": the picker
+        self.assertEqual([e for e in self.spooled() if e["type"] == "message.reacted"], [])
+        # Clean: an own message carries the badge alone — no "Reaction" (neither the word nor an icon), the badge still hangs
+        # on the bubble's corner; the 👍 leads to the answer
+        hidden = ("(() => [document.documentElement.classList.contains('th-clean'), getComputedStyle(document.querySelector('.row.mine .react-add')).display,"
+                  " getComputedStyle(document.querySelector('.row.mine .reactions')).position])()")
+        got = self.page({"go": "about:blank", "look": None}, {"local": {"hub.theme": '{"id":"core:clean"}'}},
+                        {"go": f"http://127.0.0.1:{self.port}/#/s/a", "look": None}, {"wait": "Report ready"}, {"sleep": 300}, {"eval": hidden},
+                        {"eval": press}, {"sleep": 300}, {"eval": flashed}, {"eval": picks})
+        self.assertEqual(got[5]["eval"], [True, "none", "absolute"], got)
+        self.assertEqual((got[8]["eval"], got[9]["eval"]), ([True], 0), got)
+
+    def test_the_cores_thumb_says_when_the_reply_is_not_in_the_feed(self):
+        """The way from the core's 👍 to the answer answers the press as the quote jump does: while the page looks further back
+        it says so under the message, and when the row is not there it says why, for a few seconds — before, such a press did
+        nothing visible."""
+        self.reactions_module(True)
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a")
+        self.turn("a", "Old question", said="Old word")
+        self.turn("a", "Long turn", steps=160)   # the first window is 150 rows: there is history to look through
+        e = self.j.append("message.received", None, {"to": "a", "text": "make a report", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="make")
+        self.j.append("session.said", "a", {"text": "Report ready."})
+        self.ev("turn.result", "a", text="Report ready.")
+        self.ev("turn.stopped", "a")
+        own = "document.querySelector('.row.mine .react-chip')"
+        note = "(() => document.querySelector('.row.mine .quote-note')?.innerText ?? null)()"
+        # the link points at a row the feed does not have (the row is gone, the link outlived it)
+        lost = ("(() => { const {S, render} = window.__m; const id = S.snap.timelines.a.filter((i) => i.kind === 'in').pop().id; "
+                "S.snap.reactions.links[id].seq = 99999; render(); return id; })()")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"eval": self.PREP}, {"sleep": 400},
+                        {"eval": lost}, {"sleep": 200}, {"eval": note},
+                        {"eval": f"(() => {{ {own}.click(); return true; }})()"}, {"eval": note},
+                        {"until": "(document.querySelector('.row.mine .quote-note')?.innerText ?? '').includes('not in this session')", "ms": 20000},
+                        {"eval": note}, {"eval": "document.querySelectorAll('.react-pick').length"},
+                        {"until": "!document.querySelector('.row.mine .quote-note')", "ms": 12000}, {"eval": note})
+        self.assertIsNone(got[6]["eval"], got)                                                 # nothing said before the press
+        self.assertIn(got[8]["eval"], ["Looking for the reply further back in the feed…",     # looking through the history…
+                                       "The reply is not in this session's feed"], got)
+        self.assertEqual((got[10]["eval"], got[11]["eval"]), ("The reply is not in this session's feed", 0), got)   # …and the verdict, no picker
+        self.assertEqual((got[12]["until"], got[13]["eval"]), (True, None), got)               # the verdict goes away by itself
+
+    def test_a_second_tap_on_the_thumb_gives_the_verdict_its_full_time_again(self):
+        """The verdict under the 👍 stays its few seconds from the last press, not from the first: a second tap 3 s later
+        still shows it 6.5 s after the first — before, the first press's clock took it down."""
+        self.reactions_module(True)
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a")
+        e = self.j.append("message.received", None, {"to": "a", "text": "make a report", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="make")
+        self.j.append("session.said", "a", {"text": "Report ready."})
+        self.ev("turn.result", "a", text="Report ready.")
+        self.ev("turn.stopped", "a")
+        own = "document.querySelector('.row.mine .react-chip')"
+        note = "(() => document.querySelector('.row.mine .quote-note')?.innerText ?? null)()"
+        lost = ("(() => { const {S, render} = window.__m; const id = S.snap.timelines.a.filter((i) => i.kind === 'in').pop().id; "
+                "S.snap.reactions.links[id].seq = 99999; render(); return id; })()")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"eval": self.PREP}, {"sleep": 400},
+                        {"eval": lost}, {"sleep": 200},
+                        {"eval": f"(() => {{ {own}.click(); return true; }})()"},
+                        {"until": "(document.querySelector('.row.mine .quote-note')?.innerText ?? '').includes('not in this session')", "ms": 5000},
+                        {"sleep": 3000}, {"eval": f"(() => {{ {own}.click(); return true; }})()"},
+                        {"sleep": 3500}, {"eval": note},                                            # 6.5 s after the first press
+                        {"until": "!document.querySelector('.row.mine .quote-note')", "ms": 6000}, {"eval": note})
+        self.assertEqual(got[7]["until"], True, got)
+        self.assertEqual(got[11]["eval"], "The reply is not in this session's feed", got)   # still there: the second press wound it up anew
+        self.assertEqual((got[12]["until"], got[13]["eval"]), (True, None), got)              # and gone 6 s after that press
+
+    def test_a_picker_open_on_the_waiting_eyes_closes_when_the_link_arrives(self):
+        """The owner opened the picker on the 👀 of a message still being answered; the answer comes, the core's 👍 arrives with
+        its link — the picker closes: the chip is now the way to the answer. "Reaction" opens the picker again."""
+        self.reactions_module(True)
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a")
+        e = self.j.append("message.received", None, {"to": "a", "text": "make a report", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="make")
+        own = "document.querySelector('.row.mine .react-chip')"
+        picks = "(() => document.querySelectorAll('.react-pick').length)()"
+        # the answer and the core's 👍 with its link arrive in the next snapshot
+        arrived = ("(() => { const {S, render} = window.__m; const id = S.snap.timelines.a.filter((i) => i.kind === 'in').pop().id; "
+                   "S.snap.reactions.badges[id] = '👍'; S.snap.reactions.links = {[id]: {session: 'a', seq: 1}}; render(); return id; })()")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "make a report"}, {"eval": self.PREP}, {"sleep": 400},
+                        {"eval": f"(() => {own}.textContent)()"}, {"eval": f"(() => {{ {own}.click(); return true; }})()"}, {"sleep": 200},
+                        {"eval": picks}, {"eval": arrived}, {"sleep": 200}, {"eval": picks}, {"eval": f"(() => {own}.title)()"},
+                        {"eval": "(() => { document.querySelector('.row.mine .react-add').click(); return true; })()"}, {"sleep": 200},
+                        {"eval": picks})
+        self.assertEqual((got[4]["eval"], got[7]["eval"]), ("👀", 5), got)      # the picker on the 👀
+        self.assertEqual((got[10]["eval"], got[11]["eval"]), (0, "Show the reply"), got)   # the link came: closed, the chip leads to the answer
+        self.assertEqual(got[14]["eval"], 5, got)                                  # "Reaction": the picker again
+
+    def test_the_cores_thumb_is_a_fingers_target_and_names_where_it_leads(self):
+        """On a phone the 👍 that leads to the answer takes a finger: the hit area, measured by what a touch lands on, is at
+        least 44px tall and stops short of "Reaction" next to it (the box, and so the bubble, keeps its size), and a screen
+        reader hears where it leads, not just the emoji."""
+        self.reactions_module(True)
+        self.reacted_turn()
+        # the hit area by elementFromPoint, px by px from the chip's center outwards; "Reaction" is the button after it
+        probe = ("(() => { const c = document.querySelector('.row.mine .react-chip'), r = c.getBoundingClientRect(); "
+                 "const add = document.querySelector('.row.mine .react-add').getBoundingClientRect(); "
+                 "const x = r.left + r.width / 2, y = r.top + r.height / 2; "
+                 "const hit = (px, py) => document.elementFromPoint(px, py)?.closest('.react-chip') === c; "
+                 "const reach = (dx, dy) => { let n = 0; while (n < 60 && hit(x + dx * (n + 1), y + dy * (n + 1))) n++; return n; }; "   # the pixels in a row from the center; the center pixel itself is the +1 below
+                 "const top = y - reach(0, -1), bottom = y + reach(0, 1), left = x - reach(-1, 0), right = x + reach(1, 0); "
+                 "const edges = [r.left + 1, r.right - 1].every((ex) => hit(ex, r.top - 10) && hit(ex, r.bottom + 10)); "   # not a strip down the middle
+                 "return [Math.round(r.height), Math.round(bottom - top) + 1, Math.round(right - left) + 1 >= Math.round(r.width), right < add.left, "
+                 "c.getAttribute('aria-label'), edges]; })()")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Report ready"}, {"sleep": 300}, {"eval": probe})
+        box, tall, wide, apart, label, edges = got[3]["eval"]
+        self.assertLessEqual(box, 28, got)                 # the chip itself is small: the bubble's height does not change
+        self.assertGreaterEqual(tall, 44, got)             # a finger's height
+        self.assertEqual((wide, apart, label), (True, True, "Show the reply"), got)   # the whole chip, not onto "Reaction"
+        self.assertTrue(edges, got)                       # and the full height at both edges of the chip too
 
     def test_the_owner_puts_back_a_badge_he_removed_from_his_message(self):
         """Removed the badge from the owner's own message — the core will not bring it back; "Reaction" on the owner's own message sets it again."""
@@ -8854,9 +9662,78 @@ class PageInChrome(test_web.WebTest):
     QBAR = ("(() => { const p = document.querySelector('.quote-bar'); if (!p || p.hidden) return null; const r = p.getBoundingClientRect(); "
            "return {strip: p.classList.contains('strip'), cx: r.left + r.width / 2, bottom: r.bottom, left: r.left, right: r.right}; })()")
 
+    # a triple click selects the whole message, a double click (a word) shows no panel; outside the feed a plugin marks the
+    # text of a message with data-hub-message: triple click and the panel with "Copy" only work there too (Plugin API 1.39)
+    COPIED = ("(() => { window.__copied = null; Object.defineProperty(navigator, 'clipboard', {configurable: true, "
+              "value: {writeText: (t) => { window.__copied = t; return Promise.resolve(); }}}); return 1; })()")
+    BUTTONS = "[...document.querySelectorAll('.quote-bar:not([hidden]) button')].map((b) => b.className)"
+
+    def test_a_triple_click_selects_the_whole_message_and_a_double_click_shows_no_panel(self):
+        """Three clicks in the second paragraph of a reply select the whole reply, not that paragraph; "Copy" copies it with
+        the paragraph break. Two clicks select a word and show no panel. A triple press dragged from the first paragraph to
+        the second keeps those two, as the browser selects them: the click after the drag does not take the whole reply."""
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a")
+        e = self.j.append("message.received", None, {"to": "a", "text": "make the report", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="make")
+        self.j.append("session.said", "a", {"text": "Alpha paragraph one.\n\nBeta paragraph two.\n\nGamma three."})
+        self.ev("turn.result", "a", text="Alpha paragraph one.\n\nBeta paragraph two.\n\nGamma three.")
+        self.ev("turn.stopped", "a")
+        mark = "([...document.querySelectorAll('.feed .row .md p')].find((p) => p.textContent.includes('Beta')).classList.add('probe-b'), [...document.querySelectorAll('.feed .row .md p')].find((p) => p.textContent.includes('Alpha')).classList.add('probe-a'), 1)"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Beta paragraph"}, {"eval": self.COPIED},
+                        {"sleep": 300}, {"eval": mark}, {"mclick": ".probe-b", "clicks": 3},
+                        {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000},
+                        {"eval": "getSelection().toString()"}, {"eval": self.BUTTONS},
+                        {"eval": "(() => { document.querySelector('.quote-bar .qb-copy').click(); return window.__copied; })()"},
+                        {"eval": "getSelection().removeAllRanges(), 1"}, {"sleep": 400},
+                        {"mclick": ".probe-b", "clicks": 2}, {"sleep": 500},
+                        {"eval": "getSelection().toString()"},
+                        {"eval": "!!document.querySelector('.quote-bar:not([hidden])')"},
+                        {"eval": "getSelection().removeAllRanges(), 1"}, {"sleep": 400},
+                        {"drag": ".probe-a", "to": ".probe-b", "clicks": 2},
+                        {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000},
+                        {"eval": "getSelection().toString()"},
+                        {"eval": "getSelection().removeAllRanges(), 1"}, {"sleep": 400},
+                        {"drag": ".probe-a", "to": ".probe-b", "clicks": 3}, {"sleep": 400},
+                        {"eval": "getSelection().toString()"})
+        self.assertIn("Beta", got[-1]["eval"], got)                       # a triple press dragged on: the paragraphs it
+        self.assertNotIn("Gamma", got[-1]["eval"], got)                   # went over, not the whole reply
+        got = got[:-5]
+        self.assertTrue(got[-2]["until"], got)                          # a double click dragged on: a phrase, the panel is there
+        self.assertIn("one.", got[-1]["eval"], got)                       # from the word under the double click
+        self.assertIn("Beta", got[-1]["eval"], got)                       # on into the next paragraph
+        got = got[:-5]
+        self.assertTrue(got[6]["until"], got)
+        self.assertEqual(got[7]["eval"].split(), "Alpha paragraph one. Beta paragraph two. Gamma three.".split(), got)
+        self.assertIn("qb-reply", " ".join(got[8]["eval"]), got)
+        self.assertEqual(got[9]["eval"], "Alpha paragraph one.\n\nBeta paragraph two.\n\nGamma three.", got)
+        self.assertRegex(got[-2]["eval"].strip(), r"^\w+\.?$", got)    # a word (which one depends on the font)
+        self.assertFalse(got[-1]["eval"], got)                          # and no panel
+
+    def test_a_marked_message_outside_the_feed_selects_whole_and_offers_only_copy(self):
+        """A plugin's message text (data-hub-message): a triple click selects all of it; a selected piece gets the panel
+        with "Copy" and no "Reply" (a letter has no reply to a piece)."""
+        add = ("(() => { const d = document.createElement('div'); d.className = 'probe-letter'; d.dataset.hubMessage = ''; "
+               "d.style.cssText = 'position:fixed;top:120px;left:200px;width:400px;background:#fff;z-index:5'; "
+               "d.innerHTML = '<p>Dear team, first part.</p><p>Second part of the letter.</p>'; document.body.append(d); return 1; })()")
+        piece = ("(() => { const t = document.querySelector('.probe-letter p').firstChild, r = document.createRange(); "
+                 "r.setStart(t, 5); r.setEnd(t, 9); getSelection().removeAllRanges(); getSelection().addRange(r); return getSelection().toString(); })()")
+        self.quote_turn()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Second important"}, {"eval": add},
+                        {"sleep": 300}, {"mclick": ".probe-letter p:last-child", "clicks": 3},
+                        {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000},
+                        {"eval": "getSelection().toString()"}, {"eval": self.BUTTONS},
+                        {"eval": "getSelection().removeAllRanges(), 1"}, {"sleep": 400}, {"eval": piece},
+                        {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000}, {"eval": self.BUTTONS})
+        self.assertTrue(got[5]["until"], got)
+        self.assertEqual(got[6]["eval"].split(), "Dear team, first part. Second part of the letter.".split(), got)
+        self.assertEqual(got[7]["eval"], ["linkbtn qb-copy"], got)
+        self.assertEqual(got[10]["eval"], "team", got)
+        self.assertEqual(got[-1]["eval"], ["linkbtn qb-copy"], got)
+
     def test_the_panel_stands_where_the_mouse_was_let_go(self):
-        """The panel should always be close to the cursor: with a mouse — above the point where the button was released, not above
-        the middle of the selection."""
+        """The panel should always be close to the cursor: with a mouse — across from the point where the button was released, not
+        from the middle of the selection, and 6 px above its first line."""
         self.reactions_module(True)
         self.quote_turn()
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Second important"}, {"sleep": 300},
@@ -8864,12 +9741,12 @@ class PageInChrome(test_web.WebTest):
                         {"eval": self.select_js("First sentence", "Second important point")},
                         {"eval": self.pointer_js("pointerup", "mouse")},
                         {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000}, {"eval": self.QBAR},
-                        {"eval": "(() => { const r = getSelection().getRangeAt(0).getBoundingClientRect(); return r.left + r.width / 2; })()"})
-        (x, y), bar, middle = got[5]["eval"], got[7]["eval"], got[8]["eval"]
+                        {"eval": "(() => { const r = getSelection().getRangeAt(0).getBoundingClientRect(); return [r.left + r.width / 2, r.top]; })()"})
+        (x, y), bar, (middle, first) = got[5]["eval"], got[7]["eval"], got[8]["eval"]
         self.assertFalse(bar["strip"], got)
         self.assertLess(abs(bar["cx"] - x), 2, got)              # at the cursor
         self.assertGreater(abs(bar["cx"] - middle), 60, got)    # not at the middle of the selection
-        self.assertTrue(0 < y - bar["bottom"] <= 20, got)        # slightly above the cursor
+        self.assertLess(abs(first - 6 - bar["bottom"]), 1.5, got)   # 6 px above the first selected line
         # a stray click that did not touch the selection (scrollbar) — the panel stays at the selection, not at the click
         got = self.page({"eval": self.pointer_js("pointerdown", "mouse", at="feed")},
                         {"eval": self.pointer_js("pointerup", "mouse", at="feed")}, {"sleep": 300}, {"eval": self.QBAR},
@@ -8877,6 +9754,49 @@ class PageInChrome(test_web.WebTest):
         (cx, _), bar, end = got[1]["eval"], got[3]["eval"], got[4]["eval"]
         self.assertGreater(abs(bar["cx"] - cx), 60, got)
         self.assertLess(abs(bar["cx"] - end), 2, got)
+
+    GEOM = ("(() => { const p = document.querySelector('.quote-bar'); if (!p || p.hidden) return null; const b = p.getBoundingClientRect(); "
+            "const rs = [...getSelection().getRangeAt(0).getClientRects()].filter((r) => r.width && r.height); "
+            "const f = document.querySelector('.feed').getBoundingClientRect(), h = document.querySelector('main > .head').getBoundingClientRect(); "
+            "return {top: b.top, bottom: b.bottom, left: b.left, right: b.right, first: Math.min(...rs.map((r) => r.top)), "
+            "last: Math.max(...rs.map((r) => r.bottom)), feedLeft: f.left, feedRight: f.right, head: h.bottom, "
+            "covers: rs.some((r) => r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top)}; })()")
+
+    def test_the_panel_never_covers_the_selected_words(self):
+        """The panel stands 6 px above the first selected line, inside the feed column; no room above (the head) — 6 px under the
+        last line. It covers none of the selected words: a whole message (a triple click), a word in the middle of a line, a
+        selection at the very top of the feed."""
+        text = ("Alpha paragraph one opens the reply with a few plain words.\n\n"
+                "Beta paragraph two holds an important word in the middle of its line.\n\nGamma paragraph three ends it.")
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a")
+        e = self.j.append("message.received", None, {"to": "a", "text": "make the report", "channel": "web", "owner": True})
+        self.ev("turn.started", "a", marker=f"m{e['seq']}", prompt_head="make")
+        self.j.append("session.said", "a", {"text": text})
+        self.ev("turn.result", "a", text=text)
+        self.ev("turn.stopped", "a")
+        mark = "([...document.querySelectorAll('.feed .row .md p')].find((p) => p.textContent.includes('Beta')).classList.add('probe-b'), 1)"
+        up = ("(() => { const f = document.querySelector('.feed'), p = document.querySelector('.probe-b'); f.style.paddingBottom = '3000px'; "
+              "f.scrollTop += p.getBoundingClientRect().top - f.getBoundingClientRect().top; return 1; })()")
+        shown = {"until": "!!document.querySelector('.quote-bar:not([hidden])')", "ms": 3000}
+        clear = {"eval": "getSelection().removeAllRanges(), 1"}   # and Esc: the next selection is not by the mouse, the bar goes by its end
+        last = {"eval": "(() => { const r = [...getSelection().getRangeAt(0).getClientRects()].pop(); return r.right; })()"}
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Beta paragraph"}, {"eval": mark}, {"sleep": 300},
+                        {"mclick": ".probe-b", "clicks": 3}, shown, {"eval": self.GEOM}, clear, {"key": "Escape"}, {"sleep": 400},
+                        {"eval": self.select_js("important")}, shown, {"eval": self.GEOM}, last,
+                        clear, {"key": "Escape"}, {"sleep": 400},
+                        {"eval": up}, {"sleep": 300}, {"eval": self.select_js("Beta")}, shown, {"eval": self.GEOM})
+        whole, word, end, top = got[6]["eval"], got[12]["eval"], got[13]["eval"], got[-1]["eval"]
+        self.assertGreater(whole["first"] - whole["head"], whole["bottom"] - whole["top"] + 6, got)   # there is room above it
+        for g in (whole, word, top):
+            self.assertFalse(g["covers"], got)
+            self.assertGreaterEqual(g["left"], g["feedLeft"] - 0.5, got)      # inside the feed column
+            self.assertLessEqual(g["right"], g["feedRight"] + 0.5, got)
+        self.assertLess(abs(whole["first"] - 6 - whole["bottom"]), 1.5, got)
+        self.assertLess(abs(word["first"] - 6 - word["bottom"]), 1.5, got)
+        self.assertLess(abs((word["left"] + word["right"]) / 2 - end), 2, got)   # by the end of a selection not made by the mouse
+        self.assertGreaterEqual(top["top"], top["head"], got)                 # not over the head
+        self.assertLess(abs(top["last"] + 6 - top["top"]), 1.5, got)          # under the selection
 
     def test_a_narrow_window_with_a_mouse_gets_the_panel_and_a_finger_gets_the_strip(self):
         """The strip above the input field appears only when the selection was made with a finger (above the selection there is the
@@ -9515,6 +10435,47 @@ class PageInChrome(test_web.WebTest):
         self.assertLessEqual(height, 60)          # name with time on one line, text on the second
         self.assertLessEqual(abs(meta_vs_name), 4)   # time on the name line
 
+    def test_clean_hub_without_an_icon_has_its_own_head_in_the_feed_and_in_the_list(self):
+        # the Hub's head (a/hub.png) is the same on the feed's byline and in the list row; Core keeps the hub's icon
+        self.ev("session.requested", "zz-hub", session_id="s-h", cwd="/h", kind="hub", channel="cli", owner=True)
+        self.ev("session.started", "zz-hub", session_id="s-h")
+        e = self.j.append("message.received", None, {"to": "zz-hub", "text": "hello", "channel": "web", "owner": True})
+        self.ev("turn.started", "zz-hub", marker=f"m{e['seq']}", prompt_head="x")
+        self.ev("session.said", "zz-hub", text="Hub answer")
+        self.ev("turn.result", "zz-hub", text="Hub answer")
+        self.ev("turn.stopped", "zz-hub")
+        feed = ("(() => { const a = [...document.querySelectorAll('.feed .byline')].find((b) => b.textContent.includes('Hub'))?.querySelector('.av');"
+                " return a ? getComputedStyle(a).backgroundImage : null; })()")
+        row = "(document.querySelector('#list .srow[data-clean-k=hub]')?.style.getPropertyValue('--clean-face') || '')"
+        got = self.page({"go": "about:blank", "look": None}, {"go": f"http://127.0.0.1:{self.port}/#/s/zz-hub", "look": None}, {"wait": "Hub answer"},
+                        {"until": f"!!{row}"}, {"eval": feed}, {"eval": row})
+        face, listed = got[-2]["eval"], got[-1]["eval"]
+        self.assertIn("/clean/a/hub.png", listed, got)
+        self.assertIn("/clean/a/hub.png", face, got)
+
+    def test_clean_specialist_with_a_profile_icon_has_one_head_in_the_list_and_in_the_feed(self):
+        # a specialist whose profile declares a character emoji (🤖) and whose role has a head of its own (Designer): the list
+        # puts the role first (characterOf), the core's byline drew the emoji's picture — two heads for one session. The byline
+        # takes the list row's character
+        self.ev("session.requested", "zz-designer", session_id="s-d", cwd="/d", role="agent", icon="\U0001F916",
+                about="Designer: wireframes and mockups", channel="core", owner=True)
+        self.ev("session.started", "zz-designer", session_id="s-d")
+        e = self.j.append("message.received", None, {"to": "zz-designer", "text": "hello", "channel": "web", "owner": True})
+        self.ev("turn.started", "zz-designer", marker=f"m{e['seq']}", prompt_head="x")
+        self.ev("session.said", "zz-designer", text="Designer answer")
+        self.ev("turn.result", "zz-designer", text="Designer answer")
+        self.ev("turn.stopped", "zz-designer")
+        feed = ("(() => { const a = [...document.querySelectorAll('.feed .byline')].find((b) => b.textContent.includes('zz-designer'))"
+                "?.querySelector('.av'); return a ? getComputedStyle(a).backgroundImage : ''; })()")
+        row = ("([...document.querySelectorAll('#list .srow')].find((r) => r.textContent.includes('zz-designer'))"
+               "?.style.getPropertyValue('--clean-face') || '')")
+        got = self.page({"go": "about:blank", "look": None}, {"go": f"http://127.0.0.1:{self.port}/#/s/zz-designer", "look": None},
+                        {"wait": "Designer answer"}, {"until": f"{row}.includes('indigo-beret')"},
+                        {"until": f"{feed}.includes('indigo-beret')"}, {"eval": feed}, {"eval": row})
+        face, listed = got[-2]["eval"], got[-1]["eval"]
+        self.assertIn("/clean/a/clay-indigo-beret.png", listed, got)   # the role's head, not the 🤖 one
+        self.assertIn("/clean/a/clay-indigo-beret.png", face, got)
+
     def test_tools_live_in_the_more_menu_not_in_the_header(self):
         # owner (screenshot): the hub-skills tool badge gets added although it should be under "More" — the tool badge in
         # the session header pushed "More" onto a second line. Since spec d2547143 the granted tools are on the "Skills and
@@ -9806,6 +10767,26 @@ class PageInChrome(test_web.WebTest):
         q = "(() => { const e = document.querySelector('.status .stat-ctx'); return e && [e.textContent, e.dataset.level]; })()"
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "document.querySelector('.status .stat-ctx')"}, {"eval": q})
         self.assertEqual([g["eval"] for g in got if "eval" in g][-1], ["190k tokens · 95%", "high"])
+
+    def test_bottom_line_and_list_say_the_conversation_is_being_compacted(self):
+        # a message woke the session and the conversation was compacted for 43 s: the page said nothing and looked hung.
+        # While it lasts: the line above the input and the session's row in the list say it; after it - they do not
+        self.ev("session.requested", "a", session_id="s-a", cwd="/home/x/work/apps/proj", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("turn.result", "a", text="ok", context=90000)
+        note = "(() => { const e = document.querySelector('.status .stat-compact'); return e && [e.textContent.replace(/^\\S+\\s/, ''), e.getAttribute('role'), !!e.querySelector('.spin')]; })()"
+        row = "[...document.querySelectorAll('.lb')].some((x) => (x.textContent || '').includes('Compacting…'))"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": "document.querySelector('.status .stat-ctx')"},
+                        {"eval": note}, {"eval": row})
+        self.assertEqual([g["eval"] for g in got if "eval" in g], [None, False])
+        self.ev("session.compacting", "a", on=True)
+        got = self.page({"until": "document.querySelector('.status .stat-compact')"}, {"eval": note}, {"eval": row},
+                        {"eval": "document.querySelector('.status .stat-ctx') !== null"},   # the size stays next to it
+                        {"eval": "document.querySelector('.head .pill').textContent"})   # the header says it too, not "idle"
+        self.assertEqual([g["eval"] for g in got if "eval" in g], [["Compacting the conversation…", "status", True], True, True, "Compacting…"])
+        self.ev("session.compacted", "a", ok=True, before=90000, after=20000)
+        got = self.page({"until": "!document.querySelector('.status .stat-compact')"}, {"eval": row})
+        self.assertEqual([g["eval"] for g in got if "eval" in g], [False])
 
     def test_bottom_line_with_limits_stays_one_line(self):
         # the limits should fit on the same line too — with a narrow feed the limits dropped to a line below
@@ -10121,19 +11102,45 @@ class PageInChrome(test_web.WebTest):
         asked = [e for e in self.spooled() if e["type"] == "session.interrupt_requested"]
         self.assertEqual(len(asked), 1)
 
-    # a keystroke in the field is on the screen by the next frame: from the input event to the frame after it, the median
-    # is under this (ms), and no keystroke waits longer than the worst (a busy test machine draws slower than a person's)
-    KEY_MEDIAN_MS, KEY_WORST_MS = 50, 150
+    # a keystroke in the field is on the screen by the next frame: from the input event to the frame after it. How long that
+    # takes is the machine's (a frame of a busy or slow one takes 50 ms and more), so the keystrokes are timed twice, in one
+    # run: on an idle session — the machine's own floor (its median) — and with the long feed and the working session. The
+    # median of the second stays under KEY_MEDIAN_MS, or under the floor plus KEY_MORE_MS where the floor is high; the worst
+    # keystroke under KEY_WORST_MS, or under KEY_FRAMES floors (the frames a slow machine skips) where that is more; the page's
+    # own work grows with a slow machine, so these limits (but the frames) are stretched by how much slower it is (BENCH)
+    KEY_MEDIAN_MS, KEY_MORE_MS, KEY_WORST_MS, KEY_FRAMES = 50, 30, 150, 4
+
+    # the speed of this machine's page thread: how many fixed pieces of the page's kind of work (nodes made and filled) fit in
+    # 300 ms of the clock; a throttled or busy machine does fewer
+    BENCH_REF = 8000   # what BENCH counts on a free machine, the one the limits were set on
+    BENCH = ("(() => { const end = performance.now() + 300; let n = 0; while (performance.now() < end) { const d = document.createElement('div'); "
+             "for (let i = 0; i < 100; i++) { const p = document.createElement('p'); p.textContent = 'line ' + i; d.append(p); } n++; } return n; })()")
+
+    def keystrokes(self, session, word):
+        """Type word into the field of the session's page; the delay of each key: the time until the page handled it (measured
+        outside the page: a key waiting behind a long task is counted) plus the time from the end of its handling to the
+        next painted frame (the handling itself is counted once). The delays, sorted."""
+        watch = ("(() => { window.__lat = []; const f = document.querySelector('#msg'); f.focus(); "
+                 "f.addEventListener('input', (e) => { const seen = performance.now(); requestAnimationFrame(() => "
+                 "setTimeout(() => window.__lat.push(performance.now() - seen), 0)); }); return 1; })()")
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/{session}"}, {"wait": "line 299"}, {"sleep": 500}, {"eval": watch}, {"eval": self.BENCH},
+                        *[{"typed": c} for c in word], {"sleep": 400},
+                        {"eval": "[document.querySelector('#msg').value, window.__lat]"})
+        value, paint = got[-1]["eval"]
+        bench = got[4]["eval"]
+        handled = [s["ms"] for s in got if "typed" in s]
+        self.assertEqual(value, word)
+        self.assertEqual(len(paint), len(word))
+        return sorted(h + p for h, p in zip(handled, paint)), bench
 
     def test_keystrokes_appear_at_once_with_a_long_feed_and_a_working_session(self):
         # owner's requirement: the client is responsive — no stutter, typed keys appear without delay; here the field is
-        # typed into while the session works and its long feed grows by a message every 150 ms. A key's delay is the time
-        # until the page handled it (measured outside the page: a key waiting behind a long task is counted) plus the
-        # time from the end of its handling to the next painted frame (the handling itself is counted once)
-        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
-        self.ev("session.started", "a", session_id="s-a")
-        for i in range(300):
-            self.ev("session.said", "a", text=f"line {i}: **bold** words, `code`, a [link](https://example.com/{i}) and a list:\n- one\n- two")
+        # typed into while the session works and its long feed grows by a message every 150 ms
+        for n in ("a", "b"):   # b — the same feed, nothing happening: the floor of this machine
+            self.ev("session.requested", n, session_id=f"s-{n}", cwd="/w", channel="cli", owner=True)
+            self.ev("session.started", n, session_id=f"s-{n}")
+            for i in range(300):
+                self.ev("session.said", n, text=f"line {i}: **bold** words, `code`, a [link](https://example.com/{i}) and a list:\n- one\n- two")
         self.ev("turn.started", "a", marker=None, prompt_head="long work")
         stop = threading.Event()
         def grow():
@@ -10142,25 +11149,18 @@ class PageInChrome(test_web.WebTest):
                 n += 1
                 self.ev("session.said", "a", text=f"live {n}: the session keeps writing while the owner types")
         live = threading.Thread(target=grow, daemon=True)
-        watch = ("(() => { window.__lat = []; const f = document.querySelector('#msg'); f.focus(); "
-                 "f.addEventListener('input', (e) => { const seen = performance.now(); requestAnimationFrame(() => "
-                 "setTimeout(() => window.__lat.push(performance.now() - seen), 0)); }); return 1; })()")
         word = "the quick brown fox jumps over the lazy dog"
+        idle, bench = self.keystrokes("b", word)
         live.start()
         try:
-            got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "line 299"}, {"sleep": 500}, {"eval": watch},
-                            *[{"typed": c} for c in word], {"sleep": 400},
-                            {"eval": "[document.querySelector('#msg').value, window.__lat]"})
+            busy, _ = self.keystrokes("a", word)
         finally:
             stop.set()
             live.join()
-        value, paint = got[-1]["eval"]
-        handled = [s["ms"] for s in got if "typed" in s]
-        self.assertEqual(value, word)
-        self.assertEqual(len(paint), len(word))
-        lat = sorted(h + p for h, p in zip(handled, paint))
-        self.assertLessEqual(lat[len(lat) // 2], self.KEY_MEDIAN_MS, lat)
-        self.assertLessEqual(lat[-1], self.KEY_WORST_MS, lat)
+        floor = idle[len(idle) // 2]
+        slow = max(1, self.BENCH_REF / max(bench, 1), waiting.slow())   # a machine slower than the one the limits were set on
+        self.assertLessEqual(busy[len(busy) // 2], max(self.KEY_MEDIAN_MS, floor + self.KEY_MORE_MS) * slow, (floor, slow, idle, busy))
+        self.assertLessEqual(busy[-1], max(self.KEY_WORST_MS * slow, self.KEY_FRAMES * floor), (floor, slow, idle, busy))
 
     def vitals_stand(self):
         for n in ("a", "b", "c"):
@@ -10284,6 +11284,7 @@ class PageInChrome(test_web.WebTest):
         self.ev("message.received", None, to="maps-x", text="STOP", now=True, channel="session", owner=False,
                 sender="hub")
         self.ev("session.stop_requested", "maps-x", channel="web", owner=True)
+        self.five_am()
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/maps-x"}, {"until": "main.dataset.for === 'maps-x'"},
                         {"until": "!!document.querySelector('main .head .pill[data-s=stopped]')"},
                         {"eval": "document.querySelector('main .head .pill').textContent"},
@@ -10292,7 +11293,7 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "document.querySelector('main .dock').innerText"},
                         {"eval": "!!document.querySelector('main .head .stop-exec')"})
         self.assertTrue(got[2]["until"] and got[4]["until"], got)
-        self.assertRegex(got[3]["eval"], r"^stopped by you · \d\d:\d\d( [AP]M)?$")
+        self.assertRegex(got[3]["eval"], r"^stopped by you · 5:\d\d AM$")   # the hour without a zero
         self.assertIn("Stopped by you — the turn was cut at the Bash step", got[5]["eval"])
         self.assertIn("1 message inserted in the middle of the turn withdrawn", got[5]["eval"])
         self.assertIn("The executor was stopped", got[6]["eval"])
@@ -10303,10 +11304,11 @@ class PageInChrome(test_web.WebTest):
         self.stop_executor_stand()
         self.ev("session.stop_requested", "maps-x", channel="web", owner=True)
         lb = "document.querySelector('#list li[data-f=\"maps-x\"] .srow .lb')"   # nested under its raiser: data-f
+        self.five_am()
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/maps-x"}, {"until": "main.dataset.for === 'maps-x'"},
                         {"until": f"!!{lb} && /stopped/.test({lb}.textContent)"}, {"eval": f"{lb}.textContent"})
         self.assertTrue(got[2]["until"], got)
-        self.assertRegex(got[3]["eval"], r"^stopped by you · \d\d:\d\d")
+        self.assertRegex(got[3]["eval"], r"^stopped by you · 5:\d\d AM")   # the hour without a zero
 
     def unread_stand(self, name="a", step_ago=90, step_after=False):
         """A busy session (name; "maps-x" — an executor of maps) in one long Bash step that started step_ago seconds ago,
@@ -12521,6 +13523,7 @@ class PageInChrome(test_web.WebTest):
         self.ev("message.received", None, to="old", text="how is it going?", channel="web", owner=True)
         self.ev("turn.started", "old", marker=f"m{self.j.seq}")
         self.ev("turn.result", "old", text="done", turns=2)
+        self.five_am()
         rows_js = ("Object.fromEntries([...document.querySelectorAll('.srow')].map(r => "
                    "[r.querySelector('.nm')?.textContent.trim().split(' ').pop(), "
                    "[r.querySelector('.lb')?.textContent, r.querySelector('.count')?.textContent || '']]))")
@@ -12538,7 +13541,7 @@ class PageInChrome(test_web.WebTest):
         self.assertNotIn("no turn going", rows["silent"][0])
         self.assertFalse(rows["done-one"][0][:1].isdigit())   # no open ones — nothing is written
         self.assertEqual(rows["w"], ["waiting: MR review", ""])
-        self.assertRegex(rows["old"][0], r"^waited: customer reply · until \d\d:\d\d( [AP]M)?$")
+        self.assertRegex(rows["old"][0], r"^waited: customer reply · until 5:\d\d AM$")   # the hour without a zero
         self.assertEqual(got[3]["eval"], 0)                # nothing is flagged yellow
         sent = [m for m in self.spooled() if m["type"] == "message.received"]
         self.assertEqual([m["data"]["to"] for m in sent], ["silent"])
@@ -12685,6 +13688,46 @@ class PageInChrome(test_web.WebTest):
                 # the title and the period list (pause and speed belong to a replay only); then they stay in place
                 self.assertTrue(all(first[:2]), (what, "controls missing on the first frame", first))
                 self.assertEqual(first[:2], last[:2], (what, "the title or controls moved", first, last))
+
+    # an option of a native list: its colour over the background the list is painted with (the option's own, else the select's
+    # when it is opaque; an option with neither falls back to the browser's idea of a background — white in the reported case)
+    OPTION_CONTRAST = """((sel) => {
+      const px = (v) => { const c = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+        c.fillStyle = '#000'; c.fillStyle = v; c.fillRect(0, 0, 1, 1); return c.getImageData(0, 0, 1, 1).data; };
+      const lum = ([r, g, b]) => [r, g, b].map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; })
+        .reduce((a, x, i) => a + x * [0.2126, 0.7152, 0.0722][i], 0);
+      return [...document.querySelectorAll(sel)].map((s) => [...s.options].map((o) => {
+        const co = getComputedStyle(o), bg = px(co.backgroundColor);
+        if (bg[3] < 255) return [s.className, o.textContent, 'no opaque background: ' + co.backgroundColor];
+        const fg = px(co.color), a = lum(fg), b = lum(bg);
+        return [s.className, o.textContent, Math.round((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) * 10) / 10];
+      })).flat();
+    })"""
+
+    def test_options_of_a_native_list_are_readable_in_every_look(self):
+        # reported: in the dark theme the open "Flow" period list was light-grey text on white. A select's popup paints an option
+        # on its own background, which was transparent: the text took the page's light colour, the list its own white. One rule
+        # for every select of the page: an option has an opaque background and a colour of the theme, 4.5:1 or better
+        import time as _t
+        self.ev("session.requested", "w", session_id="s-w", cwd="/w")
+        self.ev("session.started", "w")
+        self.j.append("message.received", None, {"to": "w", "text": "go", "channel": "cli", "owner": True}, ts=_t.time() - 600)
+        base = f"http://127.0.0.1:{self.port}"
+        plain = ("(() => { const s = document.createElement('select'); s.className = 'probe-plain'; "
+                 "for (const t of ['One', 'Two']) { const o = document.createElement('option'); o.textContent = t; s.append(o); } "
+                 "document.body.append(s); return 1; })()")
+        for theme in ("core:classic", "core:clean"):
+            for scheme in ("dark", "light"):
+                got = self.page({"go": "about:blank", "look": None}, {"local": {"hub.theme": json.dumps({"id": theme})}},
+                                {"go": f"{base}/#/flow", "look": None},
+                                {"shot": os.path.join(self.state, "opt.png"), "theme": scheme},
+                                {"until": "!!document.querySelector('.flow-period')", "ms": 10000}, {"sleep": 500},
+                                {"eval": plain}, {"eval": self.OPTION_CONTRAST + "('.flow-period, .probe-plain')"})
+                rows = got[-1]["eval"]
+                self.assertEqual(len(rows), 6, (theme, scheme, rows))   # four periods and the plain list
+                for cls, text, ratio in rows:
+                    self.assertIsInstance(ratio, (int, float), (theme, scheme, cls, text, ratio))
+                    self.assertGreaterEqual(ratio, 4.5, (theme, scheme, cls, text))
 
     def test_flow_replay_speed_pause_and_seek(self):
         # owner decision: the stream over a day — at different speeds, pause, rewind with the slider
@@ -13531,6 +14574,32 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "[document.activeElement.getAttribute('role'), document.activeElement.textContent]"})
         evals = [g["eval"] for g in got if "eval" in g]
         self.assertEqual(evals[-1], ["tab", evals[0]])
+
+    def test_secrets_buttons_have_a_gap_between_them_in_every_theme(self):
+        # the cards of "Secrets" reused the classes of the page-key row, whose rule left with that setting: the card's
+        # buttons, the form's "Save | Cancel" and the warning's button stood flush against each other
+        vault = """(() => { const f = window.fetch; window.fetch = (u, o) => String(u) === '/api/secrets'
+          ? Promise.resolve(new Response(JSON.stringify({on: true, values: true, state: 'ok', unlocked: [], items: [
+              {name: 'links', login: true, sites: [], commands: false, note: '', value: true, last: null, prev: [], by: null}]}),
+              {status: 200})) : f(u, o); })()"""
+        gaps = """(() => [...new Set([...document.querySelectorAll(%s)].map((b) => b.parentElement))].map((row) => { const b = [...row.children].map((x) => x.getBoundingClientRect());
+          return b.slice(1).map((r, i) => Math.round(r.left - b[i].right)).concat(b.length); }))()"""
+        edit = "[...document.querySelectorAll('.sec-card button')].find((b) => b.textContent === window.__edit).click(), 1"
+        for theme, clean in (("core:classic", False), ("core:clean", True)):
+            with self.subTest(theme=theme):
+                got = self.page({"local": {"hub.settingsTab": "secrets", "hub.theme": json.dumps({"id": theme})}}, {"go": "about:blank"},
+                                {"go": f"http://127.0.0.1:{self.port}/#/settings", "init": vault},
+                                {"until": "!!document.querySelector('.sec-card') && document.documentElement.classList.contains('th-clean') == "
+                                          + ("true" if clean else "false"), "ms": 8000},
+                                {"eval": gaps % "'.sec-card .btn'"},
+                                {"eval": "(window.__edit = document.querySelectorAll('.sec-card .btn')[2].textContent, 1)"},
+                                {"eval": edit}, {"until": "!!document.querySelector('.sec-form button[type=submit]')", "ms": 8000},
+                                {"eval": gaps % "'.sec-form button[type=submit]'"})
+                card, form = got[-5]["eval"], got[-1]["eval"]
+                self.assertEqual([r[-1] for r in card], [4])   # copy password, copy login, change, remove
+                for row in (*card, *form):
+                    self.assertGreater(len(row), 1, row)
+                    self.assertTrue(all(g >= 4 for g in row[:-1]), (theme, row))
 
     def test_public_open_settings_selects_a_plugin_tab_even_when_already_open(self):
         self.views_plugin()
@@ -15082,9 +16151,12 @@ class PageInChrome(test_web.WebTest):
     ROW = "#list li[data-s=\"{}\"] > .srow"
     # the list has settled: its top did not move for 300 ms (page plugins load by themselves and add items
     # above the
-    # list — dragging and clicking right after load would miss the row)
+    # list — dragging and clicking right after load would miss the row); and the page's own view transition is over (main.js
+    # swap: while it runs, the whole page — the rows too — is a pseudo-element of html and a press lands on it; on a slow
+    # machine it outlasts the 300 ms of a still list)
     STEADY = {"until": "(() => { const t = Math.round(document.getElementById('list').getBoundingClientRect().top), now = Date.now(); "
-                       "if (window.__lt !== t) { window.__lt = t; window.__ltAt = now; } return now - window.__ltAt > 300; })()"}
+                       "if (window.__lt !== t) { window.__lt = t; window.__ltAt = now; } "
+                       "return now - window.__ltAt > 300 && !document.documentElement.classList.contains('vt-pane'); })()"}
     IN = "!!document.querySelector('#list .sgroup[data-g=\"{}\"] li[data-s=\"{}\"]')"
     # autoscroll steps per frame (groups.js, up to 22 px), and chrome-headless-shell under load draws 10-15
     # frames
@@ -17741,6 +18813,277 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "[document.querySelector('.view-toolbar input')===window.__search,window.__search.value]"})
         self.assertTrue(got[2]["eval"], got)
         self.assertEqual(got[-1]["eval"], [True, "draft search"])
+
+    def search_view_plugin(self):
+        path = os.path.join(self.state, "plug-finder")
+        os.makedirs(path)
+        with open(os.path.join(path, "hub-plugin.json"), "w") as f:
+            json.dump({"name": "finder", "description": "finder", "why": "w", "web": "main.js", "hub": "^1.0"}, f)
+        with open(os.path.join(path, "main.js"), "w") as f:
+            f.write("""export default function(hub) {
+              window.__finderHub = hub; window.__q = []; window.__own = [];
+              hub.addView({id:'finder', title:'Finder', search:{placeholder:'Find media', query(text){window.__q.push(text);}},
+                render(root) { if (!root.firstChild) {
+                  root.textContent = 'Finder view';
+                  const box = hub.searchField({placeholder:'Find media', onInput(text){window.__own.push(text);}});
+                  box.node.id = 'own-search'; window.__box = box;
+                  const wide = hub.el('style'); wide.textContent = '@media (min-width: 761px) { #own-search { display: none; } }';
+                  root.append(wide, box.node);
+                } } });
+              hub.addView({id:'plain', title:'Plain', render(root) { root.textContent = 'Plain view'; }});
+            }""")
+        cfg = os.path.join(self.state, "hub.json")
+        with open(cfg, "w") as f:
+            json.dump({"extensions": {"finder": {"path": path, "web": "main.js"}}}, f)
+        env = mock.patch.dict(os.environ, {"HUB_CONFIG": cfg})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def test_an_open_view_takes_the_shared_search_field_and_gives_it_back(self):
+        # a view with search gets the page's search field while it is open: its placeholder, its query, its clearing; the
+        # session list is not filtered by it; leaving gives the field back to the session search with the text it had
+        for name in ("alpha", "beta"):
+            self.ev("session.requested", name, session_id=f"s-{name}", cwd="/w", channel="cli", owner=True)
+        self.search_view_plugin()
+        shots = os.environ.get("HUB_TEST_SHOTS")
+        field = "(() => { const f = document.getElementById('filter'); return [f.placeholder, f.value]; })()"
+        matched = "document.querySelectorAll('#list [data-search-match]').length"
+        ph = "document.getElementById('filter').placeholder"
+        typed = lambda q: {"eval": "(() => { const f = document.getElementById('filter'); f.value = %s;"
+                                   "f.dispatchEvent(new Event('input', {bubbles: true})); return 1; })()" % json.dumps(q)}
+        # the clear button and the shortcut hint of the field: Clean shows × while there is text (no ⌘K), Classic its ⌘K
+        ends = ("(() => { const b = document.getElementById('filter').closest('label'),"
+                " vis = (n) => !!n && getComputedStyle(n).display !== 'none';"
+                " return [vis(b.querySelector('.clean-x, .search-x')), vis(b.querySelector('kbd'))]; })()")
+        for look, theme in (("classic", "core:classic"), ("clean", "core:clean"), ("clean-dark", "core:clean-dark")):
+            with self.subTest(look=look):
+                go = lambda h: {"go": f"http://127.0.0.1:{self.port}/{h}", "look": None}
+                clean = look != "classic"
+                got = self.page({"go": "about:blank", "look": None}, {"local": {"hub.theme": json.dumps({"id": theme})}},
+                                go("#/sessions"),
+                                {"until": "!!window.__finderHub && !!document.querySelector('#list .srow')", "ms": 8000},
+                                {"eval": "document.documentElement.classList.contains('th-clean')"},
+                                {"eval": "window.__finderHub.capabilities.viewSearch ?? null"},
+                                {"eval": "document.getElementById('filter').placeholder"},
+                                typed("alpha"), {"until": f"{matched} === 1"},
+                                *([{"shot": os.path.join(shots, f"{look}-1440-sessions.png"), "width": 1440, "height": 900}] if shots else []),
+                                {"eval": "(window.__finderHub.go('finder'), 1)"},
+                                {"until": f"document.querySelector('main').textContent.includes('Finder view') && {ph} === 'Find media'"},
+                                {"eval": field}, {"until": f"{matched} === 0"}, {"eval": matched},
+                                *([{"shot": os.path.join(shots, f"{look}-1440-view-empty.png"), "width": 1440, "height": 900}] if shots else []),
+                                {"key": "k", "mods": ["meta"]},
+                                {"eval": "[document.activeElement.id, document.activeElement.placeholder]"},
+                                {"typed": "cat"}, {"until": "window.__q.length === 1"}, {"eval": "window.__q"}, {"eval": matched},
+                                *([{"shot": os.path.join(shots, f"{look}-1440-view.png"), "width": 1440, "height": 900}] if shots else []),
+                                {"eval": ends},
+                                {"key": "Enter"}, {"sleep": 200},
+                                {"eval": "[location.hash, document.getElementById('filter').value]"},
+                                {"key": "Escape"}, {"eval": "[document.getElementById('filter').value, window.__q.at(-1)]"},
+                                {"eval": ends},
+                                {"eval": "window.__finderHub.search({placeholder: 'Find pages', text: 'dog'})"},
+                                {"eval": field}, {"eval": "window.__q.length"},
+                                {"eval": "(window.__finderHub.go('plain'), 1)"},
+                                {"until": f"document.querySelector('main').textContent.includes('Plain view') && {ph} !== 'Find pages'"},
+                                {"eval": field}, {"until": f"{matched} === 1"},
+                                {"eval": "window.__finderHub.search({text: 'x'})"},
+                                {"eval": "(window.__finderHub.go('finder'), 1)"},
+                                {"until": f"document.querySelector('main').textContent.includes('Finder view') && {ph} === 'Find pages'"},
+                                {"eval": field})
+                evals = [g["eval"] for g in got if "eval" in g]
+                self.assertEqual(evals.pop(0), clean, got)   # the theme really is on
+                session_hint = evals.pop(1)   # the theme's own placeholder for the session search
+                self.assertEqual(evals, [
+                    1,                                     # hub.capabilities.viewSearch
+                    1, 1,                                  # the session search typed, the view opened
+                    ["Find media", ""],                    # the view's placeholder, its own (empty) text
+                    0,                                     # the session list is whole
+                    ["filter", "Find media"],              # Cmd+K goes to the same field with the view's placeholder
+                    ["cat"], 0,                            # typing is the view's query, the list stays whole
+                    [True, False] if clean else [False, True],   # Clean: × with text, no ⌘K; Classic: its ⌘K
+                    ["#/x/finder", "cat"],                 # Enter opens no session
+                    ["", ""],                              # Esc clears the view's query
+                    [False, not clean],                    # no × without text
+                    True, ["Find pages", "dog"], 2,        # hub.search changes the field without calling query
+                    1,
+                    [session_hint, "alpha"],               # back to the session search with its text and placeholder
+                    False,                                 # hub.search while another view is open
+                    1,
+                    ["Find pages", "dog"],                 # the view's text and placeholder come back with it
+                ], got)
+
+    def test_a_view_on_a_phone_gets_the_cores_search_box(self):
+        # on a narrow screen the list and the view are separate screens: the view places the core's search box itself —
+        # the theme's search look (magnifier inside, clear button while there is text, microphone); Cmd+K goes to it
+        self.ev("session.requested", "alpha", session_id="s-alpha", cwd="/w", channel="cli", owner=True)
+        self.voice_on()
+        self.search_view_plugin()
+        shots = os.environ.get("HUB_TEST_SHOTS")
+        parts = ("(() => { const b = document.getElementById('own-search'), i = b.querySelector('input'),"
+                 " x = b.querySelector('.search-x'), m = b.querySelector('.dictate'); return [b.matches('label.search'),"
+                 " !!b.querySelector('.icon'), i.placeholder, i.value, !!x && getComputedStyle(x).display !== 'none',"
+                 " !!m && !m.hidden]; })()")
+        # Clean, like the list search field: a gray 36px field with 8px corners and no border at rest; in focus and with text
+        # it takes the page's background and a thin line
+        look = ("(() => { const c = getComputedStyle(window.__box.input), p = document.body.appendChild(document.createElement('i'));"
+                " p.style.background = 'var(--background)'; const bg = getComputedStyle(p).backgroundColor; p.remove();"
+                " return [c.height, c.borderRadius, c.backgroundColor === getComputedStyle(document.getElementById('filter')).backgroundColor"
+                " ? 'fill' : c.backgroundColor === bg ? 'background' : c.backgroundColor, c.borderTopWidth, c.boxShadow !== 'none']; })()")
+        for name in ("clean", "clean-dark"):
+            with self.subTest(look=name):
+                shot = lambda what: ([{"shot": os.path.join(shots, f"{name}-390-{what}.png"), "width": 390, "height": 844}]
+                                     if shots else [{"shot": os.path.join(self.state, f"{name}-{what}.png"), "width": 390, "height": 844}])
+                got = self.page({"go": "about:blank", "look": None}, {"local": {"hub.theme": json.dumps({"id": "core:" + name})}},
+                                {"go": f"http://127.0.0.1:{self.port}/#/x/finder", "look": None},
+                                {"until": "!!document.getElementById('own-search')", "ms": 8000},
+                                *shot("view-rest"), {"until": "!!document.querySelector('#own-search .dictate:not([hidden])')"},
+                                {"eval": parts}, {"eval": look},
+                                {"key": "k", "mods": ["meta"]},
+                                {"eval": "document.activeElement === window.__box.input"}, {"eval": look},
+                                *shot("view-focus"),
+                                {"typed": "sun"}, {"eval": "window.__own"}, {"eval": parts},
+                                {"eval": "window.__box.input.blur(), 1"}, {"eval": look}, {"eval": "window.__box.input.focus(), 1"},
+                                *shot("view"),
+                                {"mclick": "#own-search .search-x"}, {"eval": "[window.__own.at(-1), window.__box.input.value]"},
+                                {"eval": "(window.__box.set({text: 'moon', placeholder: 'Find pages'}), [window.__box.input.value,"
+                                         " window.__box.input.placeholder, window.__own.length])"},
+                                {"shot": os.path.join(self.state, "wide.png")})
+                evals = [g["eval"] for g in got if "eval" in g]
+                self.assertEqual(evals, [[True, True, "Find media", "", False, True],
+                                         ["36px", "8px", "fill", "0px", False],              # gray, no border at rest
+                                         True, ["36px", "8px", "background", "0px", True],   # focus: the background, a line
+                                         ["sun"], [True, True, "Find media", "sun", True, True],
+                                         1, ["36px", "8px", "background", "0px", True], 1,   # text, out of focus: the same
+                                         ["", ""],
+                                         ["moon", "Find pages", 2]], got)
+
+    def test_view_search_holds_across_round_trips_render_and_missing_views(self):
+        # the edges of a view holding the search field: hub.search from render acts on the view being opened (two views of
+        # one plugin keep their own placeholders), a missing view lets go of the field (the session list is filtered by it
+        # again), and on a narrow screen Cmd+K finds the view's own box after a round trip through a session
+        self.ev("session.requested", "alpha", session_id="s-alpha", cwd="/w", channel="cli", owner=True)
+        self.ev("session.requested", "beta", session_id="s-beta", cwd="/w", channel="cli", owner=True)
+        self.search_view_plugin()
+        path = os.path.join(self.state, "plug-two")
+        os.makedirs(path)
+        with open(os.path.join(path, "hub-plugin.json"), "w") as f:
+            json.dump({"name": "two", "description": "two", "why": "w", "web": "main.js", "hub": "^1.0"}, f)
+        with open(os.path.join(path, "main.js"), "w") as f:
+            f.write("""export default function(hub) {
+              window.__twoHub = hub; window.__twoQ = []; window.__said = [];
+              for (const id of ['two-a', 'two-b']) hub.addView({id, title: id, search: {placeholder: '', query(text) {
+                window.__twoQ.push(id + ':' + text); }}, render(root) { root.textContent = 'View ' + id;
+                window.__said.push(hub.search({placeholder: 'Find ' + id + ' (tab)'})); }});
+            }""")
+        cfg = os.environ["HUB_CONFIG"]
+        with open(cfg) as f:
+            conf = json.load(f)
+        conf["extensions"]["two"] = {"path": path, "web": "main.js"}
+        with open(cfg, "w") as f:
+            json.dump(conf, f)
+        field = "(() => { const f = document.getElementById('filter'); return [f.placeholder, f.value]; })()"
+        matched = "document.querySelectorAll('#list [data-search-match]').length"
+        typed = lambda q: {"eval": "(() => { const f = document.getElementById('filter'); f.value = %s;"
+                                   "f.dispatchEvent(new Event('input', {bubbles: true})); return 1; })()" % json.dumps(q)}
+        base = f"http://127.0.0.1:{self.port}/"
+        got = self.page({"go": base + "#/sessions"},
+                        {"until": "!!window.__twoHub && !!window.__finderHub && !!document.querySelector('#list .srow')",
+                         "ms": 8000},
+                        {"eval": "document.getElementById('filter').placeholder"},
+                        {"hash": "#/x/two-a"}, {"until": "document.querySelector('main').textContent.includes('View two-a')"},
+                        {"eval": field}, {"eval": "window.__said[0]"},
+                        {"hash": "#/x/two-b"}, {"until": "document.querySelector('main').textContent.includes('View two-b')"},
+                        {"eval": field},
+                        {"hash": "#/x/two-a"}, {"until": "document.querySelector('main').textContent.includes('View two-a')"},
+                        {"eval": field}, typed("zzz"), {"eval": "window.__twoQ"},
+                        {"hash": "#/x/missing"}, {"sleep": 300},
+                        {"eval": field}, typed("alpha"), {"until": f"{matched} === 1"}, {"eval": matched},
+                        {"eval": "window.__twoQ"},
+                        {"hash": "#/x/two-a"}, {"until": "document.querySelector('main').textContent.includes('View two-a')"},
+                        {"eval": field},
+                        typed(""),
+                        # a narrow screen: the view's own box, Cmd+K after a round trip through a session
+                        {"shot": os.path.join(self.state, "narrow.png"), "width": 390, "height": 844},
+                        {"hash": "#/x/finder"}, {"until": "!!document.getElementById('own-search')?.getClientRects().length"},
+                        {"key": "k", "mods": ["meta"]}, {"eval": "document.activeElement === window.__box.input"},
+                        {"hash": "#/s/alpha"}, {"until": "!document.getElementById('own-search')?.isConnected"},
+                        {"key": "k", "mods": ["meta"]}, {"eval": "document.activeElement?.id || ''"},
+                        {"hash": "#/x/finder"}, {"until": "!!document.getElementById('own-search')?.getClientRects().length"},
+                        {"key": "k", "mods": ["meta"]}, {"eval": "document.activeElement === window.__box.input"},
+                        # bad options do not throw; an empty placeholder is the default one (the × hides by it)
+                        {"eval": "[window.__finderHub.searchField(null).input.placeholder,"
+                                 " window.__finderHub.searchField({placeholder: 5}).input.placeholder,"
+                                 " window.__finderHub.searchField({placeholder: ''}).input.placeholder]"},
+                        {"errors": 1500})
+        evals = [g["eval"] for g in got if "eval" in g]
+        hint = evals.pop(0)   # the theme's placeholder of the session search
+        self.assertEqual(evals, [
+            ["Find two-a (tab)", ""], True,        # render's hub.search lands on the view being opened, at the first entry
+            ["Find two-b (tab)", ""],              # the other view of the plugin has its own
+            ["Find two-a (tab)", ""],              # and coming back does not show the other one's
+            1, ["two-a:zzz"],
+            [hint, ""],                            # a missing view: the session search has its field back
+            1, 1, ["two-a:zzz"],                   # the list is filtered by it, no query to the view
+            ["Find two-a (tab)", "zzz"],           # back to the view: its own text
+            1,
+            True,                                  # Cmd+K: the view's box
+            "",                                    # a session's screen: the list (and its field) is not on it
+            True,                                  # back in the view: its box again
+            ["Find…", "Find…", "Find…"],
+        ], got)
+        self.assertEqual(got[-1]["errors"], [], got)
+
+    def test_a_row_chosen_while_a_view_holds_the_field_keeps_the_views_text_and_ends_the_session_search(self):
+        # a click on a session row ends the session search (sidebar.js endSearch); while a view holds the field, the field
+        # shows the view's text: the click leaves it to the view (no query("")), and the session search it hid ends instead,
+        # so it does not filter the list again once the view lets go of the field
+        for name in ("alpha", "beta"):
+            self.ev("session.requested", name, session_id=f"s-{name}", cwd="/w", channel="cli", owner=True)
+        self.search_view_plugin()
+        typed = lambda q: {"eval": "(() => { const f = document.getElementById('filter'); f.value = %s;"
+                                   "f.dispatchEvent(new Event('input', {bubbles: true})); return 1; })()" % json.dumps(q)}
+        matched = "document.querySelectorAll('#list [data-search-match]').length"
+        rows = "document.querySelectorAll('#list li[data-s]').length"
+        base = f"http://127.0.0.1:{self.port}/"
+        got = self.page({"go": base + "#/sessions"},
+                        {"until": "!!window.__finderHub && !!document.querySelector('#list .srow')", "ms": 8000},
+                        typed("alp"), {"until": f"{matched} === 1"},
+                        {"hash": "#/x/finder"}, {"until": "document.querySelector('main').textContent.includes('Finder view')"},
+                        typed("cat"), {"until": f"{rows} === 2"},
+                        {"eval": "document.querySelector('#list li[data-s=\"beta\"] .srow').click(), 1"},
+                        {"until": "location.hash === '#/s/beta'"}, {"sleep": 400},
+                        {"eval": f"[document.getElementById('filter').value, {rows}, {matched}]"},
+                        {"hash": "#/x/finder"}, {"until": "document.querySelector('main').textContent.includes('Finder view')"},
+                        {"eval": "[document.getElementById('filter').value, window.__q]"})
+        evals = [g["eval"] for g in got if "eval" in g]
+        self.assertEqual(evals[-2:], [
+            ["", 2, 0],                  # the session search ended: an empty field, the whole list, no match marks
+            ["cat", ["cat"]],            # back to the view: its text, and no query("") went to it
+        ], got)
+
+    def test_the_example_extension_finds_its_sessions_with_the_shared_field(self):
+        # the plugin example (examples/extension-hello) uses search in addView: the page's field filters its own list
+        from unittest import mock
+        for name in ("alpha", "beta"):
+            self.ev("session.requested", name, session_id=f"s-{name}", cwd="/w", channel="cli", owner=True)
+            self.ev("session.started", name, session_id=f"s-{name}")
+        cfg = os.path.join(self.state, "hub.json")
+        with open(cfg, "w") as f:
+            json.dump({"extensions": {"hello": {"path": os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples", "extension-hello"),
+                                                "web": "web/main.js"}}}, f)
+        env = mock.patch.dict(os.environ, {"HUB_CONFIG": cfg})
+        env.start()
+        self.addCleanup(env.stop)
+        found = "[...document.querySelectorAll('.hello-found li')].map((n) => n.textContent)"
+        typed = lambda q: {"eval": "(() => { const f = document.getElementById('filter'); f.focus(); f.value = %s;"
+                                   "f.dispatchEvent(new Event('input', {bubbles: true})); return 1; })()" % json.dumps(q)}
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/x/hello"},
+                        {"until": "document.querySelectorAll('.hello-found li').length === 2", "ms": 8000},
+                        {"eval": "document.getElementById('filter').placeholder"},
+                        typed("alp"), {"until": f"{found}.length === 1"}, {"eval": found},
+                        {"eval": "document.querySelectorAll('#list [data-search-match]').length"},
+                        {"key": "Escape"}, {"until": f"{found}.length === 2"}, {"eval": "document.getElementById('filter').value"})
+        evals = [g["eval"] for g in got if "eval" in g]
+        self.assertEqual(evals, ["Find a session here", 1, ["alpha"], 0, ""])
 
     def test_view_reregistered_on_entry_still_gets_show_and_open(self):
         # a plugin clears its badge in show() or render() by registering the same view again: the queued open(params) and
@@ -22120,6 +23463,27 @@ class CleanTheme(PageInChrome):
 
     def go(self, where="#/", **kw):
         return {"go": f"http://127.0.0.1:{self.port}/{where}", "look": None, **kw}
+
+    def test_away_typed_in_the_field_is_answered_in_clean_too(self):
+        # Clean hides the hint under the field altogether: the answer to a typed command (/away) must still be there, and the
+        # header carries the mark of the away on a phone (see PageInChrome.test_away_typed_in_the_field_is_answered_where_it_was_typed)
+        self.core_decides()
+        shots = os.environ.get("HUB_TEST_SHOTS") or self.state
+        type_ = lambda text: [{"eval": self.fn(self.TYPE, "#msg", text)}, {"eval": self.fn(self.KEY, "#msg", False)}]
+        for width in (390, 1300):
+            for theme in ("dark", "light"):
+                shot = lambda name: {"shot": os.path.join(shots, f"away-{name}-clean-{theme}-{width}.png"), "width": width,
+                                     "height": 700, "theme": theme}
+                self.ev("owner.back", None, channel="cli", owner=True)
+                self.page(self.go("#/s/maps"), {"until": "!!document.querySelector('#msg')"}, shot("before"),
+                          *type_("/away deputies"), {"until": "!!document.querySelector('.composer .cmd-answer')?.innerText", "ms": 6000})
+                got = self.page({"until": "document.querySelector('.composer .cmd-answer')?.innerText.includes('away')", "ms": 6000},
+                                {"until": "!document.getElementById('away').hidden", "ms": 6000},
+                                shot("answer"), {"eval": PageInChrome.AWAY_SEEN})
+                seen = got[-1]["eval"]
+                self.assertTrue(seen["hintShown"], (width, theme, seen))
+                self.assertIn("you are away until /back", seen["hint"])
+                self.assertEqual(seen["chip"], width < 761, (width, theme, seen))
 
     def test_a_fresh_browser_gets_clean_before_the_first_render_and_classic_is_a_click_away(self):
         state = ("[%s, getComputedStyle(document.body).fontFamily.includes('Clean Geist'), localStorage.getItem('hub.theme'),"

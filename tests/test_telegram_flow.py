@@ -242,6 +242,31 @@ class Flow(TelegramTest):
         (card,) = self.cards(1)
         self.assertIn("prod is down", card["text"])
 
+    def test_the_hubs_card_on_his_message_while_away_comes_at_once(self):
+        # he writes to the hub while an away with a deputy holds through his words: the hub's card in that turn is his
+        # to answer now, not at his return
+        cli = {"channel": "cli", "owner": True}
+        self.j.append("session.requested", "hub", {"cwd": "/h", "session_id": "s-h", "kind": "hub", **cli})
+        self.j.append("session.started", "hub", {"session_id": "s-h"})
+        self.j.append("contact.deputy_set", None, {"person": {"id": "c0000a0b1", "name": "Anna Lee"}, "names": ["Anna"],
+                                                   "zone": "map tiles", "path": {"kind": "via", "session": "w",
+                                                                                 "address": {"email": "anna@x.com"}},
+                                                   **cli})
+        self.j.append("owner.away", None, {"deputies": True, **cli})
+        word = self.j.append("message.received", None, {"to": "hub", "text": "give her two areas",
+                                                        "channel": "telegram", "owner": True})
+        self.j.append("turn.started", "hub", {"marker": f"m{word['seq']}", "prompt_head": "x"})
+        self.j.append("permission.requested", "hub", {"request_id": "h9", "tool": "AskUserQuestion", "interactive": True,
+                                                      "input": {"questions": [{"question": "Two areas — ok?", "options": [
+                                                          {"label": "Yes"}, {"label": "No"}]}]}})
+        self.bot.tick()
+        self.assertEqual(self.core()[0]["owner"]["state"], "away")
+        (card,) = self.cards(1)
+        self.assertIn("Two areas — ok?", card["text"])
+        self.press(self.button(card, "Yes"))
+        self.assertTrue(any("Two areas — ok?: Yes" in m["text"] for m in self.core()[0]["messages"].values()
+                            if m["session"] == "hub" and m.get("answers_question")))
+
     def test_asked_before_away_in_the_same_batch_comes_at_once(self):
         # review: the bot read "away" from the reader's state, which is already ahead of the event, so a question
         # asked while the owner was present was held until his return; the card in the core decides (asked without him or not)

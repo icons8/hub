@@ -95,8 +95,19 @@ def web_address(text):
     return "https://" + text
 
 
+_worktrees = {}  # folder -> (when, [worktree folders]): a page asks for every path of a feed, git ran for each
+
+
 def worktrees(cwd):
-    """Git worktree folders of the repo that contains cwd (except cwd itself)."""
+    """Git worktree folders of the repo that contains cwd (except cwd itself); kept for SEARCH_TTL, as _top."""
+    hit = _worktrees.get(cwd)
+    if hit and time.monotonic() - hit[0] < SEARCH_TTL:
+        return hit[1]
+    _worktrees[cwd] = (time.monotonic(), _git_worktrees(cwd))
+    return _worktrees[cwd][1]
+
+
+def _git_worktrees(cwd):
     try:
         out = subprocess.run([*GIT, "-C", cwd, "worktree", "list", "--porcelain"], capture_output=True, text=True,
                              timeout=5)

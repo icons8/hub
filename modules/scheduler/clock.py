@@ -87,16 +87,20 @@ class Clock:
         tz = st["owner"]["tz"]
         soonest = None
         self.sent = {k: t for k, t in self.sent.items() if now - t < 600}
+        # the Mac between sleeps (core.dark, reducer _dark): a command or a pre-check would hang on the silent network
+        # until the next windows — they wait for the full wake; a slot still comes, its message waits in the queue
+        dark = "dark" in st
         for job in list(st.get("schedule", {}).values()):
             if job.get("command") and job.get("run_slot") and job.get("ran_slot") != job["run_slot"] \
-                    and job["id"] not in self.running and (job["id"], "ran", job["run_slot"]) not in self.sent:
+                    and job["id"] not in self.running and (job["id"], "ran", job["run_slot"]) not in self.sent \
+                    and not dark:
                 self.launch(job, now)  # the core decided "launch" — execute, no more than once
             if job["state"] != "active":
                 continue
             slot = schedule.slot_due(job, now, tz)
             if slot is not None and job.get("check"):
                 # pre-check — before the slot: its code and output go in the same schedule.due; one per job at a time
-                if job["id"] not in self.running and (job["id"], slot) not in self.sent:
+                if job["id"] not in self.running and (job["id"], slot) not in self.sent and not dark:
                     self.check(job, slot, now, st)
             elif slot is not None:
                 self.put("schedule.due", job["id"], {"slot": slot}, (job["id"], slot), now)

@@ -57,6 +57,20 @@ aside { position: relative; display: flex; flex-direction: column; min-height: 0
 .search input { width: 100%; height: var(--ctl-h); padding-block: 0; padding-inline: 32px 40px; text-overflow: ellipsis; border: 0; border-radius: var(--radius); background: var(--row-plate); box-shadow: var(--row-plate-shadow); }
 .search input:focus { outline: 0; box-shadow: 0 0 0 1px var(--ring), 0 0 0 4px var(--front-soft); }
 .search kbd { position: absolute; inset-inline-end: 8px; top: 50%; transform: translateY(-50%); font: var(--text-xs) var(--font-mono); color: var(--muted-foreground); }
+/* the same box in a plugin view's own place (1.39, hub.searchField): at the right end × while there is text, then the microphone */
+.search .search-end { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px; }
+.search .search-x { width: 24px; height: 24px; padding: 0; display: grid; place-items: center; border: 0; border-radius: var(--radius);
+  background: none; color: var(--muted-foreground); cursor: pointer; }
+.search .search-x .icon { width: 14px; height: 14px; }
+@media (hover: hover) and (pointer: fine) { .search .search-x:hover { background: var(--accent); color: var(--foreground); } }
+.search:has(> input:placeholder-shown) .search-x { display: none; }
+.search.view-search input { padding-inline-end: 12px; }
+.search.view-search:has(.dictate) input { padding-inline-end: 40px; }
+.search.view-search input:not(:placeholder-shown) { padding-inline-end: 32px; }
+.search.view-search:has(.dictate) input:not(:placeholder-shown) { padding-inline-end: 64px; }
+/* recording: the microphone is the wider stop button (Clean: 56px) */
+.search.view-search:has(.dictate.stop) input { padding-inline-end: 64px; }
+.search.view-search:has(.dictate.stop) input:not(:placeholder-shown) { padding-inline-end: 92px; }
 .list { flex: 1; overflow-y: auto; padding: 0 var(--space-2) var(--space-3); }
 .list ul { list-style: none; margin: 0; padding: 0; }
 .srow { display: grid; grid-template-columns: 18px minmax(0, 1fr); grid-auto-flow: column; grid-auto-columns: auto; gap: var(--space-2); align-items: center; width: 100%;

@@ -69,15 +69,18 @@ def _fresh(key, load):
 
 def _read(name, root=None):
     """JSON from the catalog folder (root, the core's by default), reread only when the file changes; broken or not an
-    object - {}."""
+    object - {}. A key read once stays in the process with its last text when it leaves the file (12.11: an update
+    moved phrases into an embed's catalog, and a process still on the previous code, until its restart, showed their
+    keys), and so does the whole file while a write leaves it broken."""
     root = root or ROOT
     path = os.path.join(root, name)
 
     def load(was):
+        known = was[1] if was else {}
         try:
             mtime = os.stat(path).st_mtime_ns
         except OSError:
-            return (None, {})
+            return (None, known)
         if was and was[0] == mtime:
             return was
         try:
@@ -85,7 +88,7 @@ def _read(name, root=None):
                 data = json.load(f)
         except (OSError, ValueError):
             data = {}
-        return (mtime, data if isinstance(data, dict) else {})
+        return (mtime, {**known, **data} if isinstance(data, dict) else known)
     return _fresh((root, name), load)[1]
 
 

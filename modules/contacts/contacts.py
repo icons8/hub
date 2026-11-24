@@ -14,6 +14,7 @@ permission to write in the owner's name.
                    [--alias A]… [--note "…"] --source "<where from: the owner, mN, a chat>"
   hub contacts rename "<name|alias|id>" "<new name>"   the owner only: the record stays (its id, the hubs linked to it)
   hub contacts remove "<name|alias|id>"                the owner only: a record a hub is linked to is not removed
+  hub contacts deputy … / deputies                     the owner's deputies — a fact of the core (core/deputycli.py)
 """
 import datetime
 import json
@@ -388,7 +389,8 @@ def _linked(rows, hubs):
     return out
 
 
-def line(r, linked=None, owner=True):
+def line(r, linked=None, owner=True, deputies=None):
+    """deputies — the core's deputies by record id (core/deputies.py): an active one's area is shown in the record."""
     from core import i18n
     seen = r.get("seen") if isinstance(r.get("seen"), dict) else {}
 
@@ -409,6 +411,10 @@ def line(r, linked=None, owner=True):
         parts.append(r["note"])
     for name, c in (linked or {}).get(r.get("id"), []) if r.get("id") else []:
         parts.append(bus_part(name, c, owner))
+    dep = (deputies or {}).get(r.get("id") or "") if r.get("id") else None
+    if isinstance(dep, dict) and dep.get("on"):
+        parts.append(i18n.t("contacts.deputy", zone=dep.get("zone")) + (
+            i18n.t("contacts.deputy_not", nope=dep["not"]) if dep.get("not") else ""))
     if r.get("by"):   # recorded by a session from its work: an address, not the owner's confirmation
         parts.append(i18n.t("contacts.by_session", by=r["by"], source=r.get("source"), date=r.get("confirmed")))
     else:
@@ -429,7 +435,7 @@ def _orphans(rows, hubs):
     return out
 
 
-def main(argv, view=None, owner=True, by=None):
+def main(argv, view=None, owner=True, by=None, deputies=None):
     """view — the bus as the core wrote it (core/busd.read_view) or None; owner — the command is the owner's (not a
     session's): he sees every bus contact with its status, a session only accepted ones and how to write to them; by —
     who runs it when not the owner (a session, a plugin): its add fills in, it does not write over (add_new)."""
@@ -440,7 +446,7 @@ def main(argv, view=None, owner=True, by=None):
             rows = people(path)
             hubs = _hubs(view, owner)
             linked = _linked(rows, hubs)
-            lines = [line(r, linked, owner) for r in rows] + [hub_line(n, c, owner, why)
+            lines = [line(r, linked, owner, deputies) for r in rows] + [hub_line(n, c, owner, why)
                                                               for n, c, why in _orphans(rows, hubs)]
             print("\n".join(lines) if lines else i18n.t("contacts.none"))
             return 0
@@ -449,7 +455,7 @@ def main(argv, view=None, owner=True, by=None):
             hubs = _hubs(view, owner)
             linked = _linked(rows, hubs)
             q = " ".join(argv[1:])
-            hits = [line(r, linked, owner) for r in find(rows, q, view, owner)]
+            hits = [line(r, linked, owner, deputies) for r in find(rows, q, view, owner)]
             qq = q.strip().casefold()
             hits += [hub_line(n, c, owner, why) for n, c, why in _orphans(rows, hubs)
                      if _hit(qq, [n, c.get("label") or "", c.get("stated") or ""])]

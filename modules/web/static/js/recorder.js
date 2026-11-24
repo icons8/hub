@@ -3,10 +3,11 @@
 // click starts recording and another click stops it, Esc cancels, transcription via /api/voice; a recording stops by
 // itself after a long silence or at the time limit (autostop.js). What to do with the
 // recording and where to show an error is decided by the target, the field being spoken into:
-//   { key, field, kind: "message" | "dictate", empty(), deliver(rec), say(text), begin?(), settle?(), spaceStops?,
-//     spaceStarts? }
+//   { key, field, kind: "message" | "dictate", empty(), deliver(rec, send), say(text), lock?(), begin?(), settle?(),
+//     spaceStops?, spaceStarts? }
 // key is the field key (draft, error), field is the field node, empty() means the field is empty (Space in it records),
-// deliver({data, mime, blob, session: key}) — the recording is ready, say(text) — tell the owner ("" clears it), begin() —
+// deliver({data, mime, blob, session: key}, send) — the recording is ready (send — what lock() gave when it stopped: the
+// message addressed then, voice.js), lock() — address the voice message now (composer.js), say(text) — tell the owner ("" clears it), begin() —
 // the press is accepted (dictation remembers the caret), settle() — the recording ended (without it: focus the field,
 // caret at the end), spaceStops: false — while a click-started recording runs, Space in this field is just a space (the
 // field stays visible); spaceStarts: false — Space in this field does not start recording (search: the button only).
@@ -273,14 +274,17 @@ async function start(target) {
     const insert = V.insert;
     V.insert = false;
     if (V.cancelled || !chunks.length) return redraw();
+    // "send" is pressed (or the silence stopped it): the voice message is addressed now — the field it was recorded in, its
+    // reply, cards and files of this moment (composer.js lock), also when the stop was pressed on another session's page
+    const send = insert ? null : target.lock?.() || null;
     const took = V.took = Date.now() - V.since;   // before the strip of "recognizing" is drawn: it is not redrawn for the same mode
     const mine = ++V.job;   // "Cancel" while the recording is being read (before it is sent for recognition) makes this stale too
     V.busy = true;
     redraw();
     const blob = new Blob(chunks, { type: mime });
     const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.readAsDataURL(blob); });
-    if (mine !== V.job) return;
-    target.deliver({ data, mime, blob, session: target.key, insert, took });
+    if (mine !== V.job) return send?.drop();
+    target.deliver({ data, mime, blob, session: target.key, insert, took }, send);
   };
   V.rec.start();
   watchStart(V.stream);

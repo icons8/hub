@@ -318,6 +318,38 @@ class HubStop(unittest.TestCase):
             hub.service_cmd("on")
         self.assertEqual(seen, [False])
 
+    def run_on(self, child):
+        """`hub on` with a task whose start is `child`; output_text is a marker, so the text shows who decoded it.
+        -> (reader-thread tracebacks, what it printed, the exit text or None)"""
+        loader = importlib.machinery.SourceFileLoader("hub_cli", HUB)
+        hub = importlib.util.module_from_spec(importlib.util.spec_from_loader("hub_cli", loader))
+        loader.exec_module(hub)
+        hub.STATE, hub.ME, hub.OUTSIDER = tempfile.mkdtemp(prefix="hub-on-"), None, None
+        task = {"kind": "task", "id": "Agents Hub", "path": None, "port": None}
+        threads, out, left = [], io.StringIO(), None
+        with mock.patch.object(hub.platforms.current, "service_unit", return_value=task), \
+                mock.patch.object(hub.platforms.current, "service_commands",
+                                  return_value={"on": [sys.executable, "-c", child], "off": None, "status": None}), \
+                mock.patch.object(hub.platforms.current, "output_text", lambda raw: "oem:" + raw.hex()), \
+                mock.patch("threading.excepthook", threads.append), contextlib.redirect_stdout(out):
+            try:
+                hub.service_cmd("on")
+            except SystemExit as e:
+                left = str(e.code)
+        return threads, out.getvalue(), left
+
+    def test_hub_on_reads_the_output_of_the_task_start_in_the_oem_code_page(self):
+        """`schtasks /Run` of a Russian Windows prints in cp866 (the first letter of its message is 0x93): text=True read
+        it in the reader thread as UTF-8 and printed a UnicodeDecodeError traceback before the hub came up (2026-11-19)."""
+        threads, out, left = self.run_on("import sys; sys.stdout.buffer.write(b'\\x93\\xe1'); sys.stderr.buffer.write(b'\\x93')")
+        self.assertEqual((threads, left), ([], None), "no traceback of a reader thread")
+        self.assertIn(i18n.t("cli.service.turned_on", id="Agents Hub", url="")[:12], out)
+
+    def test_hub_on_failure_shows_the_oem_output_decoded(self):
+        threads, _, left = self.run_on("import sys; sys.stderr.buffer.write(b'\\x93\\xe1'); sys.exit(1)")
+        self.assertEqual(threads, [], "no traceback of a reader thread")
+        self.assertIn("oem:93e1", left)
+
     def test_hub_off_on_windows_says_the_hub_stays_off(self):
         """`hub off` on Windows is a soft stop: the stop mark keeps the logon task from bringing the hub back."""
         loader = importlib.machinery.SourceFileLoader("hub_cli", HUB)

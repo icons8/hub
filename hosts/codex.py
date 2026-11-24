@@ -534,6 +534,10 @@ class CodexHost(StreamHost):
         elif method in ("item/started", "item/completed"):
             item = p.get("item") or {}
             kind = item.get("type")
+            if kind == "contextCompaction" and (method == "item/started" or not (proc.compacts and not proc.had_input)):
+                # the core's or Codex's own: the page says it is not a lag; the core's compaction turn (no input, below)
+                # ends with session.compacted alone
+                facts.append(("session.compacting", name, {"on": method == "item/started"}))
             if kind == "contextCompaction" and proc.compacts and not proc.had_input:
                 # a turn without input is the compaction turn of thread/compact/start; Codex's own compaction inside
                 # a turn that took input is not — its turn/completed is the session's result

@@ -1,6 +1,6 @@
 // Entry point: the address, session rendering (header, feed, bottom), keys, the spinner and the turn stopwatch.
 import { $, el, icon, elapsed, SPIN, ago, avatarNode, dayTime, lookSig, placeNodes, stepText, unticked, OWN } from "./dom.js";
-import { S, isRunner, resting, onRender, render, renderLive, setCompact, setScroll, ownerScrolled, crewOf, crewNote, sessionLabel, sessionName } from "./state.js";
+import { S, isRunner, resting, onRender, render, renderLive, setCompact, setScroll, ownerScrolled, crewOf, crewNote, notDelivered, sessionLabel, sessionName } from "./state.js";
 import { banner, connect, post } from "./api.js";
 import { adopt, foldTall, item as feedItem, items as feedItems, jump, keyOf, textBlock, textsIn } from "./feed.js";
 import { quoteSource } from "./quotefind.js";
@@ -8,18 +8,19 @@ import { isOpen as searching, open as openSearch, painted, setup as setupSearch,
 import { dock, dockKey, ownerCards, refreshTodosAndStatus } from "./dock.js";
 import { dismissAsk } from "./cards.js";
 import { askTrain, interrupt, lifeItems, STOPPABLE, stopExecutor, stoppedExecutor, stopping, stoppingExecutor } from "./dialogs.js";
-import { bindSearch, renderList, shortName } from "./sidebar.js";
+import { awayTitle, bindSearch, renderList, shortName } from "./sidebar.js";
 import { bindAttachments } from "./attachments.js";
 import { scheduleView, inTime, jobOf } from "./schedule.js";
 import { settingsView } from "./settings.js";
 import { hubView, busNews } from "./hubs.js";
 import { jumpDown } from "./jumpdown.js";
 import { boardChoices, boardFrame, boardOpen, boardSwitch, markOpen } from "./boards.js";
-import { extView, extToolbar, extHide, extLoading, loadExtensions, registerBuiltIn, routeOf, slotNodes } from "./ext.js";
+import { extView, extToolbar, extHide, extLoading, focusSearch, loadExtensions, registerBuiltIn, routeOf, slotNodes } from "./ext.js";
 import { applySavedTheme, reconcileSavedTheme, themeFromLink } from "./themes.js";
 import { applySavedTextScale } from "./textscale.js";
 import { updatesView } from "./updates.js";
 import { failed, loaded, nextTry, olderKnown, retry, sync } from "./timeline.js";
+import { waiting as waitingOut } from "./outgoing.js";
 import { showWait } from "./backoff.js";
 import { moreMenu } from "./menu.js";
 import { modelTitle } from "./modelpicker.js";
@@ -31,6 +32,7 @@ import { kitView } from "./kit.js";
 import { minBar, renderMin } from "./minbar.js";
 import { setupBar, renderSetup } from "./setup.js";
 import "./quotesel.js";   // the panel by a selection in the feed: reply, reaction, copy
+import "./msgkeys.js";   // ⌘↑/⌘↓ reply, Esc drops the quote, typing outside the field: ahead of the Esc below
 import registerClean from "../clean/clean.js";   // the Clean theme's page code: acts only under html.th-clean
 
 const readHash = () => {
@@ -111,6 +113,7 @@ function head(s) {
       : t("web.main.stopped_by", { name: sessionName(s.stopped.by), at: dayTime(s.stopped.ts) });
     pill.dataset.s = "stopped";
   }
+  if (s.compacting && ["idle", "busy"].includes(s.state)) { pill.textContent = t("web.sidebar.compacting"); pill.dataset.s = "busy"; }   // not "idle": its conversation is being compacted
   const title = el("h2", null, sessionLabel(s));
   title.title = s.name;
   // the session icon (its own or the previous one) sits next to the name; a click opens the palette (js/groups.js)
@@ -124,6 +127,9 @@ function head(s) {
   // plugin nodes before the name (1.35): after "back" (a narrow screen) and before the title in the markup, so Tab
   // follows the visible order
   h.append(back, ...slotNodes("session.header.start", { session: s }), title, pill);
+  // away: the list with its strip is a screen away on a phone, so the mark is in the header too (base.css hides it where the list is beside)
+  const away = S.snap.owner || {};
+  if (away.state === "away") h.append(Object.assign(el("span", "chip away warn", t("web.main.away_chip")), { title: awayTitle(away) }));
   // what it is working on right now is shown only in the feed next to "Working" and in the list on the left, not duplicated in the header
   // no more than two chips in the header (now only the schedule one); the rest and the tools go into the "More" menu
   const chips = [];   // {node, item}: the node for the header and the same chip as a menu item
@@ -395,22 +401,28 @@ function loadOlderSoon(name, still, done) {
 // lets go of the bottom, the row is centered in the window and highlighted; if not, the quote gets the reason
 // (feed.js, jump.note). A new press cancels the previous search, and so does leaving the session. false — there is no
 // feed: the quote simply expands, as before
-const FLASH_MS = 1600, WAITS = 60;
+const FLASH_MS = 1600, WAITS = 60, ANSWER_NOTE_MS = 6000;
+const noteClocks = new Map();   // "answer:<id>" → the timer that takes its verdict down
 let jumps = 0;
 const hasOlder = (name) => (older[name] ? older[name].more : olderKnown(name) !== false);
 const nap = (ms) => new Promise((ok) => setTimeout(ok, ms));
-S.jumpQuote = (msg) => {
+S.jumpQuote = (msg) => !!msg.quote && seekRow(msg, (rows) => quoteSource(rows, msg, textsIn));
+// a press on the core's 👍 under the owner's message: to the row that answered it (reactions.links: its event number),
+// the same way; the search mark is its own (not the message's quote): feed.js draws it under the message (answerNote)
+S.jumpAnswer = (msg, seq) => seekRow({ id: "answer:" + msg.id }, (rows) => rows.find((x) => x.kind === "out" && x.seq === seq));
+function seekRow(msg, pick) {
   const name = S.cur?.name;
-  if (!name || !msg.quote) return false;
+  if (!name) return false;
   const mine = ++jumps;
   for (const [id, v] of jump.note) if (v === "seek") jump.note.delete(id);   // the previous search is cancelled — clear its "searching"
   const alive = () => mine === jumps && S.cur?.name === name;
   const find = () => {
     const live = S.snap.timelines[name] || [];
-    return quoteSource(olderOf(name, live).concat(live), msg, textsIn);
+    return pick(olderOf(name, live).concat(live));
   };
   const found = find();
   if (found || !hasOlder(name)) { landOn(name, msg, found, "none"); return true; }
+  stopClock(msg.id);   // a verdict's clock still running from the last press: this press starts over
   jump.note.set(msg.id, "seek");
   render();
   (async () => {
@@ -429,9 +441,21 @@ S.jumpQuote = (msg) => {
     else if (mine === jumps) jump.note.delete(msg.id);   // left the session; if a new press cancelled it, that press already cleared "searching"
   })();
   return true;
-};
+}
+const stopClock = (id) => { clearTimeout(noteClocks.get(id)); noteClocks.delete(id); };
 function landOn(name, msg, x, why) {
-  if (!x) { jump.note.set(msg.id, why); render(); return; }
+  stopClock(msg.id);
+  if (!x) {
+    jump.note.set(msg.id, why);
+    render();
+    // the verdict under the 👍 goes away by itself (a quote's stays with the quote it opened): the message has nothing
+    // of its own to hold it, and the next press on the 👍 says it again — for the full time: one clock per mark, a new
+    // press winds it up anew
+    if (String(msg.id).startsWith("answer:")) {
+      noteClocks.set(msg.id, setTimeout(() => { noteClocks.delete(msg.id); if (jump.note.get(msg.id) === why) { jump.note.delete(msg.id); renderLive(); } }, ANSWER_NOTE_MS));
+    }
+    return;
+  }
   jump.note.delete(msg.id);
   showRow(name, x);
 }
@@ -467,10 +491,9 @@ function showRow(name, x) {
 // it is not in the feed. Feed search (feedsearch.js) searches this same list
 function feedList(name) {
   // words passed to the mini-hub (it.relayed) are not this session's message: where and when they were written
-  const waiting = (it) => it.kind === "in" && !it.relayed && ["queued", "typing", "aside"].includes((S.snap.messages[it.id] || {}).state);
   const at = (it) => (it.kind === "in" && !it.relayed && (S.snap.messages[it.id] || {}).delivered_at) || it.ts;
   const live = S.snap.timelines[name] || [];
-  return olderOf(name, live).concat(live).filter((it) => !waiting(it)).map((it, i) => [it, i])
+  return olderOf(name, live).concat(live).filter((it) => !notDelivered(it)).map((it, i) => [it, i])
     .sort((a, b) => at(a[0]) - at(b[0]) || a[1] - b[1]).map(([it]) => it);
 }
 
@@ -740,6 +763,9 @@ function feed(s, live) {
   f.addEventListener("scroll", () => { if (f.scrollTop < 200 && anchorFor !== s.name && (older[s.name] || olderKnown(s.name) !== false)) loadOlder(s.name); },
     { passive: true });
   let stale = null;
+  // a voice message being transcribed and sent: after the feed (outgoing.js). It leaves when the core has its row at
+  // all — in the feed or still queued (the strip shows those, feedList leaves them out). A search excerpt has none (above)
+  const outs = waitingOut(s.name, S.snap.timelines[s.name] || []);
   if (failed(s.name)) {
     // /api/timeline did not answer. The row is recreated with the feed — without role=alert (a screen reader would repeat
     // it on every event). No feed at all — no error and no button: the same status as for the stream, "Connecting to the
@@ -762,10 +788,11 @@ function feed(s, live) {
       inner.append(r);
     }
   } else if (!items.length && !loaded(s.name)) inner.append(el("p", "hint feed-loading", t("web.main.feed_loading")));
-  else if (!items.length && !o?.seek) inner.append(el("p", "hint", s.kind === "hub"
+  else if (!items.length && !outs.length && !o?.seek) inner.append(el("p", "hint", s.kind === "hub"
     ? t("web.main.feed_empty_hub")
     : t("web.main.feed_empty")));
-  inner.append(...nodes);
+  // a bubble after another row has the gap of a new message above it (feed.js: "turn"), as the core's row that takes its place
+  inner.append(...nodes, ...outs.map((it, i) => { const n = feedItem(it); if (nodes.length || i) n.classList.add("turn"); return n; }));
   if (stale) inner.append(stale);
   if (["busy", "starting"].includes(s.state)) {
     const w = el("div", "row working"), sp = el("span", "g spin", SPIN[0]), txt = el("span", "b");
@@ -1257,10 +1284,12 @@ function renderMain0() {
     placeNodes(main, [...keep, head(s), f, low]);
   }
   main.dataset.for = s.name;
+  // the field's strip, tasks and status line first: they take their height from the feed, and the fold is measured against
+  // the feed as it stays (measured before them, a message just over the bar came whole; a later draw does not measure a cut anew)
+  refreshTodosAndStatus(low, s);
   if (!board) foldTall(f);   // long messages are measured on the page, before the reading place is set
   markSeen(s);
   watchFirst(board ? null : f, s.name);
-  refreshTodosAndStatus(low, s);
   if (!board) {
     const room = back ? f.scrollHeight - f.clientHeight - back.gap : -1;   // there is enough height — the place exists
     if (back && room >= 0) { f.dataset.restoring = "1"; restore = null; }
@@ -1313,14 +1342,14 @@ function swap(fn, changed) {
 }
 window.addEventListener("hashchange", () => {
   const prev = S.selected;
-  S.selected = readHash(); S.replyTarget = null;
+  S.selected = readHash();   // the "Reply" target stays with its own thread (drafts.js)
   swap(() => { render(); sync(S.cur?.name || S.selected); }, prev !== S.selected);
 });
 S.selected = readHash();
 
 // keys: ⌘K — find a session, ⌘I (Ctrl+I) — cursor into the hub's input field, Esc — close a question without an answer if one is open, otherwise stop the turn
 document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("filter").focus(); $("filter").select(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); focusSearch(); return; }
   // ⌘F — search the open session's feed; when already in it — the browser's search (ours does not take it away for good)
   if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === "KeyF" && S.cur && $("main").dataset.for === S.cur.name
       && $("main").querySelector(".feed:not(.boards-body)") && !document.querySelector("dialog[open]") && !document.activeElement?.closest?.(".fsearch")) {

@@ -6,10 +6,11 @@ import collections
 import json
 import os
 import re
+import time
 import unicodedata
 import uuid
-from core import appwatch, budget, coretext, corewrite, executors, flow, forms, hubrun, i18n, journal, minihub, modprompt, reducer, schedule, tools
-from core import langdata, limitresume, machines, mcpwatch, refusals, specmode, system
+from core import appwatch, budget, coretext, corewrite, deputies, deputyroute, executors, flow, forms, hubrun, i18n, journal, minihub, modprompt, reducer, schedule, tools
+from core import langdata, limitresume, machines, mcpwatch, owner, parking, refusals, specmode, system
 # getattr: a process of v1.4.0 ("Files" during the update's self-check) imports this file with its own core.machines
 # in memory, without these names (tests/test_old_page_server)
 ENDED = getattr(machines, "ENDED", ("done", "archived"))
@@ -91,8 +92,8 @@ def session_status(s):
         return "asleep"
     if s.get("pending") or any(r.get("state") == "needs-owner" for r in s.get("requests") or []):
         return "waiting"
-    if s["state"] in ("busy", "starting", "dialog") or (s["state"] == "idle" and s.get("background")):
-        return "working"
+    if s["state"] in ("busy", "starting", "dialog") or (s["state"] == "idle" and (s.get("background") or s.get("compacting"))):
+        return "working"   # a compaction is work too: the process is busy, the next message waits for it
     spec = s.get("spec")   # `/spec on` alone is True; an open spec of an executor is a dict (core/specmode.py)
     if isinstance(spec, dict) and spec.get("ready") and s["state"] in ("idle", "parked", "asleep"):
         return "waiting"   # its spec waits for the owner's "Accept" (core/specmode.py): counted with the cards
@@ -564,6 +565,9 @@ class Reader:
                              # the turn was cut by an account limit and the core has not continued it yet: {ts, resets} (resets
                              # - when the window resets, null if the core does not know it), otherwise null
                              "limit_cut": limitresume.view(s.get("limit_cut")),
+                             # a new process that has not read its input yet because its MCP servers are coming up (up to
+                             # MCP_TIMEOUT): {servers, since, until}, otherwise null - the state itself is a plain "idle"
+                             "mcp_wait": parking.mcp_wait(s, clock),
                              # Opus's safety filter moved it to another model (core/refusals.py): {state: waits | again |
                              # back, asked, got, ts, day, again?} - day: such moves on its account in 24 h; null - none
                              "refused": refusals.view(st, s, clock),
@@ -605,7 +609,11 @@ class Reader:
                              + hubrun.rows(st, s["name"]),
                              # state, label; parked — idle without a process; retired — handed in and sleeping: messages do not wake it
                              # (owner decision 2026-10-04)
-                             **_shown(s)})
+                             **_shown(s),
+                             # the conversation is being compacted (the core's /compact or Claude Code's own): since when —
+                             # the page says so instead of idle/working (a compaction of a long conversation takes up to a
+                             # minute and more); absent otherwise (a client of an older core simply has no such key)
+                             **({"compacting": s["compacting"]} if s["state"] in machines.LIVE and parking.compacting(s, clock) else {})})
             # a Claude Code window waits for a human in the terminal and there is no turn form (the tmux host sees the window only via the Claude
             # Code registry): it can be answered only there — hub attach <name>. A core fact, not a display guess
             sessions[-1]["terminal"] = s["state"] == "dialog" and not s.get("pending")
@@ -650,7 +658,13 @@ class Reader:
                       if o.get("state") == "away" else 0,
                       # the owner's language as a code: a client outside the page (a phone) switches its interface by it
                       # (ru, en, and from the languages — uk, ja… from core/i18n.py LANGS; Latin — null)
-                      "lang": _lang_code(o.get("lang"))}
+                      "lang": _lang_code(o.get("lang")),
+                      # away with the flag (core/deputies.py): who takes the questions of their areas, and how many
+                      # cards are at them now
+                      **({"deputies": [r["person"]["name"] for r in deputies.included(st).values()],
+                          "at_deputies": len(deputyroute.at_deputies(st)),
+                          # held until /back or the term even while no deputy's channel works (deputies.held)
+                          "away_held": deputies.held(st)} if o.get("deputies") else {})}
         visible = {s["name"] for s in sessions}
         # a copy: the reader's state is changed in place (reducer.reduce known=accepted), while the snapshot is handed to other threads
         out = reducer.copy_state({
@@ -676,7 +690,10 @@ class Reader:
                           # a reaction fragment on a selection (event number -> start of the piece) — for standing badges; the key is
                           # present only when there is one
                           **({"quotes": q} if (q := {k: v for k, v in (st.get("owner_quotes") or {}).items()
-                                                      if (st.get("owner_badges") or {}).get(k)}) else {})},
+                                                      if (st.get("owner_badges") or {}).get(k)}) else {}),
+                          # where the core's thumb on an owner message leads: {session, seq} of the row that answered it;
+                          # the key is present only when there is one
+                          **({"links": dict(st["badge_links"])} if st.get("badge_links") else {})},
             # session list layout (docs/spec-session-groups.md): None — untouched, {rev} — "Reset" after edits
             "layout": st.get("layout"),
             "limits": st.get("limits") or {}, "account": st.get("account") or {}, "updates": [{k: v for k, v in u.items() if k != "notes"} for u in list(st.get("updates") or [])[-20:]], "update_check": st.get("update_check"), "min_claude": _min_claude(),
@@ -822,8 +839,31 @@ def row_label(msg, data=None):
     """The label of an in feed row — what the page shows instead of text, which stays as the session read it: a short
     line for a button press or an answer to a card (_feed_label), else the core's phrases of the text in the hub's
     language (core/coretext.py); neither — None. The live feed and the archive parse (core/history.py) both take it;
-    data is the event's own (the pressed button's caption), when the caller has it."""
+    data is the event's own (the pressed button's caption), when the caller has it. The row is the same whoever folds
+    it (the live feed, the page's archive parse): a session's own process prints the core's lines from text instead
+    (core_words) — the tag and the task and message numbers are what it acts on."""
     return _feed_label(msg, data) or coretext.shown(msg, i18n.current())
+
+
+def core_words(it):
+    """Whether an in row is a line of the core itself (REPLIED, STOPPED, TIMEOUT, a reminder on a task — not a retelling
+    of the owner's answer to a card): its label is the words the owner reads, its text the form a session acts on,
+    with the tag and the numbers. A session's own process (HUB_SESSION: `hub show`, `hub show --grep`) prints the
+    text; a search finds such a row by either (search_texts): "d13" lies only in the text."""
+    return it.get("kind") == "in" and it.get("sender") == CORE_SENDER and not it.get("answer_to")
+
+
+def _session_form(it):
+    """A session's own process (HUB_SESSION) reads the core's line in its form, with the tag and the numbers (core_words)."""
+    return bool(os.environ.get("HUB_SESSION")) and core_words(it)
+
+
+def _words(it):
+    """The words of an in row for the reader: the label (a short line, the core's phrases in the reader's language)
+    when there is one; the text — the owner's own row, and the core's lines in a session's own process (core_words)."""
+    if it.get("label") and (it.get("sender") or it.get("to")) and not _session_form(it):
+        return it["label"]
+    return it.get("text")
 
 
 def _from_field(msg):
@@ -947,7 +987,7 @@ SEARCH_FIELDS = {
     "in": ["label|text", "quote", "words", "context", "attachments"], "out": ["text"], "sys": ["text"],
     "tool": ["name", "input", "result"], "file": ["caption", "name"], "notify": ["title", "text"], "ask": ["input"],
     "answer": ["answers"], "terminal": ["text"], "remind": ["text"], "reply": ["text", "quote", "task"], "bus": ["text"],
-    "summary": ["hub", "decided", "waiting", "done"],
+    "summary": ["hub", "deputies", "deputies_waiting", "decided", "waiting", "done"],
 }
 
 
@@ -968,12 +1008,18 @@ def _strings(v):
 
 
 def search_texts(it):
-    """Strings of a timeline record in which text is searched (SEARCH_FIELDS) — each separately."""
+    """Strings of a timeline record in which text is searched (SEARCH_FIELDS) — each separately. The core's own line
+    (core_words) is searched in its text too, but only in a session's own process (HUB_SESSION, like _words): it acts
+    on the task and message numbers, which only the text has. The owner's terminal and the page read the words, and
+    search what they show: the label (the page's own search takes the first non-empty field, js/feedsearch.js)."""
+    both = _session_form(it)
     for field in SEARCH_FIELDS.get(it.get("kind"), ()):
-        for name in field.split("|"):
+        names = field.split("|")
+        for name in names:
             if it.get(name):
                 yield from _strings(it[name])
-                break
+                if not both:
+                    break
 
 
 def found(it, needle):
@@ -1152,12 +1198,18 @@ def _items(st, ev):
         # a mini-hub's executor — into the mini-hub's timeline: the owner talks only to it (the bus, core/minihub), 10-22
         sent = who
         who = minihub.hub_of(st, st["sessions"].get(who)) or who
-        return [(who, {**base, "kind": "file", "path": path, "caption": data.get("caption"),
-                       **({"by": sent} if sent != who else {}),   # whose file — the mini-hub timeline shows it is the executor's
-                       # a copy in attachments (hub send-file) — under the name the session gave it
-                       "name": re.split(r"[/\\]", str(data.get("source") or path))[-1],
-                       "image": bool(IMAGE.search(path)), "video": bool(VIDEO.search(path)),
-                       **({"source": str(data["source"])} if data.get("source") else {})})]
+        row = {**base, "kind": "file", "path": path, "caption": data.get("caption"),
+               # a copy in attachments (hub send-file) — under the name the session gave it
+               "name": re.split(r"[/\\]", str(data.get("source") or path))[-1],
+               "image": bool(IMAGE.search(path)), "video": bool(VIDEO.search(path)),
+               **({"source": str(data["source"])} if data.get("source") else {})}
+        items = [(who, {**row, **({"by": sent} if sent != who else {})})]   # whose file — the mini-hub timeline shows it is the executor's
+        # a file from a schedule job's command (20.11: a sleeping session's job — no turn, no mark, the file lay in a feed
+        # nobody opens): the owner's news like `hub notify` from a job — the hub timeline has it too, "sent you by" whom
+        hub = _hub_name(st)
+        if data.get("schedule_job") and own and who != hub:
+            items.append((hub, {**row, "by": sent}))
+        return items
     if kind == "owner.away":
         o = st.get("owner", {})
         until = o.get("until")
@@ -1410,9 +1462,9 @@ def _item_text(it, full=False):
     if kind == "in":
         via = f" → {it['relayed']}" if it.get("relayed") else ""   # the words went to the mini-hub, not here (_items)
         # the words of the core or of a session with the core's phrases in them: in the reader's language (label,
-        # core/coretext.py) — the owner's in his terminal, a session's English; the owner's own row keeps his words
-        words = it.get("label") if (it.get("sender") or it.get("to")) and it.get("label") else it.get("text")
-        return f"{sender_word(it.get('sender')) if it.get('sender') else i18n.t('cli.show.owner')}{via}: {one(words)}"
+        # core/coretext.py) — the owner's in his terminal; a session's own process reads the core's lines as it got
+        # them, with the tag and the numbers (_words); the owner's own row keeps his words
+        return f"{sender_word(it.get('sender')) if it.get('sender') else i18n.t('cli.show.owner')}{via}: {one(_words(it))}"
     # the lines below are in the reader's language too: a session's process reads English, the owner's terminal his
     if kind == "out":
         who = i18n.t("core.views.line.error" if it.get("error") else "core.views.line.session")
@@ -1479,9 +1531,92 @@ def grep(reader, pattern, n=30, tz=None, full=False, only=None, older=()):
 REF = re.compile(r"([mqd])([0-9]+)")   # a journal record: a message, a question card, a task
 
 
-def entry(state_dir, ref, reader=None, tz=None):
-    """One journal record whole, `hub show mN|qN|dN`: who, to whom, when, the whole text. The number is the event
-    number in the journal (live or archived); no such record or an event of another kind — []."""
+def card_state(state_dir, ev, state, now):
+    """Where the question card of the permission.requested event ev stands, `hub show qN`: {"state": …}. Sure only what
+    the core knows: open (it waits for the owner: a card in the session's asks not yet stale, or a permission form),
+    answered ("at": the form's answer fact; "words": the owner's own words that closed it), dismissed (the owner's x),
+    withdrawn (by the asker, the hub or the owner, with "why"), expired (still in the session's cards but the owner's
+    list no longer holds it, owner.ASK_TTL), gone (the session is removed and still holds the card among its cards).
+    Anything else - the card left the state and no record, no fact and no words of the owner say how - is "closed":
+    that it was answered is not said, nor that it was not. The order: the state of the core, the session's record of the last closed cards, the messages of the
+    state, then the journal (the cards it no longer keeps). "by", "ts" - who closed it and when."""
+    data, name = ev.get("data") or {}, ev.get("entity")
+    rid, qid = str(data.get("request_id") or ""), f"q{ev['seq']}"
+    sessions = (state or {}).get("sessions") or {}
+    sess = sessions.get(name) or next((s for s in sessions.values() if name in (s.get("was") or [])), None)
+    live = sess if sess and sess.get("state") != "removed" else None   # a removed session's cards stay in its record
+    if live:
+        ask = next((a for a in live.get("asks") or [] if a.get("id") == qid), None)
+        if ask:
+            if ask not in owner.open_asks(live, now):
+                return {"state": "expired"}
+            return {"state": "open", **({"deputy": ask["deputy"], "qid": qid} if deputyroute.at(ask) else {})}
+        if rid and any(r.get("request_id") == rid for r in live.get("pending") or []):
+            return {"state": "open"}   # a permission form: the same wait
+    rec = next((r for r in (sess or {}).get("answered") or [] if rid and r.get("request_id") == rid or r.get("id") == qid), None)
+    def words():
+        # the owner's own words that answered it (not the core's note in his name: on_behalf, nor the note of the x)
+        return next((m for m in ((state or {}).get("messages") or {}).values()
+                     if m.get("from_owner") and not m.get("on_behalf") and not m.get("card_dismissed")
+                     and (m.get("answers_question") == qid or rid and m.get("answered_form") == rid)), None)
+    if rec and rec.get("how") in ("dismissed", "withdrawn"):
+        return {"state": rec["how"], "ts": rec.get("ts"), "by": rec.get("by"), "why": rec.get("why")}
+    if rec and rec.get("how") == "answered":
+        at = journal.event_at(state_dir, rec["seq"], accepted=True) if isinstance(rec.get("seq"), int) else None
+        at = at if at and at["type"] == "permission.answered" and (at.get("data") or {}).get("request_id") == rid else None
+        said = None if at else words()
+        return {"state": "answered", "ts": rec.get("ts"), **({"at": at} if at else {}), **({"words": said} if said else {})}
+    said = words()
+    if said:
+        return {"state": "answered", "ts": said.get("created"), "words": said}
+    got = journal.closing_of(state_dir, ev["seq"], rid)
+    if got:
+        gd = got.get("data") or {}
+        how = {"question.dismissed": "dismissed", "question.withdrawn": "withdrawn"}.get(got["type"], "answered")
+        by = "owner" if tools.from_owner(gd) else gd.get("sender") if isinstance(gd.get("sender"), str) else None
+        return {"state": how, "ts": got["ts"], "by": by, "why": str(gd.get("why") or "").strip() or None, "at": got}
+    # gone: the removed session still holds it among its cards; one it no longer holds was closed some way not kept
+    gone = not live and any(a.get("id") == qid for a in (sess or {}).get("asks") or [])
+    return {"state": "gone" if gone else "closed"}
+
+
+def _bus_card(ev, state):
+    """A card of the bus (busstate._card) as the question it is: its qN is the core's bus event, the card an ask of the
+    liaison or the hub (request_id bus-…), answered and closed like any card. No session holds it or its record — no
+    request_id: card_state says only that it no longer waits."""
+    qid = f"q{ev['seq']}"
+    name, held = next(((n, a) for n, s in ((state or {}).get("sessions") or {}).items()
+                       for a in [*(s.get("asks") or []), *(s.get("answered") or [])] if a.get("id") == qid), (None, {}))
+    return {**ev, "type": "permission.requested", "entity": name,
+            "data": {"request_id": held.get("request_id"), "tool": "AskUserQuestion", "interactive": True,
+                     "input": ((ev.get("data") or {}).get("card") or {}).get("input") or {}}}
+
+
+def _card_line(card, tz):
+    """The state of a card as a line (cli.show.card_state): no empty brackets and no "?" for what is not known."""
+    how = card["state"]
+    at = i18n.t("cli.show.card.at", when=_clock(card["ts"], tz, year=True)) if card.get("ts") else ""
+    by = i18n.t("cli.show.owner") if card.get("by") == "owner" else card.get("by")
+    why = _one_line(card.get("why")) if card.get("why") else ""
+    reason = {"dismissed": lambda: i18n.t("cli.show.card.why_dismissed"),
+              "withdrawn": lambda: i18n.t("cli.show.card.why_withdrawn_by" if by else "cli.show.card.why_withdrawn", by=by),
+              "expired": lambda: i18n.t("cli.show.card.why_expired", hours=owner.ASK_TTL // 3600),
+              "gone": lambda: i18n.t("cli.show.card.why_gone")}.get(how)
+    dep = card.get("deputy")   # a card at a deputy: "open" while it waits for their answer, not "open" once they answered (nobody waits then)
+    if dep and how == "open":
+        return i18n.t("cli.show.card_state", state=i18n.t("cli.show.card.answered_deputy", qid=card["qid"], name=dep.get("name") or "?")
+                      if dep["state"] == deputyroute.ANSWERED else i18n.t("cli.show.card.open_routed", name=dep.get("name") or "?"))
+    if not reason:
+        return i18n.t("cli.show.card_state", state=i18n.t(f"cli.show.card.{how}"))
+    said = " ".join(x for x in (reason(), at if how in ("dismissed", "withdrawn") else "") if x) + (f": {why}" if why else "")
+    return i18n.t("cli.show.card_state", state=i18n.t("cli.show.card.because", state=i18n.t("cli.show.card.no_answer"),
+                                                      reason=said))
+
+
+def entry(state_dir, ref, reader=None, tz=None, now=None):
+    """One journal record whole, `hub show mN|qN|dN`: who, to whom, when, the whole text; a question card also says where
+    it stands (right after the first line and as the last line). The number is the event number in the journal (live or
+    archived); no such record or an event of another kind — []."""
     m = REF.fullmatch(ref)
     if not m:
         return []
@@ -1506,23 +1641,32 @@ def entry(state_dir, ref, reader=None, tz=None):
     if not ev:
         return []
     when = _clock(ev["ts"], tz, year=True)
+    if kind == "q" and ev["type"].startswith("core.bus_") and isinstance((data.get("card") or {}).get("input"), dict):
+        # a question card of the bus (busstate._card); a contact's card (core.bus_join, core.bus_link_used) is no question
+        ev = _bus_card(ev, reader.state if reader else None)
+        data = ev["data"]
     if kind == "q" and ev["type"] == "permission.requested":
         out = [i18n.t("cli.show.entry_head", ref=ref, when=when, frm=ev.get("entity") or "?", to=i18n.t("cli.show.owner"))]
+        card = card_state(state_dir, ev, reader.state if reader else None, time.time() if now is None else now)
+        out.append(_card_line(card, tz))   # right after the first line: `| head` does not hide it
         inp = data.get("input") or {}
         asked = inp.get("questions") if data.get("tool") == "AskUserQuestion" else None
         if not asked:
-            return out + ["", f"{data.get('tool')}: {json.dumps(inp, ensure_ascii=False)}"]
-        for q in asked:
+            out += ["", f"{data.get('tool')}: {json.dumps(inp, ensure_ascii=False)}"]
+        for q in asked or []:
             out += ["", f"{q.get('header') + ': ' if q.get('header') else ''}{q.get('question', '')}"]
             out += [f"  - {o.get('label')}" + (f" — {o['description']}" if o.get("description") else "")
                     for o in q.get("options") or []]
-        got = journal.answer_of(state_dir, ev["seq"], str(data.get("request_id") or ""))
-        if got:
+        got, words = card.get("at"), card.get("words")
+        if got and got["type"] == "permission.answered":
             answers = (got.get("data") or {}).get("answers") or {}
             said = "; ".join(f"{k} → {v}" for k, v in answers.items()) or (got.get("data") or {}).get("behavior") or ""
             out += ["", i18n.t("cli.show.answer", when=_clock(got["ts"], tz, year=True), text=said)]
+        elif words:   # the owner's words to the session closed it: no form answer in the journal
+            out += ["", i18n.t("cli.show.answer", when=_clock(words["created"], tz, year=True),
+                               text=str(words.get("answer_body") or words.get("text") or "").strip())]
         else:
-            out += ["", i18n.t("cli.show.no_answer")]
+            out += ["", out[1]]
         return out
     if kind == "d" and ev["type"] == "delegation.created":
         out = [i18n.t("cli.show.entry_head", ref=ref, when=when, frm=data.get("sender") or data.get("by") or "?",

@@ -77,11 +77,14 @@ def held(item, now):
     return bool(item.get("held_until")) and now < item["held_until"]
 
 
-def before(ask, ts):
+def before(ask, ts, named=False):
     """The card was in front of the owner before their words at ts: if they were present, asked no later than ts; if
-    asked without them, shown before ts (the word they returned with is not an answer to a card they have not seen)."""
+    asked without them, shown before ts (the word they returned with is not an answer to a card they have not seen) —
+    at their return, or, for a card named for those words (`--card qN`), at their first word after it while the away is
+    held for the deputies (seen_at): his words there go on without a return, and the card is not in his Telegram, so
+    words that name no card do not answer it."""
     if ask.get("away"):
-        return ask.get("back_at") is not None and ask["back_at"] < ts
+        return any(t is not None and t < ts for t in (ask.get("back_at"), ask.get("seen_at") if named else None))
     return ask["since"] <= ts
 
 
@@ -581,8 +584,12 @@ def quoted_card(st, text, now, only=None):
 
 def cards_note(st, mid, now, hub=None):
     """For the hub, attached to the owner's message mN: the open session cards with numbers. Their words may answer one
-    of them (07.10: a short "roll it out" with two cards open) — which one is for the hub to decide, the core does not guess."""
-    cards = [(name, a) for name, s in st["sessions"].items() if name != hub for a in open_asks(s, now)]
+    of them (07.10: a short "roll it out" with two cards open) — which one is for the hub to decide, the core does not guess.
+    A card asked without them that they had not seen by these words is left out (the core refuses its --card, before;
+    the hub got it as a card of the away when it was asked)."""
+    created = (st["messages"].get(mid) or {}).get("created", now)
+    cards = [(name, a) for name, s in st["sessions"].items() if name != hub for a in open_asks(s, now)
+             if not a.get("away") or before(a, created, named=True)]
     if not cards:
         return None
     lines = [(CARD_LINE_SHOWN if hub and a.get("shown") == hub else CARD_LINE).format(
@@ -688,7 +695,9 @@ def review_end(owner, ts):
 
 def review_hold(st, ts, texts, names):
     """Until when to hold a card or a tool request at ts (its texts; names — the sessions whose turn it comes from), or
-    None — it goes at once: the setting is off; the owner is away (his mode is stronger: the card waits for his return);
+    None — it goes at once: the setting is off; the owner is away (his mode is stronger: the card waits for his return,
+    or goes at once — the hub's card in a turn on what he did on the page, in Telegram or a module handle lately,
+    reducer._hub_on_his_word);
     it is working time; a question beginning with 🚨; the turn is on the owner's live word (he is in the conversation)."""
     o = st["owner"]
     if not o.get("review") or o["state"] == "away":
@@ -790,6 +799,7 @@ MAX_AWAY_HOURS = 24 * 30   # the same limit the page and Telegram check
 def went_away(owner, ev, data):
     new_period(owner, ev, data)
     owner["away_since"] = ev["ts"]
+    owner.pop("deputies", None)   # the flag lives one away (core/deputies.py): a new one is given anew
     owner["decided"], owner["deferred"], owner["done"] = [], [], []
 
 
@@ -807,23 +817,49 @@ def new_period(owner, ev, data):
     owner["away_seq"] = ev["seq"]   # which "away" set the current period (Telegram confirms only that one)
 
 
-def came_back(st, ev):
+OWN_MARK = T("core.owner.own_mark", " · their own request")   # a deputy's decision on their own request
+OPENED = T("core.owner.opened", " · it opened: {gates}")   # the gates of the core that passed on it (tools.owner_word)
+GATES = {"tools.granted": T("core.owner.gate_tool", "a tool"), "task.run_requested": T("core.owner.gate_run", "an executor"),
+         "task.run_go": T("core.owner.gate_go", "an executor out of turn"),
+         "delegation.spec_accepted": T("core.owner.gate_spec", "a spec accepted"),
+         "delegation.spec_dropped": T("core.owner.gate_spec_drop", "a spec dropped"),
+         "session.role_set": T("core.owner.gate_role", "an agent's role")}
+
+
+def came_back(st, ev, deputies_waiting=()):
     """Summary on return: the hub decided for you — check / waiting for your decision / sessions decided themselves /
-    done. An open card comes with its number (the page links to it)."""
+    done. An open card comes with its number (the page links to it). The deputies (spec d2679763 A10): what they
+    decided — the card, who, their words — and the cards at them with no answer (deputies_waiting, read before the
+    cards came back to him); both only when there are some."""
     owner = st["owner"]
     cards = {f"q:{name}:{a['request_id']}": a["id"] for name, s in st["sessions"].items()
              for a in open_asks(s, ev["ts"])}
     # the hub's answers to cards for him (spec d2549241): their own section — the session that asked and the line; only
     # when there are some (the summary of an absence without them stays as it was)
     hub = [{"session": d.get("asker"), "text": d["text"]} for d in owner["decided"] if d.get("hub")]
+    # rows as the other sections have them (session, text, card): the deputy's words verbatim, then the decision
+    # their own request (core/deputyroute.py, a deputy who decides everything) is marked so, in his language
+    deps = [coretext.put({"session": d["deputy"]["asker"], "card": d["deputy"]["card"], "deputy": d["deputy"]["deputy"],
+                          "via": d["deputy"].get("via"), **({"own": True} if d["deputy"].get("own") else {})}, "text",
+                         coretext.join(f"{d['deputy']['card']} · {d['deputy']['deputy']} ({d['deputy'].get('via')}): "
+                                       f"«{d['deputy'].get('words') or ''}» → {d.get('text') or ''}",
+                                       *([OWN_MARK] if d["deputy"].get("own") else []),
+                                       *([OPENED.format(gates=coretext.join(*[x for n, g in enumerate(
+                                           d["deputy"]["opened"]) for x in ([", "] if n else []) + [GATES.get(g, g)]]))]
+                                         if d["deputy"].get("opened") else [])))
+            for d in owner["decided"] if isinstance(d.get("deputy"), dict)]
+    deputies_waiting = [{**w, "text": f"{w['card']} · {w['deputy']}"} for w in deputies_waiting]
     summary = {
         "from": owner["away_since"], "to": ev["ts"],
-        "decided": [d for d in owner["decided"] if not d.get("hub")],
+        "decided": [d for d in owner["decided"] if not d.get("hub") and not d.get("deputy")],
         **({"hub": hub} if hub else {}),
+        **({"deputies": deps} if deps else {}),
+        **({"deputies_waiting": list(deputies_waiting)} if deputies_waiting else {}),
         # the core's words of a question ("allow X?") with their marks: the owner reads them in his language (views)
         "waiting": [coretext.put({"session": q[1], **({"card": cards[q[0]]} if q[0] in cards else {})}, "text", q[3])
                     for q in questions(st)] + list(owner["deferred"]),
         "done": list(owner["done"]),
     }
     owner.update(away_since=None, until=None, back_at=ev["ts"])
+    owner.pop("deputies", None)
     return summary

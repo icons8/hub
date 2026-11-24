@@ -65,7 +65,7 @@ class CleanInCore(unittest.TestCase):
             self.assertRegex(page, r'href="/static/(v/[0-9a-f]{12}/)?%s"' % path)
         for path, kind in (("clean/clean.js", "text/javascript"), ("clean/palette.css", "text/css"),
                            ("clean/f/GeistVariable.woff2", "font/woff2"), ("clean/i/send.svg", "image/svg+xml"),
-                           ("clean/a/clay-sky-cube.png", "image/png"),
+                           ("clean/a/clay-plum-crown.png", "image/png"),
                            ("clean/LICENSE", None)):
             code, _ = self.h.req("GET", "/static/" + path)
             self.assertEqual(code, 200 if kind else 404, path)   # the licence is in the repository, not served as a page file

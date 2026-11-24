@@ -12,6 +12,8 @@
 .row.mine > .b { max-width: 78%; background: var(--front-soft); border-radius: var(--radius-xl); border-end-end-radius: var(--space-1);
   padding: var(--space-2) var(--space-3); white-space: pre-wrap; }
 .row.mine .meta { text-align: end; }
+/* a voice message being transcribed (js/outgoing.js): the spinner and the caption in the line of its future words */
+.row.mine.outgoing .outgoing-wait { display: inline-flex; align-items: center; gap: var(--space-2); }
 .row.from > .b { border-inline-start: 3px solid var(--who); padding-inline-start: var(--space-3); white-space: pre-wrap; }
 .row.from > .b > .md, .row.from .md { white-space: normal; }
 .byline { display: inline-flex; align-items: center; gap: 6px; color: var(--who); font: 600 var(--text-xs)/1.55 var(--font); }
@@ -32,6 +34,12 @@
 /* "Reaction" (the reactions module) takes a fourth column; without it the grid stays as it was */
 .row.out > .b:has(> .byline):has(> .react-add) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .row.out > .b:has(> .byline) > .react-add { grid-column: 4; grid-row: 1; margin-top: 0; }
+/* "Copy" stands before "Reply", which keeps the right edge: one more column, and the reaction moves one further */
+.row.out > .b:has(> .byline):has(> .copy-btn) { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.row.out > .b:has(> .byline):has(> .copy-btn):has(> .react-add) { grid-template-columns: auto minmax(0, 1fr) auto auto auto; }
+.row.out > .b:has(> .byline) > .copy-btn { grid-column: 3; grid-row: 1; margin-top: 0; }
+.row.out > .b:has(> .byline):has(> .copy-btn) > .reply-btn { grid-column: 4; }
+.row.out > .b:has(> .byline):has(> .copy-btn) > .react-add { grid-column: 5; }
 .row.out:has(> .b > .byline) > .g { visibility: hidden; }   /* the author's name already says whose line it is: no dot needed, the space stays */
 .clamp { overflow: hidden; }   /* the height comes from feed.js (foldTall): half of two thirds of the feed */
 .clamp-more { font: var(--text-xs)/1.55 var(--font); }
@@ -88,6 +96,18 @@
 .attach-list { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); white-space: normal; }
 .attach-list a { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); color: var(--primary); }
 .attach-list img { max-width: 180px; max-height: 120px; border-radius: var(--radius-sm); outline: 1px solid oklch(0 0 0 / 0.1); display: block; }
+/* a long paste: a card of the apps' FeedTile, 190 x 64 — its first words in up to two lines and its size under them; a larger
+   text grows it rather than spilling out */
+.attach-list a.paste-tile { box-sizing: border-box; width: 190px; min-height: 64px; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 2px;
+  padding: 4px 10px; border-radius: var(--radius); background: var(--muted); color: var(--foreground); font-size: var(--text-sm); line-height: 1.25; text-decoration: none; text-align: start; }
+.paste-tile .pt-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.paste-tile .pt-size { color: var(--muted-foreground); font-size: var(--text-xs); white-space: nowrap; }
+/* the words and the size take their direction from themselves, as the message text (base.css): an English paste on a
+   right-to-left page reads "Hello world:", not ":Hello world" */
+.paste-tile :is(.pt-title, .pt-size) { unicode-bidi: plaintext; }
+/* the cards' own row (attachList): the full width of the list, so the other files go under it at the list's gap */
+.attach-list > .paste-row { display: flex; flex-wrap: wrap; flex-basis: 100%; align-items: flex-start; gap: inherit; }
+.attach-list a.paste-tile:focus-visible { outline: 2px solid var(--ring, var(--primary)); outline-offset: 2px; }
 /* a screenshot sent to the user (hub send-file) is a milestone: larger than attachment previews */
 .sent-file .attach-list img { max-width: min(480px, 100%); max-height: 320px; }
 .sent-video { display: block; max-width: min(640px, 100%); max-height: 420px; margin-top: 6px; border-radius: var(--radius-sm); background: #000; }
@@ -261,21 +281,42 @@
 .steps.inline .steps-body { margin-inline-start: 0; margin-bottom: var(--space-2); }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--primary); cursor: pointer; font: inherit; }
 .linkbtn:hover { text-decoration: underline; }
-/* "Reply" under a session reply — quiet, visible on hover (always on a phone) */
-.row.out > .b > .reply-btn, .row.out > .b > .react-add { font: var(--text-xs)/1.55 var(--font); margin-top: var(--space-1); opacity: 0; }
-.row.out:hover > .b > .reply-btn, .row.out > .b > .reply-btn:focus-visible, .row.out:hover > .b > .react-add, .row.out > .b > .react-add:focus-visible { opacity: 1; }
-@media (hover: none) { .row.out > .b > .reply-btn, .row.out > .b > .react-add { opacity: 1; } }
+/* "Copy" and "Reply" under a session reply — quiet, visible on hover (always on a phone) */
+.row.out > .b > :is(.copy-btn, .reply-btn, .react-add) { font: var(--text-xs)/1.55 var(--font); margin-top: var(--space-1); opacity: 0; }
+.row.out > .b:not(:has(> .byline)) > .copy-btn + .reply-btn { margin-inline-start: var(--space-3); }   /* on the name line the grid's column gap parts them */
+.row.out:hover > .b > :is(.copy-btn, .reply-btn, .react-add), .row.out > .b > :is(.copy-btn, .reply-btn, .react-add):focus-visible { opacity: 1; }
+@media (hover: none) { .row.out > .b > :is(.copy-btn, .reply-btn, .react-add) { opacity: 1; } }
+/* "Copy" in the line of a reply from another session, before "Reply to …" as everywhere: quiet until hovered, like the others */
+.reply-box > .meta > .copy-btn { opacity: 0; }
+.reply-box > .meta > .copy-btn + .reply-btn { margin-inline-start: var(--space-3); }
+.row:hover .reply-box > .meta > .copy-btn, .reply-box > .meta > .copy-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .reply-box > .meta > .copy-btn { opacity: 1; } }
+/* a session message taller than the feed — a second "Reply" under it: the width follows the content, pinned to the right both
+   in the normal flow and in the header/reply-box grid; it is drawn once the page has measured the message (foldTall) */
+.reply-btn-bottom { display: block; width: fit-content; margin-inline-start: auto; justify-self: end; margin-top: var(--space-2);
+  font: var(--text-xs)/1.55 var(--font); opacity: 0; }
+.row.out:hover .reply-btn-bottom, .row.out .reply-btn-bottom:focus-visible { opacity: 1; }
+@media (hover: none) { .row.out .reply-btn-bottom { opacity: 1; } }
 /* "Reply" on the owner's own words and on his answer to a card: the same quiet link, on hover; a touch screen always shows it */
-.row:is(.mine, .answer) > .b > .reply-btn { font: var(--text-xs)/1.55 var(--font); opacity: 0; }
+.row:is(.mine, .answer) > .b > :is(.copy-btn, .reply-btn) { font: var(--text-xs)/1.55 var(--font); opacity: 0; }
 .row.mine > .b > .reply-btn { display: block; width: fit-content; margin-inline-start: auto; }   /* its own line at the end, not glued to the text */
+/* "Copy" on that line before "Reply": both float to the end ("Reply" first, so it keeps the very end) under the words */
+.row.mine > .b:has(> .copy-btn) { display: flow-root; }
+.row.mine > .b:has(> .copy-btn) > .own-text { display: block; }
+.row.mine > .b:has(> .copy-btn) > :is(.copy-btn, .reply-btn) { float: inline-end; display: inline; margin-inline-start: var(--space-3); }
+.row.mine > .b:has(> .copy-btn) > .reactions { clear: both; display: flex; width: fit-content; }   /* a block clears the floats: its own line under them */
 /* the answer row keeps one line: the link follows the text instead of taking a row of its own under every answer */
 .row.answer > .b { display: block; }
 .row.answer > .b > .reply-btn { margin-inline-start: var(--space-2); }
-.row:is(.mine, .answer):hover > .b > .reply-btn, .row:is(.mine, .answer) > .b > .reply-btn:focus-visible { opacity: 1; }
-@media (hover: none) { .row:is(.mine, .answer) > .b > .reply-btn { opacity: 1; } }
+.row:is(.mine, .answer):hover > .b > :is(.copy-btn, .reply-btn), .row:is(.mine, .answer) > .b > :is(.copy-btn, .reply-btn):focus-visible { opacity: 1; }
+@media (hover: none) { .row:is(.mine, .answer) > .b > :is(.copy-btn, .reply-btn) { opacity: 1; } }
 .row.mine > .b > .meta > .react-add { font: inherit; margin-inline-start: var(--space-2); opacity: 0; }
 .row.mine:hover > .b > .meta > .react-add, .row.mine > .b > .meta > .react-add:focus-visible { opacity: 1; }
 @media (hover: none) { .row.mine > .b > .meta > .react-add { opacity: 1; } }
+/* beside a 👍 that leads to the answer: the same word, the same showing, next to the badge instead of the time row */
+.row.mine > .b > .reactions > .react-add { font: var(--text-xs)/1.55 var(--font); opacity: 0; }
+.row.mine:hover > .b > .reactions > .react-add, .row.mine > .b > .reactions > .react-add:focus-visible { opacity: 1; }
+@media (hover: none) { .row.mine > .b > .reactions > .react-add { opacity: 1; } }
 /* queued: the urgency estimate and "send now" */
 
 /* feed history: at the top — "Show earlier" (also triggered by scrolling), at the very beginning — "Start of history" */
@@ -566,6 +607,11 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
 
 .reactions { display: inline-flex; gap: 6px; align-items: center; margin-inline-start: 8px; }
 .react-pick, .react-chip { font: var(--text-md)/1 var(--font); text-decoration: none; }
+.react-chip.to-answer { position: relative; padding: 2px 4px; border-radius: 999px; }
+/* a finger's target: 12px above and below the chip answer to it, the chip's full width (the chip itself keeps its size,
+   so the bubble does not grow); not sideways — "Reaction" stands to the right, with its own target */
+.react-chip.to-answer::after { content: ""; position: absolute; inset: -12px 0; }
+.react-chip.to-answer:hover, .react-chip.to-answer:focus-visible { background: var(--accent); text-decoration: none; }
 .react-pick[aria-pressed="true"] { outline: 1px solid var(--border, currentColor); border-radius: 6px; }
 .react-emoji.kit-img { width: 1.15em; height: 1.15em; }
 /* the toolbar at a selected piece of a reply (js/quotesel.js): above the selection, on a phone — a strip above the input box */

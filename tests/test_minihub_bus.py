@@ -151,6 +151,17 @@ class Bus(Base):
         self.assertNotIn("by", [x for x in r.timelines["hub-x"] if x["kind"] == "file"][0])
         self.assertEqual(files.get("hub-x"), ["/w/shots/list.png"])
 
+    def test_a_file_of_an_executors_schedule_job_is_in_both_feeds(self):
+        # PR #743: a job's file is news for the hub feed as `hub notify` from a job is; the mini-hub's feed keeps its row too
+        self.raised()
+        self.ev("owner.file", None, path="/w/report.pdf", caption="ready", schedule_job="monthly", **by("notes-ci"))
+        r = views.Reader()
+        r.feed_all(self.events)
+        rows = {n: [x for x in line if x["kind"] == "file"] for n, line in r.timelines.items()}
+        self.assertEqual([x.get("by") for x in rows["notes"]], ["notes-ci"])
+        self.assertEqual([x.get("by") for x in rows["hub"]], ["notes-ci"])
+        self.assertFalse(rows.get("notes-ci"))
+
     def test_others_still_write_to_the_executor(self):
         self.raised()
         mark = self.seq

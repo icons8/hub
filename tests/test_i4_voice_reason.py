@@ -23,8 +23,9 @@ def reason(error):
 
 class VoiceReason(unittest.TestCase):
     def test_a_failure_code_is_said_in_the_catalog_words(self):
-        text, why = reason(transcribe._fail("ffmpeg: boom", "ffmpeg_failed"))
+        text, why, net = reason(transcribe._fail("ffmpeg: boom", "ffmpeg_failed"))
         self.assertIsNone(text)
+        self.assertFalse(net)   # not the network: no retry
         self.assertEqual(why, i18n.t("web.srv.voice_why_ffmpeg_failed"))
 
     def test_an_unknown_code_is_the_general_reason(self):

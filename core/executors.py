@@ -523,6 +523,7 @@ def born_brief(st, name):
 
 # --- retirement of an executor that reported (hubd, retire_executors) --------------------------------------------------
 RETIRE_AFTER = 120  # seconds idle after the report — then the executor falls asleep (owner decision 2026-10-03)
+SCHEDULED_HOLD = 24 * 3600  # an idle executor's own one-shot job due within this long keeps it awake (a retired one is not woken by it)
 RETIRE_AFTER_HUB = 30 * 60  # a hub's executor (the owner's task): half an hour for questions and "make it a direction" (04.10)
 WAITING_HOLD = 30 * 60  # s; this long after the result an executor with its own `hub waiting` does not fall asleep — it awaits an answer and will answer at once (22.10)
 EXECUTOR_KEEP = 0  # s; a reported executor sleeps this long and is removed from the list (hub.json executors.remove_after_hours; 0 — do not remove, the default)
@@ -627,8 +628,9 @@ def retiring(st, now, keep=EXECUTOR_KEEP):
                 out.append(("remove", name))
         elif s["state"] == "idle" and s.get("closing", "none") == "none" \
                 and now - max(s["since"], s.get("background_done") or 0) >= _after(st, s) and closable(st, s, now=now) is None \
-                and not _asks(st, s, now):
-            # a stale card not raised yet holds it: asleep, askexpired would never wake it (it wakes idle and parked)
+                and not _asks(st, s, now) and not _job_ahead(st, name, now):
+            # a stale card not raised yet holds it: asleep, askexpired would never wake it (it wakes idle and parked); so does
+            # a job message ahead (_job_ahead)
             out.append(("sleep", name))
     return out
 
@@ -661,6 +663,15 @@ def _scheduled(st, name, now):
     return name in (st.get("runs") or {}) or any(
         j["state"] == "active" and j.get("kind") != "at" and schedule.wakes(j, name) and now < schedule.end(j) < float("inf")
         for j in st.get("schedule", {}).values())
+
+
+def _job_ahead(st, name, now):
+    """A one-shot session job addressed to it (`hub schedule add --at`) is due within SCHEDULED_HOLD: asleep (retired), the
+    executor would not take its message — it would go to whoever raised it, "wake it" — so it stays awake for it. A command
+    that runs `hub session wake` does not hold: it wakes a sleeper itself. A job further ahead does not hold the place."""
+    return any(j.get("kind") == "at" and j["state"] == "active" and not j.get("command") and j.get("session") == name
+               and j["at"] <= now + SCHEDULED_HOLD
+               for j in st.get("schedule", {}).values())
 
 
 def _woken_once(st, name):

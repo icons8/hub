@@ -29,7 +29,7 @@ CORE_ONLY = frozenset({
     "account.exhausted", "account.no_token", "account.token", "account.unblocked", "agents.system", "ask.expired", "budget.mode", "catalog.loaded", "config.changed_outside", "config.seen", "codex.auth_lost", "codex.host", "codex.limit_reset", "dialog.closed",
     "dialog.opened", "executor.unmerged", "gateway.changed", "host.done", "host.error", "hub.restart_started", "mod.prompt",
     "module.claims", "module.provider", "module.ready", "news.loaded", "owner.invited", "owner.settings", "permission.requested",
-    "rules.reviewed", "session.background", "session.exited", "session.folder", "session.folder_forwarded",
+    "rules.reviewed", "session.background", "session.compacting", "session.exited", "session.folder", "session.folder_forwarded",
     "session.folder_forwarding", "session.fork_failed",
     "session.identified", "session.info", "session.kit", "session.limit_reset", "session.mcp", "session.mcp_login",
     "session.mcp_reconnected", "session.mcp_set", "session.model_refused", "session.parked",

@@ -103,6 +103,13 @@ export function runningStep(name, at) {
   return (S.snap.timelines[name] || []).find((it) => it.kind === "tool" && it.status === "running" && it.ts <= at) || null;
 }
 
+// the core's state of the owner's message (queued, typing, aside, …); words passed to the mini-hub (it.relayed) are not this
+// session's message — none
+export const msgState = (it) => (it.kind === "in" && !it.relayed ? (S.snap.messages?.[it.id] || {}).state : undefined);
+// the core holds the message and the session does not have it yet: the strip above the field shows it (queued, aside,
+// "Sending"), the feed does not (main.js feedList)
+export const notDelivered = (it) => ["queued", "typing", "aside"].includes(msgState(it));
+
 // the process is not running (asleep, failed, closed) — for actions on the process: put to sleep, dismiss
 export const RESTING = ["asleep", "failed", "closed"];
 // resting in the list (collapsed group, muted row, "Remove from list") — core status: asleep or failed;

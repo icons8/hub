@@ -48,8 +48,6 @@ def about_alive(web):
     knows no password) waits for, and what a neighbouring hub's page asks before it offers a password for this one.
     Without it, a password would roll every update back. No paths, no sessions, no addresses; the code card is the
     page's cached one (git at most every 30 s)."""
-    with web.tail.changed:
-        started, known = web.tail.started, web.tail.published
     code = web.code()
-    return {"core_started": started if known else None, "web_started": getattr(web, "started", None),
+    return {"core_started": web.tail.core_started(), "web_started": getattr(web, "started", None),
             "code": {k: code[k] for k in ("running", "layer") if k in code}, "signin": pagepass.state()}

@@ -321,26 +321,37 @@ def events_at(state_dir, seqs, accepted=False):
     return found
 
 
-def answer_of(state_dir, seq, request_id):
-    """The owner's answer (permission.answered) to question seq with this request_id; none — None. No request_id: no
-    answer can match it, nothing is read (an empty needle matched every line)."""
-    if not request_id:
-        return None
-    needle = request_id.encode()
+def closing_of(state_dir, seq, request_id):
+    """How question seq (request_id) was closed, from the journal: the accepted permission.answered or
+    question.dismissed of that request, or the question.withdrawn of qN; none — None. The state keeps only the last
+    cards of a session, the journal everything. A fact the core rejected closes nothing: its rejection is the line
+    right after it (reducer.verdicts), read in the same pass."""
+    needles = [(request_id.encode(), (b'"permission.answered"', b'"question.dismissed"'))] if request_id else []
+    needles.append((f'"id":"q{seq}"'.encode(), (b'"question.withdrawn"',)))
+    found = None   # the candidate waits for the next line, which may be in the next file: is it the rejection?
     for path in [*(p for p in archives(state_dir) if archive_last(p) >= seq), os.path.join(state_dir, "journal.jsonl")]:
         try:
             with open(path, "rb") as f:
                 for line in f:
-                    if needle in line and b'"permission.answered"' in line:
-                        try:
-                            ev = json.loads(line)
-                        except ValueError:
-                            continue
-                        if ev.get("type") == "permission.answered" and (ev.get("data") or {}).get("request_id") == request_id:
-                            return ev
+                    if found is not None:
+                        if not _rejected(line, found["seq"]):
+                            return found
+                        found = None
+                        continue
+                    if not any(n in line and any(t in line for t in types) for n, types in needles):
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    data = ev.get("data") or {} if isinstance(ev, dict) else {}
+                    if isinstance(ev, dict) and ev.get("seq", 0) > seq and (
+                            ev.get("type") in ("permission.answered", "question.dismissed") and data.get("request_id") == request_id
+                            or ev.get("type") == "question.withdrawn" and data.get("id") == f"q{seq}"):
+                        found = ev
         except OSError:
             continue
-    return None
+    return found
 
 
 def _line(event):
@@ -930,6 +941,38 @@ def read_tail(path, max_bytes=4 << 20):
             except ValueError:
                 pass
     return out
+
+
+# the head of an event line as the journal writes it (event(): seq, ts, src, type, compact); only a line's start counts,
+# a message's text cannot hold a newline unescaped
+_START_HEAD = re.compile(rb'\n\{"seq":[0-9]+,"ts":([0-9.]+),"src":"[^"]*","type":"core\.started"')
+
+
+def last_started(path, max_bytes=16 << 20, block=65536):
+    """When the core last came up (the ts of the journal's last whole core.started line), read from the journal's end
+    backwards in blocks, without folding the journal or parsing a line: the page that has not finished its first pass
+    yet (tens of seconds on a big journal, minutes on a machine that has just booted) still has it to tell. A last line
+    without its newline is not counted (the next start cuts it). None: none in the last max_bytes (a long run since,
+    or a new journal without it)."""
+    try:
+        with open(path, "rb") as f:
+            size = f.seek(0, 2)
+            hi, floor = size, max(0, size - max_bytes - 1)   # one byte more: the newline before the first line
+            while hi > floor:
+                lo = max(floor, hi - block)
+                f.seek(lo)
+                lead = 1 if lo == 0 else 0   # the file's start stands for a newline before its first line
+                data = b"\n" * lead + f.read(hi - lo + 4096)   # past hi: the rest of a line that begins before it
+                for m in reversed(list(_START_HEAD.finditer(data))):
+                    if m.start() >= hi - lo + lead:
+                        continue   # the line begins in the block after this one: that one saw it
+                    if data.find(b"\n", m.end()) < 0:
+                        continue   # no newline after it: a torn last line
+                    return float(m.group(1))
+                hi = lo
+    except OSError:
+        return None
+    return None
 
 
 # answer to (None, None) from decided: the fact is in the inbox but hubd has not recorded it (page, hubmod.owner(wait=));

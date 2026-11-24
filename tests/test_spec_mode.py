@@ -277,6 +277,83 @@ class Core(unittest.TestCase):
                                   **by("maps")))
         self.assertEqual(self.st["delegations"][did]["spec"]["by"], "maps")
 
+    def reply_to_card(self, did, to="maps-1", text="all yes, except the second slice", who=None, card=None):
+        """The owner answers the spec's card in Telegram with words, not a button: the bot names the card's task
+        (spec_card) and sends them to the executor, quoting the card. -> the message id."""
+        self.assertIsNone(self.ev("message.received", None, to=to, text=text, quote=f"Spec {did}: accept — …",
+                                  spec_card=card or did, **(who or {"channel": "telegram", "owner": True})))
+        return f"m{self.seq}"
+
+    def accept(self, did, word, who="maps", type="delegation.spec_accepted"):
+        pending = {"sha256": "ab" * 32, "pending": f"specs/{did}/.accepted-abababababab-00000000.md"} \
+            if type == "delegation.spec_accepted" else {}
+        return self.ev(type, did, **pending, **{"for": word}, **by(who))
+
+    def test_the_owners_reply_to_the_spec_card_is_his_word_for_whoever_raised_it(self):
+        # a colleague's hub: he answered the card "Spec dN" in Telegram with words, they went to the executor, and the
+        # raiser's accept --for was refused as "the owner wrote it to the executor, not to you"
+        did = self.raised()
+        self.turn("maps-1", self.st["delegations"][did]["message"], "The spec is ready.")
+        word = self.reply_to_card(did)
+        self.assertEqual(self.st["messages"][word]["session"], "maps-1")   # the words still go to the executor
+        self.assertEqual(self.st["messages"][word]["spec_card"], did)
+        self.assertIsNone(self.accept(did, word))
+        self.assertEqual(self.st["delegations"][did]["spec"]["by"], "maps")
+
+    def test_the_hub_drops_by_the_reply_to_the_card_too(self):
+        did = self.raised()
+        self.turn("maps-1", self.st["delegations"][did]["message"], "The spec is ready.")
+        word = self.reply_to_card(did, text="drop it")
+        self.assertIsNone(self.accept(did, word, who="hub", type="delegation.spec_dropped"))
+        self.assertEqual(self.st["delegations"][did]["spec"]["state"], "dropped")
+
+    def test_what_a_reply_to_the_spec_card_does_not_open(self):
+        did = self.raised()
+        self.turn("maps-1", self.st["delegations"][did]["message"], "The spec is ready.")
+        other = self.raised("maps-2")
+        self.turn("maps-2", self.st["delegations"][other]["message"], "The spec is ready.")
+        elsewhere = "the owner wrote it to maps-1, not to you"
+        # his words to the executor without the card: as before, not his word to maps
+        self.ev("message.received", None, to="maps-1", text="all yes", quote="Spec: accept — …",
+                **{"channel": "telegram", "owner": True})
+        self.assertIn(elsewhere, self.accept(did, f"m{self.seq}"))
+        # a reply to the card of another spec counts only for that one
+        self.assertIn("not to you", self.accept(did, self.reply_to_card(other, to="maps-2")))
+        # a card named in words sent to another session is no link: the core keeps no spec_card
+        word = self.reply_to_card(did, to="maps-2")
+        self.assertNotIn("spec_card", self.st["messages"][word])
+        self.assertIn("not to you", self.accept(did, word))
+        # not the owner: words from Telegram not his (a member of the group), a module handle (from_owner, but not the
+        # owner himself)
+        word = self.reply_to_card(did, who={"channel": "telegram", "owner": False})
+        self.assertNotIn("spec_card", self.st["messages"].get(word) or {})
+        self.assertTrue(self.accept(did, word))
+        word = self.reply_to_card(did, who={"channel": "mod:notes", "owner": True})
+        self.assertNotIn("spec_card", self.st["messages"][word])
+        self.assertTrue(self.accept(did, word))
+        # a session that neither raised it nor is the hub, and the executor itself
+        word = self.reply_to_card(did)
+        self.ev("session.requested", "docs", cwd="/d", session_id="s-docs", role="agent", about="Docs", **CLI)
+        self.ev("session.started", "docs")
+        self.assertIn("accept", self.accept(did, word, who="docs"))
+        self.assertTrue(self.accept(did, word, who="maps-1"))
+        # and the same words are no "--for" of any other command: the reply opens only this spec
+        self.assertIn(elsewhere, self.ev("message.received", None, to="maps-1", text="go", **{"for": word},
+                                         **by("hub")) or "")
+        self.assertEqual(self.st["delegations"][did]["spec"]["state"], "open")
+        # a Claude Code command typed in reply to the card is an action on the session, not words about the spec
+        word = self.reply_to_card(did, text="/compact")
+        self.assertNotIn("spec_card", self.st["messages"][word])
+        self.assertIn(elsewhere, self.accept(did, word))
+        # nor is a remark to a person of the hub's group in reply to the card (fyi: it starts no turn)
+        self.assertIsNone(self.ev("message.received", None, to="maps-1", text="@ann look", quote="Spec", spec_card=did,
+                                  fyi=True, channel="telegram", owner=True))
+        self.assertNotIn("spec_card", self.st["messages"][f"m{self.seq}"])
+        # an accepted spec: a reply to its stale card links nothing
+        self.assertIsNone(self.accept(did, self.reply_to_card(did)))
+        late = self.reply_to_card(did)
+        self.assertNotIn("spec_card", self.st["messages"][late])
+
     def test_drop_closes_the_task_and_the_executor_sleeps(self):
         did = self.raised()
         self.turn("maps-1", self.st["delegations"][did]["message"], "The spec is ready.")

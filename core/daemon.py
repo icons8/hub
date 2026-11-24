@@ -38,6 +38,11 @@ GATEWAY_STREAM = coretext.T("core.daemon.gateway_stream", "only with the stream-
 NO_LOGIN_MODULE = coretext.T("core.daemon.no_login_module", "no sign-in module — sessions come up directly")
 CATALOG_EVERY = 30  # seconds between reconciling the catalog with the sets on disk
 SLEPT_MIN = 60   # s; the wall clock ran ahead of the awake clock by this much since the last pass: the machine slept (check_slept)
+DARK_POLL = 10   # s of awake time; in a dark wake the core asks the OS this often whether the person woke it fully (check_dark)
+DARK_STEP = 5    # s; a spawn deferred by a dark wake is tried again this often (wait_dark)
+# s of awake time; a dark wake is windows of seconds between sleeps: "dark" for longer is a wrong answer of the OS
+# (a Mac whose full wake reports no graphics) — the core takes it as awake, or the hub would stand still (check_dark)
+DARK_MAX = 30 * 60
 PROFILE_RETRY = 600   # s; a waiting eviction of an agent's CLAUDE.md that failed (a read-only folder) is retried this rarely
 PIN_FILE_MAX = 2 * 1024 * 1024   # bytes; a pinning list or cut items for `hub profile pin` (core/profcap.py)
 CHECKED_EVERY = 600   # s; how many inbox facts were checked (spool.checked) — no more often, hub stats are sent every 15 min
@@ -109,7 +114,7 @@ def default_state_dir():
 
 class Hub:
     def __init__(self, state_dir, host, registry_dir=None, clock=time.time, rotate_bytes=journal.ROTATE_BYTES,
-                 mono=time.monotonic):
+                 mono=time.monotonic, dark=None):
         self.state_dir = state_dir
         self.rotate_bytes = rotate_bytes
         self.host = host
@@ -119,6 +124,11 @@ class Hub:
         self.clock = clock
         self.mono = mono   # the awake clock: does not run while the machine sleeps (macOS, Linux), unlike self.clock
         self.awake_at = None   # (clock, mono) at the last pass: check_slept
+        # the Mac between sleeps (platforms dark_wake): asked of the OS only by a hub on the real clocks — one with
+        # substituted ones (tests) is never dark; dark_asked — the awake time of the last question (check_dark)
+        self.dark_wake = dark or (platforms.current.dark_wake if clock is time.time and mono is time.monotonic
+                                  else lambda: False)
+        self.dark_asked = self.dark_since = None
         self.after_crash = False   # start(): the previous hubd left with no clean shutdown (until the start-up steps are done)
         self.state_retry = self.rotate_retry = None   # when a refused state file write / journal rotation is tried again
         self.spool_dir = os.path.join(state_dir, "spool")
@@ -515,6 +525,8 @@ class Hub:
                                                              "server": action.get("server"), "result": "no-callback"})
                 return
             action = {**action, "url": url}
+        if do == "spawn" and self.wait_dark(action):
+            return   # the Mac between sleeps: the session comes up at the full wake
         if do == "spawn":
             action = self.wait_claude(action)   # None — deferred (or superseded); otherwise without its wait mark
             if action is None:
@@ -548,6 +560,8 @@ class Hub:
         try:
             result = getattr(self.host, do)(name, **args)
         except Exception as e:  # the host crashed — that is a fact, not a core failure
+            if do == "spawn":
+                self.take_conversation_lost(name)   # the mark of a launch that failed is not the next launch's
             if do == "spawn" and getattr(e, "no_login", False):
                 return self.no_login(action)   # Claude Code has no sign-in for it (hosts/streamjson NoLogin): it waits
             # the address after a sign-in carries a one-time code: only the kind of the failure goes to the journal
@@ -563,6 +577,7 @@ class Hub:
         used = getattr(self.host, "profile_used", None)
         # which agent profile went to the executor (core/execprofile): a digest, with addenda or full, and stale — recompress
         profile = used.pop(name, None) if do == "spawn" and isinstance(used, dict) else None
+        lost = do == "spawn" and self.take_conversation_lost(name)
         # a raise after Opus's filter: whether the host cut the stopped turn out of the conversation (core/refusals.py)
         cuts = getattr(self.host, "refusal_cut", None)
         cut = cuts.pop(name, None) if do == "spawn" and isinstance(cuts, dict) else None
@@ -572,7 +587,17 @@ class Hub:
                                            if do == "spawn" and action.get("account_fresh") else {}),
                                         **({"server": action["server"]} if action.get("server") else {}),
                                         **({"profile": profile} if profile else {}),
+                                        **({"conversation": "lost"} if lost else {}),
                                         **({"cut": cut} if cut is not None else {})})
+
+    def take_conversation_lost(self, name):
+        """Whether the host's last spawn of the session found no conversation for --resume and started anew
+        (hosts/common.resume_lost); the mark is taken whatever the launch's outcome, so it never outlives it."""
+        marks = getattr(self.host, "conversation_lost", None)
+        if not isinstance(marks, set) or name not in marks:
+            return False
+        marks.discard(name)
+        return True
 
     def profile_busy(self, name, profile):
         """The agent or one of its executors (they carry its profile) is in a turn: an eviction waits."""
@@ -794,6 +819,18 @@ class Hub:
         if now - since >= CODEX_FOLDER_WAIT:
             return False
         self.delayed.append((now + CODEX_FOLDER_STEP, {**action, "folder_since": since}))
+        return True
+
+    def wait_dark(self, action):
+        """A spawn in a dark wake (reducer _dark: the Mac between sleeps, the network often silent) waits as a delayed
+        action: its first request would hang until the next windows and fail hours later. True — the spawn is deferred."""
+        if "dark" not in self.state:
+            return False
+        name, token = action["session"], action.get("claude_token")
+        if token is not None and self.claude_latest.get(name) != token:
+            return True   # a newer spawn of the session (a reload, an account) was held meanwhile: this one is dropped
+        token = self.claude_latest[name] = next(self.claude_tokens)   # the same supersede as wait_claude's
+        self.delayed.append((self.clock() + DARK_STEP, {**action, "claude_token": token}))
         return True
 
     def wait_forward(self, action):
@@ -1564,8 +1601,33 @@ class Hub:
         long moves both clocks, so it is no sleep."""
         wall, awake = self.clock(), self.mono()
         last, self.awake_at = self.awake_at, (wall, awake)
-        if last and (gap := (wall - last[0]) - (awake - last[1])) >= SLEPT_MIN:
+        slept = bool(last) and (gap := (wall - last[0]) - (awake - last[1])) >= SLEPT_MIN
+        if slept:
             self.record("core.slept", data={"seconds": round(gap)})
+        self.check_dark(awake, ask=slept or not last)
+
+    def check_dark(self, awake, ask=False):
+        """Whether the Mac is awake without the person (macOS DarkWake, platforms dark_wake): the fact core.dark on a
+        change, before the step that would type, spawn or launch (reducer _dark). Asked at the first pass, after every
+        sleep and, while dark, once per DARK_POLL (the person may wake it fully without a sleep in between); otherwise
+        not — an awake Mac, Linux and Windows ask nothing and record nothing."""
+        dark = "dark" in self.state
+        if not ask and not (dark and (self.dark_asked is None or awake - self.dark_asked >= DARK_POLL)):
+            return
+        self.dark_asked = awake
+        try:
+            now = bool(self.dark_wake())
+        except Exception as e:  # noqa: BLE001 — the question must not stop the tick: unknown is "awake", as before
+            print(f"hubd: dark wake check: {e!r}", flush=True)
+            now = False
+        if ask or not now or not dark or self.dark_since is None:
+            # the awake time this window began (after a sleep — a new one; or this hubd first saw it)
+            self.dark_since = awake if now else None
+        elif awake - self.dark_since >= DARK_MAX:
+            print(f"hubd: the OS says dark wake for {round(awake - self.dark_since)} s awake — taken as awake", flush=True)
+            now = False
+        if now != dark:
+            self.record("core.dark", data={"on": now})
 
     def beat(self):
         path = os.path.join(self.state_dir, ALIVE)

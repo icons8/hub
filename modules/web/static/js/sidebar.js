@@ -7,9 +7,11 @@ import { bare, isolate, locale, t, CLOSED } from "./i18n.js";
 import { scheduleNav } from "./schedule.js";
 import { modelTitle } from "./modelpicker.js";
 import { hubsDue, hubsGroup } from "./hubs.js";
-import { extNavs, ordered, slotNodes, subgroups } from "./ext.js";
+import { clearSessionQuery, extNavs, ordered, searchHeld, sessionQuery, slotNodes, subgroups, syncSearch, viewQuery }
+  from "./ext.js";
 import { claim, mergeInto, stand } from "./reconcile.js";
 import { isOpen, setOpen, foldDefault } from "./fold.js";
+import { matcher, setKeyboards } from "./names.js";
 import { layout, explicitGroup, hasGroup, addGroup, resetLayout, renaming, renameField, keepingEditor, startRenaming,
   groupMenu, openPalette, bindDrag, isDragging, markDirty, NONE } from "./groups.js";
 
@@ -77,7 +79,8 @@ const countBadge = (n) => el("span", "gcount", String(n));
 // not match themselves. While searching, collapsed groups and executors are expanded (a click on a heading or the badge folds
 // them until the query changes), and the saved collapse state is untouched
 let lastQuery = "";
-let searchMatches = null;   // while searching: the found ones — name → how well it matched (0 exact, 1 from the start, 2 inside)
+let searchMatches = null;   // while searching: the found ones — name → how well it matched (names.js: 0 from the start of the name … 5)
+const NO_MATCH = 6;          // worse than any match (names.js matcher)
 
 // "Now" (like the Active toggle in Claude Code): only what is running or waiting for you — by core facts — plus the
 // recently opened ones (below); everything else is in "All" (no "N more" and no group buttons). The view is stored in
@@ -241,7 +244,7 @@ function rowsInto(ul, rows, forks, mark) {
       // while searching, a better name match goes first among the rows of this parent (like top-level rows, buildList)
       // within one rank the freshest is on top (since — when it took its current state, for a sleeping one when it fell
       // asleep); without it the order was the creation order and the newest sleeping one sank to the bottom
-      const rank = (f) => 3 * (searchMatches?.get(f.name) ?? 3) + (smart() && needsYou(f) ? 0 : 1 + resting(f));   // the match is the senior part (the state is 0..2)
+      const rank = (f) => 3 * (searchMatches?.get(f.name) ?? NO_MATCH) + (smart() && needsYou(f) ? 0 : 1 + resting(f));   // the match is the senior part (the state is 0..2)
       const fresh = (a, b) => (b.since || 0) - (a.since || 0);
       // nested rows get a key of their own (reconcile.js): data-s / data-m enable drag and the menu of a top-level row
       const own = (li, key, name) => { li.dataset[key] = name; return li; };
@@ -541,6 +544,20 @@ function sessionRow(s, forks = [], under = null, queued = []) {
     lb.textContent = t("web.sidebar.refused_again");
     lb.title = t("web.main.refused_title", { asked: modelTitle(s.refused.asked), got: modelTitle(s.refused.got), at: dayTime(s.refused.ts) });
   }
+  // the conversation is being compacted (core: compacting): not "working"/"idle" — it is a minute that looks like a hang
+  if (s.compacting && ["idle", "busy"].includes(s.state)) {
+    lb.textContent = t("web.sidebar.compacting");
+    lb.title = t("web.dock.compacting_title");
+    if (s.state === "busy") { const e = el("span", "elapsed", ` · ${elapsed(s.since)}`); e.dataset.since = s.since; lb.append(e); }   // the turn's clock goes on
+  }
+  // a new process that has not read its input: Claude Code takes the first line only once its MCP servers are up (core: mcp_wait);
+  // its own "waiting for" and a model it was moved off say more than the start; past `until` the snapshot that drew it is old
+  if (s.mcp_wait?.until > Date.now() / 1000 && s.state === "idle" && !s.compacting && !(s.waiting && !bgWork) && s.refused?.state !== "again") {
+    lb.textContent = t("web.sidebar.mcp_wait");
+    lb.title = s.mcp_wait.servers.length
+      ? t("web.sidebar.mcp_wait_title", { servers: s.mcp_wait.servers.join(", "), at: dayTime(s.mcp_wait.until) })
+      : t("web.sidebar.mcp_wait_title_all", { at: dayTime(s.mcp_wait.until) });
+  }
   // the result was read and nothing was done — the watchdog's guess is visible; while unread — only a dot
   const guess = s.attention && !s.unread;
   // what is needed from the user replaces the state: "Say 'yes' to the merge", not "idle"
@@ -637,7 +654,7 @@ function sessionRow(s, forks = [], under = null, queued = []) {
   // everything right of the name is for the caption; a parent of executors also has a twin column of the counter (::after)
   if (smart()) b.style.setProperty("--lb-span", `span ${b.children.length - 1 + (li.classList.contains("has-forks") ? 1 : 0)}`);
   if (searchMatches?.has(s.name)) b.dataset.searchMatch = "true";   // Enter opens the first of them from the top of the list
-  b.addEventListener("click", () => go(s.name));
+  b.addEventListener("click", () => { endSearch(); go(s.name); });
   li.append(b);
   if (forks.length || queued.length) {
     const t = forkToggle(s, forks, queued);
@@ -737,16 +754,16 @@ function buildList() {
   // plugin tiles sit above the search row and earlier in the markup: Tab follows the visual order in every browser (1.30);
   // nodes stay in place — a focused button doesn't lose focus on a new snapshot
   placeNodes($("slot-sidebar-tiles"), slotNodes("sidebar.tiles"));
-  const q = $("filter").value.trim().toLowerCase();
-  // how well the name matched the search: 0 exact, 1 from the start of the name, 2 somewhere inside, 3 none
-  const fit = (s) => Math.min(...[s.name, ...(s.system ? [sessionLabel(s)] : []), ...(s.kind === "hub" ? [hubLabel()] : [])].map((n) => {
-    n = n.toLowerCase();
-    return n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 2 : 3;
-  }));
+  syncSearch();   // an open view may hold the field (1.39): the list is then whole
+  const q = sessionQuery().trim().toLowerCase();
+  // the search covers names only, by the rule of the native clients (names.js): the start of the name, then of a word,
+  // then inside a word; separators, case, diacritics and the other keyboard layout do not matter
+  const match = q ? matcher(q) : null;
+  const fit = (s) => match([s.name, ...(s.system ? [sessionLabel(s)] : []), ...(s.kind === "hub" ? [hubLabel()] : [])]);
   const found = new Map();
   for (const s of q ? S.snap.sessions : []) {
     const f = fit(s);
-    if (f < 3) found.set(s.name, f);
+    if (f !== null) found.set(s.name, f);
   }
   searchMatches = q ? found : null;
   if (q !== lastQuery) searchShut.clear();   // a new query shows the executors open again
@@ -758,13 +775,13 @@ function buildList() {
     const parent = parentOf(s);   // nesting in the list is one level: under whom the row stands
     if (parent) {
       included.add(parent);
-      best.set(parent, Math.min(best.get(parent) ?? 3, best.get(s.name)));
+      best.set(parent, Math.min(best.get(parent) ?? NO_MATCH, best.get(s.name)));
     }
   }
-  // searching for a thread or agent by name — inside each group the one matching from the start of the name (exact
-  // ones even higher) comes first, equal ones keep their order; the order of groups and the manual layout stay as
+  // searching for a thread or agent by name — inside each group the one matching from the start of the name comes
+  // first, then from the start of a word, equal ones keep their order; the order of groups and the manual layout stay as
   // they are, so the list doesn't jump from letter to letter while typing
-  const rank = (rows) => q ? [...rows].sort((a, b) => (best.get(a.name) ?? 3) - (best.get(b.name) ?? 3)) : rows;
+  const rank = (rows) => q ? [...rows].sort((a, b) => (best.get(a.name) ?? NO_MATCH) - (best.get(b.name) ?? NO_MATCH)) : rows;
   const all = S.snap.sessions.filter((s) => !searchMatches || included.has(s.name));
   const lay = layout();
   const forks = all.filter((s) => parentOf(s));  // under whoever started them, not in the common groups
@@ -972,6 +989,19 @@ function activeBar(n, a) {
   act.setAttribute("aria-pressed", String(onlyActive));
 }
 
+// the tooltip of the "away" mark (the strip, and the chip in a session's header on a phone)
+export function awayTitle(o) {
+  // held until "I'm back" or the term (the core: his words do not end an away with the deputies): its own tooltip
+  // (away_held: an older core sends none — then by the deputies it names)
+  const held = "away_held" in o ? o.away_held : !!(o.deputies && o.deputies.length);
+  return t(held ? "web.sidebar.away_title_held" : "web.sidebar.away_title",
+    { since: new Date(o.away_since * 1000).toLocaleString(locale) })
+    // away with the deputies (core/deputies.py): who, and how many cards are at them now — in the tooltip, the strip
+    // stays one line; an older core sends no field
+    + (Array.isArray(o.deputies) ? "\n" + t("web.sidebar.away_deputies_who", { names: o.deputies.join(", ") || "—" })
+      + t("web.sidebar.away_deputies", { count: o.at_deputies || 0 }) : "");
+}
+
 // "away" mode: session forms don't become cards but pile up until the user returns — always visible (an /away without
 // a deadline could be forgotten for a day, leaving the forms unseen)
 function awayStrip() {
@@ -982,9 +1012,10 @@ function awayStrip() {
   const n = o.deferred || 0;
   const text = t("web.sidebar.away_since", { at: dayTime(o.away_since) }) + (o.until ? t("web.sidebar.away_until", { at: dayTime(o.until) }) : "")
     + (n ? t("web.sidebar.away_questions", { count: n }) : "");
-  if (box.dataset.text === text) return;
+  const title = awayTitle(o);
+  if (box.dataset.text === text && box.title === title) return;
   box.dataset.text = text;
-  box.title = t("web.sidebar.away_title", { since: new Date(o.away_since * 1000).toLocaleString(locale) });
+  box.title = title;
   const b = el("button", null, t("web.sidebar.away_back"));
   b.type = "button";
   b.addEventListener("click", () => { b.disabled = true; post("/api/owner/back", {}); });
@@ -1030,20 +1061,46 @@ function stateCounts() {
 }
 
 const FILTER_WAIT = 200;   // ms of typing pause in the panel search before the list is rebuilt
+let filterWait = 0;
+// choosing a row (a click, Enter) while searching opens the thread and ends the search, as in the native clients: it is a
+// move to the thread, not "find in the list"; the list comes back whole. While a view holds the field (1.39) its text is the
+// view's: it stays, and the session search the view hid ends instead
+function endSearch() {
+  if (searchHeld()) return clearSessionQuery();
+  const f = $("filter");
+  if (!f?.value) return;
+  f.value = "";
+  clearTimeout(filterWait); filterWait = 0;
+  if (S.snap) renderList();
+}
 export function bindSearch() {
   bindDrag($("list"), natural, (name) => S.snap.sessions.find((x) => x.name === name), membersOf);
   const f = $("filter");
+  // the other keyboard layouts are language data (GET /api/keyboards); an older server has no such address, and until a
+  // `hub restart web` the search matches only what was typed
+  fetch("/api/keyboards", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).then((data) => {
+    setKeyboards(data);
+    if (S.snap && sessionQuery().trim()) renderList();
+  }).catch(() => {});
   // rebuild the list after a typing pause, not on every letter: rebuilding a big fleet takes up to a second and input lagged
   // (measured 26.10: INP up to 1.15 s). Enter and Esc act immediately on what is typed
-  let wait = 0;
-  const now = () => { clearTimeout(wait); wait = 0; if (S.snap) renderList(); };
-  f.addEventListener("input", () => { clearTimeout(wait); wait = setTimeout(now, FILTER_WAIT); });
+  const now = () => { clearTimeout(filterWait); filterWait = 0; if (S.snap) renderList(); };
+  // a view holding the field (1.39) gets every change at once: it is its query, not the list's
+  f.addEventListener("input", () => {
+    if (searchHeld()) return viewQuery(f.value);
+    clearTimeout(filterWait); filterWait = setTimeout(now, FILTER_WAIT);
+  });
   f.addEventListener("keydown", (e) => {
+    if (searchHeld()) {
+      if (e.key === "Escape" && f.value) { e.preventDefault(); f.value = ""; viewQuery(""); }
+      return;
+    }
     if (e.key === "Enter") {
-      if (wait) now();
+      if (filterWait) now();
       $("list").querySelector(searchMatches ? '.srow[data-search-match="true"]' : ".srow")?.click();
     }
-    if (e.key === "Escape") { f.value = ""; now(); $("msg")?.focus(); }
+    // handled: the focus moves to the message field, and the same Esc must not stop its turn or drop its quote there
+    if (e.key === "Escape") { e.preventDefault(); f.value = ""; now(); $("msg")?.focus(); }
   });
 }
 

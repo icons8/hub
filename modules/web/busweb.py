@@ -48,6 +48,7 @@ class BusWeb:
         def pick(reader):
             st = reader.state
             return {"bus": copy.deepcopy(st.get("bus") or {}),
+                    "deputies": copy.deepcopy(st.get("deputies") or {}),   # the owner's deputies (core/deputies.py)
                     "sessions": {n: {"kind": s.get("kind"), "state": s.get("state")}
                                  for n, s in (st.get("sessions") or {}).items()}}
         tail, path = self.web.tail, os.path.join(self.web.state_dir, "journal.jsonl")

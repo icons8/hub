@@ -277,7 +277,7 @@ export async function awaitDecision(session, client_id) {
     for (let pause = 1000; ; pause = Math.min(pause * 2, 10000)) {
       await new Promise((ok) => setTimeout(ok, pause));
       const got = await receiptOf(session, client_id);
-      if (got.receipt === "accepted") return { receipt: "accepted" };
+      if (got.receipt === "accepted") return { receipt: "accepted", seq: got.seq };
       if (got.receipt === "refused") return { receipt: "refused", error: got.error };
       lost = got.receipt === "unknown" ? lost || Date.now() : 0;
       if (lost && Date.now() - lost >= UNKNOWN_SURE) return { receipt: "lost" };

@@ -648,10 +648,13 @@ def wait_free(state, ceiling_minutes, say=print, clock=time.monotonic, sleep=tim
 
 
 def _run(cmd, run=subprocess.run, timeout=120):
-    try:
-        return run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    import platforms
+    try:   # bytes: schtasks writes in the console's OEM code page; text=True read it as UTF-8 and failed (byte 0x93)
+        r = run(cmd, capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.SubprocessError) as e:
         return subprocess.CompletedProcess(cmd, 1, "", str(e))
+    text = lambda out: platforms.current.output_text(out) if isinstance(out, bytes) else out
+    return subprocess.CompletedProcess(r.args, r.returncode, text(r.stdout), text(r.stderr))
 
 
 def _uid():

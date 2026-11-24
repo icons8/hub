@@ -1362,6 +1362,27 @@ class FilesTest(unittest.TestCase):
         self.assertEqual(os.path.realpath(paths.find(".harness/plans/active/x-plan.md", self.proj)),
                          os.path.realpath(plan))
 
+    def test_paths_not_found_ask_git_for_worktrees_once(self):
+        """A page asks /api/paths for every path of a session's feed (80+ at once): each one not found ran
+        `git worktree list` anew, the answer took up to a minute and held the browser's connections (the feed did
+        not update). The list is kept for SEARCH_TTL, as the repo root and its files are."""
+        git = lambda *a: subprocess.run(["git", "-C", self.proj, *a], check=True, capture_output=True)  # noqa: E731
+        platforms.current.rmtree(os.path.join(self.proj, ".git"))
+        git("init", "-q")
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        run, calls = subprocess.run, []
+
+        def counted(cmd, *a, **kw):
+            calls.append(cmd)
+            return run(cmd, *a, **kw)
+        with mock.patch.object(paths.subprocess, "run", counted):
+            for i in range(5):
+                self.assertIsNone(paths.find(f"missing-{i}.md", self.proj))
+            self.assertEqual(sum("worktree" in c for c in calls), 1)
+            with mock.patch.object(paths, "SEARCH_TTL", 0):   # an old list is asked again
+                paths.find("missing-0.md", self.proj)
+            self.assertEqual(sum("worktree" in c for c in calls), 2)
+
     def raw(self, method, path, headers=None):
         """The whole response: code, headers, body — for header checks (CSP, CORS)."""
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)

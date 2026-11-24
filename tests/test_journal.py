@@ -1,7 +1,9 @@
+import json
 import os
 import tempfile
 import unittest
 
+import platforms
 from core import journal, spool
 
 
@@ -74,6 +76,59 @@ class JournalTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, journal.ARCHIVE)))
 
 
+class LastStartedTest(unittest.TestCase):
+    """journal.last_started: the core's start from the journal's end, without folding the journal."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(platforms.current.rmtree, self.dir)
+        self.path = os.path.join(self.dir, "journal.jsonl")
+
+    def put(self, *lines):
+        with open(self.path, "ab") as f:
+            for line in lines:
+                f.write(line if isinstance(line, bytes) else json.dumps(line, separators=(",", ":")).encode())
+                f.write(b"\n")
+
+    def ev(self, kind, ts, **data):
+        return {"seq": 1, "ts": ts, "src": "core", "type": kind, "entity": None, "data": data}
+
+    def test_the_last_start_wins_and_no_journal_is_none(self):
+        self.assertIsNone(journal.last_started(self.path))
+        self.put(self.ev("core.started", 10.5), self.ev("message.received", 11, text="hi"), self.ev("core.started", 20.25),
+                 self.ev("message.received", 21, text="after"))
+        self.assertEqual(journal.last_started(self.path), 20.25)
+
+    def test_words_in_a_message_are_not_a_start(self):
+        # a message that holds the marker, a raw line that only looks like it, and a last line cut before its newline
+        self.put(self.ev("core.started", 5.0), self.ev("message.received", 6, text='"type":"core.started"'),
+                 b'{"type":"core.started","ts":"x"}')
+        with open(self.path, "ab") as f:
+            f.write(b'{"seq":9,"ts":99.5,"src":"core","type":"core.started","entity":nu')
+        self.assertEqual(journal.last_started(self.path), 5.0)
+
+    def test_every_place_of_the_start_in_the_blocks_is_found(self):
+        for pad in range(0, 70):
+            self.put(self.ev("message.received", 1, text="y" * pad), self.ev("core.started", 40.0 + pad),
+                     self.ev("message.received", 2, text="z" * (pad % 7)))
+            self.assertEqual(journal.last_started(self.path, block=64), 40.0 + pad, pad)
+        os.unlink(self.path)
+        self.put(self.ev("core.started", 3.0))   # the first line of the file
+        self.assertEqual(journal.last_started(self.path, block=16), 3.0)
+
+    def test_a_start_out_of_reach_is_none(self):
+        self.put(self.ev("core.started", 5.0), *[self.ev("message.received", 6, text="x" * 200) for _ in range(40)])
+        self.assertIsNone(journal.last_started(self.path, max_bytes=4000))
+        self.assertEqual(journal.last_started(self.path), 5.0)
+
+    def test_a_cut_right_after_a_newline_keeps_the_line(self):
+        start, after = self.ev("core.started", 7.5), self.ev("message.received", 8, text="x")
+        self.put(self.ev("message.received", 1, text="before"), start, after)
+        tail = len(json.dumps(start, separators=(",", ":"))) + len(json.dumps(after, separators=(",", ":"))) + 2
+        self.assertEqual(journal.last_started(self.path, max_bytes=tail), 7.5)   # the window begins at the start's line
+        self.assertIsNone(journal.last_started(self.path, max_bytes=tail - 1))   # one byte less: the line is cut
+
+
 class SpoolTest(unittest.TestCase):
     def test_put_take_in_order_and_bad_file_skipped(self):
         d = tempfile.mkdtemp()
@@ -98,3 +153,22 @@ class SpoolTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RawStartIsTheFold(unittest.TestCase):
+    """What last_started reads from the journal's end is what the page's fold holds as the core's start."""
+
+    def test_the_same_as_the_state_after_a_whole_pass(self):
+        from core.tail import Tail
+        d = tempfile.mkdtemp()
+        self.addCleanup(platforms.current.rmtree, d)
+        path = os.path.join(d, "journal.jsonl")
+        j = journal.Journal(path)
+        j.append("core.started", None, {"pid": 1})
+        j.append("message.received", None, {"text": '"type":"core.started"\n{"seq":1,"ts":1.5,"src":"core","type":"core.started"'})
+        j.append("core.started", None, {"pid": 2})
+        j.append("message.received", None, {"text": "x" * 70000})
+        tail = Tail(path, page=False)
+        tail.poll()
+        self.assertEqual(journal.last_started(path), tail.started)
+        self.assertEqual(tail.core_started(), tail.started)

@@ -279,7 +279,7 @@ class Context(Bare):
         self.assertEqual((self.proc.held, self.proc.life["inject"]), (set(), {}))
 
     def test_inside_a_running_turn_it_is_injected_without_a_hold(self):
-        self.assertEqual(self.own_compaction(), [])
+        self.assertEqual(self.own_compaction(), [("session.compacting", "maps", {"on": False})])   # the page's mark goes off
         self.host.type("maps", "insert", message="m8")   # an insertion mid-turn is not held
         self.assertEqual(len(self.sent("turn/steer")), 1)
         self.lines()
@@ -305,8 +305,10 @@ class Context(Bare):
         # the core's compaction turn has the same contextCompaction item: it is not "Codex compacted by itself"
         self.proc.compacts = 1
         item = {"type": "contextCompaction", "id": "cmp-1"}
+        facts = []
         for method in ("item/started", "item/completed"):
-            self.host._line("maps", {"method": method, "params": {"threadId": "t", "turnId": "cmp", "item": item}})
+            facts += self.host._line("maps", {"method": method, "params": {"threadId": "t", "turnId": "cmp", "item": item}})
+        self.assertEqual(facts, [("session.compacting", "maps", {"on": True})])   # its end is session.compacted alone
         self.assertEqual([t for t in threading.enumerate() if t.name == "codex-context-maps"], [])   # none started yet
         self.assertEqual((self.proc.compacting, self.proc.held), ("cmp", set()))
         self.host._line("maps", {"method": "turn/completed", "params": {"turn": {"id": "cmp", "status": "completed"}}})

@@ -1229,6 +1229,30 @@ class WindowsRunDiesWithCaller(unittest.TestCase):
         self.assertFalse(current.alive(child))
 
 
+class WindowsStartOutside(unittest.TestCase):
+    def test_a_wmi_start_asks_for_a_hidden_window(self):
+        # 18.11: every `hub run` (and its tests) opened a console window on the owner's desktop: WMI started the
+        # wrapper (python.exe, a console program) with the default STARTUPINFO, so the new console showed. The script
+        # passes Win32_ProcessStartup with ShowWindow = 0 (SW_HIDE); the app shell's copy (launch.py) does the same
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("hub_test_launch_wmi", os.path.join(ROOT, "tools", "package",
+                                                                                           "launch.py"))
+        launch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(launch)
+        for name, start in (("platforms.windows", windows.popen_outside), ("launch.py", launch._outside)):
+            ran = []
+            with self.subTest(name), mock.patch.object(subprocess, "run",
+                                                       lambda cmd, **kw: ran.append((cmd, kw)) or
+                                                       subprocess.CompletedProcess(cmd, 0)):
+                self.assertTrue(start(["C:\\py\\python.exe", "wrap.py"]))
+                cmd, kw = ran[0]
+                script = cmd[-1]
+                self.assertIn("ProcessStartupInformation", script)
+                self.assertRegex(script, r"ShowWindow\s*=\s*(\[uint16\])?0\b")
+                self.assertEqual(kw["env"]["HUB_OUTSIDE_CMD"], "C:\\py\\python.exe wrap.py")
+                self.assertEqual(kw["creationflags"], 0x08000000)   # PowerShell itself: no window either
+
+
 class Rmdir(unittest.TestCase):
     """rmdir of an empty folder (the worktree leftover cleanup): only Windows clears the read-only attribute and retries."""
 

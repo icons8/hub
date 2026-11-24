@@ -1,6 +1,7 @@
 // Claude account limits, as in the Claude Code status line: a window is a bar, its share used and when it resets.
 // The data is the latest rate_limit_event of any session (core: account.limits); no sessions yet — no line.
 import { el, time } from "./dom.js";
+import { clock } from "./clock.js";
 import { S } from "./state.js";
 import { locale, t } from "./i18n.js";
 
@@ -11,7 +12,7 @@ const ORDER = Object.keys(NAMES);
 function when(ts) {
   const d = new Date(ts * 1000), now = new Date();
   if (d.toDateString() === now.toDateString()) return t("web.limits.at_time", { time: time(ts) });
-  return d.toLocaleString(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return clock(ts, locale, { day: "numeric", month: "short" });
 }
 
 const SHORT = { five_hour: t("web.limits.short_five_hour"), seven_day: t("web.limits.short_week"),

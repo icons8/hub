@@ -2,7 +2,7 @@
 // answer to a card are sources too, an exact row wins over a longer one that contains the quote, only earlier rows count.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { quoteSource, quotableRow, variants } from "../../modules/web/static/js/quotefind.js";
+import { quoteSource, quotableRow, quotedBy, variants } from "../../modules/web/static/js/quotefind.js";
 
 const varsOf = (x) => variants(x.text, x.label, x.what);
 const find = (rows, quote, seq = 100) => quoteSource(rows, { seq, quote }, varsOf);
@@ -38,4 +38,22 @@ test("rows to other sessions, errors and later rows are not sources", () => {
 
 test("a short quote is a whole word: 'yes' is not found inside 'eyes'", () => {
   assert.equal(find([{ seq: 1, kind: "out", text: "Look at my eyes" }], "yes"), null);
+});
+
+test("a file the session sent and the owner's message with only files are found by the quotes \"Reply\" puts on them", () => {
+  const byFile = (rows, quote) => quoteSource(rows, { seq: 100, quote }, (x) => quotedBy(x));
+  const mention = { seq: 1, kind: "out", text: "The totals go into report.md, I will send it." };
+  const file = { seq: 2, kind: "file", name: "report.md", caption: null };
+  const own = { seq: 3, kind: "in", text: "", attachments: [{ name: "plan.pdf" }, { name: "notes.txt" }] };
+  assert.equal(byFile([mention, file, own], "report.md"), file);
+  assert.equal(byFile([mention, file, own], "plan.pdf, notes.txt"), own);
+  const captioned = { ...file, caption: "The March totals" };
+  assert.equal(byFile([mention, captioned], "The March totals"), captioned);
+  // a word picked from a sentence stays with the sentence, though a newer file is named after it
+  assert.equal(byFile([mention, file], "totals"), mention);
+  assert.equal(byFile([{ seq: 1, kind: "out", text: "the report is ready" }, { seq: 2, kind: "file", name: "report.pdf" }], "report").seq, 1);
+  // a screen recording without words: "Reply" quotes its other files, not the video and its track
+  const cast = { seq: 4, kind: "in", text: "", attachments: [{ name: "screencast-a1.mp4" }, { name: "notes.txt" }, { name: "screencast-a1.events.jsonl" }] };
+  const older = { seq: 3, kind: "file", name: "notes.txt" };
+  assert.equal(byFile([older, cast], "notes.txt"), cast);
 });

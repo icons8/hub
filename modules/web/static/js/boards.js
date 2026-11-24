@@ -8,6 +8,7 @@
 // Core facts per card (spec dir-sync, core/board.py): who is working on it, whether it was handed in and reviewed by
 // the lead; on the right — the direction's executors without a card. The core never sets Done — facts only hint.
 import { el, icon } from "./dom.js";
+import { clock } from "./clock.js";
 import { render, renderLive, S } from "./state.js";
 import { md, copyText } from "./markdown.js";
 import { t, locale } from "./i18n.js";
@@ -72,7 +73,7 @@ function load(slug) {
   }).catch(() => { c.loading = false; c.at = Date.now(); c.data = c.data || { error: t("web.boards.load_failed") }; renderLive(); });
 }
 
-const stamp = (ts) => new Date(ts * 1000).toLocaleString(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const stamp = (ts) => clock(ts, locale, { day: "2-digit", month: "2-digit" });
 
 // core fact for a card: a line and a subline; no fact — null
 function fact(f) {

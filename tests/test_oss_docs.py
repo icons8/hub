@@ -420,6 +420,7 @@ class Docs(unittest.TestCase):
         from core import version
         text = read("EXTENDING.md")
         for name in ("`GET /api/marketplaces`", "`GET /api/marketplaces/icon?", "`POST /api/plugins/install`",
+                     "`hub.capabilities.clock === 1`",
                      "409 `{error, wider:", "`page_access`", "`plugins.consented`", "`GET /api/voice/failed?id=",
                      "`POST /api/voice`", "`POST /api/accounts/use", "`state: \"archived\"`", "`sidebar.tiles`",
                      "`hub.banner(text)`", "`GET /api/backlog?", "`parked`", "`retired`", "503 with `Retry-After`",
@@ -428,7 +429,8 @@ class Docs(unittest.TestCase):
                      "`send.tasks` in `features`", "`p.hint.feed-loading`", "`session.header.start`",
                      "`files:state`", "`files:do`", "`chrome=hub`", "`hub.messageAt(node)`", "`POST /api/session/resume`",
                      "`session.resume` in `features`", "`hub.capabilities.themeOptions === 1`",
-                     "A session's helper agents (API 1.38)"):
+                     "A session's helper agents (API 1.38)", "`hub.capabilities.viewSearch === 1`",
+                     "`hub.searchField({", "`GET /api/keyboards` (API 1.39)", "A conversation being compacted (API 1.40)"):
             self.assertIn(name, text, f"EXTENDING.md: no {name} (Plugin API {version.PLUGIN_API})")
         for name in ("modules.model", "profile.use", "speech.say", "account.limits", '"stdin": true', '"bus.transport"',
                      "bus.offered", "codex.decide", "OPTIONAL_POINTS"):

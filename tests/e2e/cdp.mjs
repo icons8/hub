@@ -17,15 +17,16 @@
 //   {"wheel": -120, "times": 1, "every": 30} — a real mouse wheel over the feed (negative — up); "over": "held" — where
 //   the mouse is currently held (after a drag with keep); "on": "<css>" — over this element (the session list, say)
 //   {"key": "ArrowDown"} — a real key press into the focused element (Tab, Enter, Escape, " ", arrows, letters);
-//   "mods": ["ctrl"|"meta"|"shift"|"alt"] — with these held   {"typed": "text"} — type text into the focused element
+//   "mods": ["ctrl"|"meta"|"shift"|"alt"] — with these held, "text": true — a letter as typed   {"typed": "text"} — type text into the focused element
 //   {"frames": 1} — addresses of the page's embedded frames (iframe); a frame blocked by CSP — chrome-error://…
 //   {"drag": "<css from>", "to": "<css to>", "at": 0.25, "keep": true} — a real mouse drag: press,
 //   move, release over fraction at of the target height; keep — do not release (snapshot mid-drag), {"drop": 1} releases;
-//   between — a JS expression right after the press, before the move
+//   between — a JS expression right after the press, before the move; "clicks": 2 — the press is the second of a double click
 //   {"dropfiles": ["<path>", …], "on": "<css>"} — files and folders from disk dropped on an element (as from Finder)
 //   {"hover": "<css>"} — move a real mouse over the element (no press) and leave it there
 //   {"mclick": "<css>"} — a real left click in the middle of the element: it goes to whatever is on top there (what a person
 //   hits); an element covered by another one at its middle is a step error ("hit": what covers it)
+//   "clicks": 3 — a double or triple click there (each press with its click count, as a person clicks)
 //   {"tap": "<css>"} — the same with a finger tap (touch stays on, as after "press")
 //   {"rclick": "<css>"} — right click   {"press": "<css>", "ms": 650} — long finger press (touch)
 //   {"touch": true} — the page as on a touch screen (pointer: coarse, hover: none); false — the mouse again
@@ -68,6 +69,9 @@ for (const s of JSON.parse(stepsJson)) {
   if (s.sleep) {
     await sleep(s.sleep);
     out.push({ sleep: s.sleep });
+  } else if (s.tz) {   // {"tz": "Etc/GMT+3"} — the page's time zone, whatever the machine's (a time the test knows)
+    await send("Emulation.setTimezoneOverride", { timezoneId: s.tz });
+    out.push({ tz: s.tz });
   } else if (s.eval) {
     out.push({ eval: await js(s.eval) });
   } else if (s.until) {
@@ -118,7 +122,8 @@ for (const s of JSON.parse(stepsJson)) {
     const code = s.key === " " ? "Space" : letter ? "Key" + s.key.toUpperCase() : s.key, vk = codes[s.key] ?? (letter ? s.key.toUpperCase().charCodeAt(0) : undefined);
     // "mods": ["ctrl", "shift", "meta", "alt"] — with the keys held (⌘F, Shift+Enter)
     const modifiers = (s.mods || []).reduce((m, k) => m | { alt: 1, ctrl: 2, meta: 4, shift: 8 }[k], 0);
-    const extra = s.mods?.length ? {} : s.key === "Enter" ? { text: "\r" } : s.key === " " ? { text: " " } : {};
+    // "text": true — a letter as typed (the key event carries its character: it lands where the focus is after keydown)
+    const extra = s.mods?.length ? {} : s.key === "Enter" ? { text: "\r" } : s.key === " " ? { text: " " } : s.text ? { text: s.key } : {};
     await send("Input.dispatchKeyEvent", { type: "keyDown", key: s.key, code, windowsVirtualKeyCode: vk, modifiers, ...extra });
     await send("Input.dispatchKeyEvent", { type: "keyUp", key: s.key, code, windowsVirtualKeyCode: vk, modifiers });
     await sleep(80);
@@ -167,7 +172,8 @@ for (const s of JSON.parse(stepsJson)) {
   } else if (s.drag) {
     const a = await spot(s.drag, 0.5, true), b = await spot(s.to, s.at ?? 0.5);
     if (!a || !b) fail({ drag: s.drag, to: s.to });
-    const mouse = (type, x, y, buttons) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons, clickCount: 1 });
+    const n = s.clicks || 1, mouse = (type, x, y, buttons, c = n) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons, clickCount: c });
+    for (let c = 1; c < n; c++) { await mouse("mousePressed", a[0], a[1], 1, c); await mouse("mouseReleased", a[0], a[1], 0, c); }
     await mouse("mousePressed", a[0], a[1], 1);
     if (s.between) await js(s.between);
     for (let i = 1; i <= 10; i++) { await mouse("mouseMoved", a[0] + (b[0] - a[0]) * i / 10, a[1] + (b[1] - a[1]) * i / 10, 1); await sleep(25); }
@@ -204,8 +210,10 @@ for (const s of JSON.parse(stepsJson)) {
       await send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     } else {
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: a[0], y: a[1], button: "none", buttons: 0 });
-      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: a[0], y: a[1], button: "left", buttons: 1, clickCount: 1 });
-      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: a[0], y: a[1], button: "left", buttons: 0, clickCount: 1 });
+      for (let n = 1; n <= (s.clicks || 1); n++) {
+        await send("Input.dispatchMouseEvent", { type: "mousePressed", x: a[0], y: a[1], button: "left", buttons: 1, clickCount: n });
+        await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: a[0], y: a[1], button: "left", buttons: 0, clickCount: n });
+      }
     }
     await sleep(120);
     out.push({ [s.mclick ? "mclick" : "tap"]: sel, hit: a[2], on: a[3] });

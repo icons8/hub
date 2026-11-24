@@ -6,12 +6,14 @@
 import { el, icon, kb, kit, lookSig } from "./dom.js";
 import { S, render, sessionName } from "./state.js";
 import { awaitDecision, newClientId, sendMessage } from "./api.js";
-import { addFiles, droppedFiles, dropMark, longPaste, pasteTile, pickFiles } from "./attachments.js";
+import { unsent } from "./drafts.js";
+import { addFiles, droppedFiles, dropMark, longPaste, pasteTile, pickFiles, withoutMark } from "./attachments.js";
 import { actionButton, failedDictation, failedRecording, keptLinks, recording, recStrip, retryDownload, transcribeRecording, voiceMode } from "./voice.js";
 import { boxes } from "./boxes.js";
 import { resolve, run as runCommand, suggest } from "./commands.js";
 import { t } from "./i18n.js";
 import { composerLayout } from "./composer-layout.js";
+import { claim, sent, settled } from "./outgoing.js";
 import { busLinkIn, pasteIntoHubs } from "./hubs.js";
 
 // a link of the hub bus typed or pasted into a session's field (spec hubbus/ux §3.3 p. 5): it is a secret — a session's
@@ -38,25 +40,27 @@ const setAttr = (n, name, v) => { if (n.getAttribute(name) !== v) n.setAttribute
 // thing again (same recipient, text, files, quote and reply-to) — with the same id, and the core will not duplicate
 // the message if the first one did arrive; a different quote or reply-to with the old id would be taken by the core
 // for a repeat and silently not delivered. wake does not count: the first one that arrived woke the session, the
-// retry goes without it
-const unsent = new Map();   // key -> {sig, client_id}
+// retry goes without it. The record is kept across a reload together with the draft (drafts.js: unsent, key -> {sig, client_id})
 // the core's refusal reason, with a trailing period added if missing: it is followed by the "Text and files came back…" sentence
 const sentence = (s) => (/[.!?…]$/.test(s.trim()) ? s : s.trim() + ".");
 const sendSig = (b) => JSON.stringify([b.session, b.text, (b.attachments || []).map((f) => f?.path), b.quote ?? null,
   b.reply_to ?? null, (b.tasks || []).map((x) => x.id)]);
 
-// files still uploading in a field: resolves once each has its answer (a failed one drops out of the list), at most UPLOAD_WAIT
+// files still uploading in a field (only — just these of them): resolves once each has its answer (a failed one drops out
+// of the list), at most UPLOAD_WAIT
 const UPLOAD_WAIT = 60000;
-const uploaded = (key) => new Promise((done) => {
+const uploaded = (key, only = null) => new Promise((done) => {
   const until = Date.now() + UPLOAD_WAIT;
-  const tick = () => ((S.pending[key] || []).some((p) => !p.meta) && Date.now() < until ? setTimeout(tick, 200) : done());
+  const busy = () => (S.pending[key] || []).some((p) => !p.meta && (!only || only.includes(p)));
+  const tick = () => (busy() && Date.now() < until ? setTimeout(tick, 200) : done());
   tick();
 });
 
 // props: key (draft key), to, id, label, placeholder, hint, cls, hotkey, files (false — no attachments: no paperclip, paste or drop of files), reply {text, cancel}, leading() + leadingSig,
-// body(words, files) → /api/send body, send(body) → receipt (a plugin's own transport, API 1.28; without it — sendMessage),
+// body(words, files, aim?) → /api/send body, aim() → what a message is addressed with right now (a reply target, board
+// cards: a voice message takes it when "send" is pressed, see lock below), send(body) → receipt (a plugin's own transport, API 1.28; without it — sendMessage),
 // holdLinks (a hub bus link is held with send too: the words still reach a session),
-// before(body), failed(), restore(body) (what rode along with the words besides the attachments goes back to its place:
+// before(body), failed(body), restore(body) (what rode along with the words besides the attachments goes back to its place:
 // board cards), sent({text, to}, flash), tray (a node with chips above the field, it is shown while it has content); commands — the session name for which
 // the field understands commands via "/" (js/commands.js): a hint while typing; core and plugin commands — without a session.
 // Returns {node, update(next), refresh(), focus(), ta(), draft(), setDraft({text?, files?})}: node is the form itself, callers keep it between snapshots
@@ -124,6 +128,11 @@ export function buildComposer(props) {
   const status = el("span", "sr");   // the same as the highlight, in words for screen readers
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
+  // the outcome of a typed command: a line of its own (the hint under the field is hidden on a phone and in Clean); always in
+  // the form, hidden while empty, so a screen reader announces the text that comes into a live region that was already there
+  const note = el("p", "cmd-answer");
+  note.hidden = true;
+  note.setAttribute("role", "status");
   const err = el("p", "error-text");
   err.id = errId;
   err.setAttribute("role", "alert");
@@ -137,7 +146,7 @@ export function buildComposer(props) {
   // "To", the reply bar and attachment chips are in the form only when needed; other nodes stay in place
   const layout = () => {
     const kids = [...(o.files === false ? [] : [attach]), ...(hk ? [hk] : []), ...(o.to ? [toLine] : []), ...(o.reply ? [replyBar] : []),
-      ...(S.pending[key].length ? [chips] : []), ...(o.tray?.childNodes.length ? [o.tray] : []), prompt, bar, status, err,
+      ...(S.pending[key].length ? [chips] : []), ...(o.tray?.childNodes.length ? [o.tray] : []), prompt, bar, status, note, err,
       ...(found.length ? [menu] : [])];
     sync(form, kids);
   };
@@ -161,7 +170,9 @@ export function buildComposer(props) {
   // the message at the right of the hint ("Sent …"), the highlight and the text for screen readers: all clear themselves
   // waits — sends awaiting a receipt (API 1.29); stuckAny — at least one ended up stuck in the outbox
   let said = "", litTimer = 0, saidTimer = 0, waits = 0, stuckAny = false;
-  const setFlash = (text) => { said = text || ""; draw(); };
+  // answer — the outcome of a typed command, shown in its own line (note): the person who typed it waits for the word
+  let answer = false, answerNo = 0;
+  const setFlash = (text, isAnswer) => { said = text || ""; answer = !!(said && isAnswer); answerNo += 1; draw(); };
   const flash = (name) => {
     clearTimeout(litTimer); clearTimeout(saidTimer);
     form.classList.add("flash");
@@ -209,6 +220,8 @@ export function buildComposer(props) {
     if (label) setText(label, o.label || "");
     else setAttr(ta, "aria-label", o.label || o.placeholder || t("web.composer.message_to", { to: sessionName(o.to) }));
     setText(hint, said || o.hint || "");
+    setText(note, answer ? said : "");
+    note.hidden = !answer;
     setText(err, S.errors[key] || "");
     if (linkHeld.has(key)) {
       const go = el("button", "btn small primary", t("web.bus.composer_link_go"));
@@ -221,7 +234,8 @@ export function buildComposer(props) {
     const lost = S.errors[key] && failedRecording(key);   // the recording was not transcribed — do not discard it
     if (lost) {
       err.append(...keptLinks({
-        retry: () => { if (!recording()) transcribeRecording(lost, lost.sendText, lost.fillText); },   // another recording is running — nothing
+        // another recording is running — nothing. "Retry" is a new "send": addressed with what the field has now
+        retry: () => { if (!recording()) transcribeRecording(lost, (!lost.insert && lock()) || lost.sendText, lost.fillText); },
         download: () => retryDownload(lost),
       }));
     }
@@ -233,7 +247,7 @@ export function buildComposer(props) {
     if (mode !== modeSig) {
       modeSig = mode;
       strip = fresh;
-      action = actionButton({ name: key }, ta, (text) => submit(text), fillText);
+      action = actionButton({ name: key }, ta, (text) => submit(text), fillText, lock);
     }
     action.hubPaint?.();   // the text may have been set by code: no input event, so the button repaints here
     form.classList.toggle("rec", !!strip);
@@ -317,8 +331,11 @@ export function buildComposer(props) {
     draw();
     try {
       const done = await runCommand(r, session());
-      setFlash(done);
-      setTimeout(() => { if (said === done) setFlash(""); }, 10000);   // a command result stays longer than "Sent …"
+      setFlash(done, true);
+      // a command result stays longer than "Sent …", and the longer the more lines it has (the deputies of /away); an
+      // equal answer to the next command is another one: only its own timer clears it
+      const no = answerNo;
+      setTimeout(() => { if (answerNo === no) setFlash(""); }, 10000 + 5000 * (done.split("\n").length - 1));
     } catch (e) {
       if (!ta.value) ta.value = S.drafts[key] = words;
       S.errors[key] = e.message || String(e);
@@ -327,49 +344,90 @@ export function buildComposer(props) {
     ta.focus();
   }
 
-  async function submit(override) {
+  // A voice message is addressed when "send" is pressed (the button, Space, the release of a hold, the silence stop), not
+  // when its words are ready: the reply target, the board cards and the way it goes (a question card's answer or a plain
+  // message) of that moment go with it, and so do the text and the files then in the field. The reply quote, the cards and
+  // a card's aim leave the field at once, as after a typed send; what the owner sets, types or adds while it is
+  // transcribed belongs to his next message.
+  // Returns send(text, client_id) for those words, with .session (whose feed shows it meanwhile; none for a card's answer)
+  // and .drop() (nothing was sent: cancelled, no speech, the transcription failed — the reply, the cards and the aim come
+  // back unless he has pointed the field elsewhere since). A field without aim() (a plugin's) sends the old way: null
+  function lock() {
+    if (!o.aim) return null;
+    const at = { aim: o.aim(), body: o.body, send: o.send, holdLinks: o.holdLinks, failed: o.failed, restore: o.restore,
+      files: new Set(S.pending[key] || []), draft: S.drafts[key] || "" };
+    const probe = at.body("", [], at.aim);
+    o.before?.(probe, true);
+    const drop = () => { at.restore?.(probe); at.failed?.(probe); draw(); };
+    const send = (text, cid) => submit(text, { ...at, cid, drop });
+    send.session = at.send ? null : probe.session;
+    send.drop = drop;
+    return send;
+  }
+
+  // held — a voice message addressed when "send" was pressed (lock): its reply, cards and transport, and the text and the
+  // files of that moment. What was typed or added later stays in the field (a file with its mark); held.drop() wherever
+  // it stops short of sending gives the field back what the press took
+  async function submit(override, held = null) {
     // the words come from outside (a voice message): into the draft too, or any refusal below redraws the field from the old draft.
     // They go in front of the draft: it keeps the "[Image #N]" marks of screenshots added during the recording and the words
-    // typed after a failed transcription. A file still uploading rides along: the words wait for it
+    // typed after a failed transcription. A file of the press still uploading rides along: the words wait for it
+    let lead = null;   // what goes: the words and the field's text of the press (all of it, if edited since)
     if (override != null) {
-      const rest = (S.drafts[key] || "").trim();
-      S.drafts[key] = ta.value = rest ? `${override} ${rest}` : override;
-      const waited = (S.pending[key] || []).filter((p) => !p.meta);
+      const typed = S.drafts[key] || "";
+      const own = held && typed.startsWith(held.draft) ? held.draft : typed;
+      const tail = typed.slice(own.length);
+      lead = own.trim() ? `${override} ${own.trim()}` : override;
+      S.drafts[key] = ta.value = lead + (tail && !/^\s/.test(tail) ? " " : "") + tail;
+      const waited = (S.pending[key] || []).filter((p) => !p.meta && (!held || held.files.has(p)));
       if (waited.length) {   // the words wait in the field, chips say "uploading"
         draw();
-        await uploaded(key);
+        await uploaded(key, held && waited);
         // the draft is the one source: the field may have been rebuilt meanwhile (a session switch and back) and edited there
         if (!ta.isConnected) ta.value = S.drafts[key] || "";
-        if (!ta.value.trim() && !(S.pending[key] || []).length) return;   // the person sent them by hand meanwhile
-        if (waited.some((p) => p.failed)) return draw();   // an upload failed: the words stay in the field next to its error
+        // the person sent them by hand meanwhile (with the field's aim of that moment); an upload failed: the words stay
+        // in the field next to its error. Either way the reply and the cards of the press come back
+        if (!ta.value.trim() && !(S.pending[key] || []).length) return held?.drop();
+        if (waited.some((p) => p.failed)) return held ? held.drop() : draw();
       }
+      // a file of the press failed to upload while the words were recognized (it is out of the field's files by now):
+      // the words stay in the field next to its error, the reply and the cards come back — never sent without it
+      const bad = held && [...held.files].find((p) => p.failed);
+      if (bad) { S.errors[key] = bad.failed; return held.drop(); }   // a successful transcription cleared the field's line
     }
-    const words = ta.value.trim();
-    const files = S.pending[key] || [];
-    const r = o.commands ? resolve(words) : null;
+    const way = held || o;   // the transport and the aim: of the press for a voice message, of this moment for a typed one
+    const all = S.pending[key] || [];
+    const later = held ? all.filter((p) => !held.files.has(p)) : [];
+    const files = held ? all.filter((p) => held.files.has(p)) : all;
+    const goes = held && ta.value.startsWith(lead) ? lead : ta.value;
+    const left = ta.value.slice(goes.length).trim();   // a voice message: typed after its "send"
+    const words = later.reduce(withoutMark, goes).trim();
+    const r = o.commands && !held ? resolve(words) : null;
     if (r && r.kind !== "none") return command(r, words);   // not a listed command (a skill, someone else's "/name") — goes to the session as plain text
     // a plugin transport (send) takes links as is; a session field with its own send (a question card answer) holds them
-    if ((!o.send || o.holdLinks) && busLinkIn(words) && asText.get(key) !== ta.value) { linkHeld.add(key); return draw(); }
+    if ((!way.send || way.holdLinks) && busLinkIn(words) && asText.get(key) !== ta.value) { linkHeld.add(key); return held ? held.drop() : draw(); }
     asText.delete(key);
-    if (files.some((p) => !p.meta)) { S.errors[key] = t("web.composer.wait_upload"); return draw(); }
-    if (!words && !files.length) { S.errors[key] = t("web.composer.empty"); return draw(); }
+    if (files.some((p) => !p.meta)) { S.errors[key] = t("web.composer.wait_upload"); return held ? held.drop() : draw(); }
+    if (!words && !files.length) { S.errors[key] = t("web.composer.empty"); return held ? held.drop() : draw(); }
     if (said === t("web.composer.send_stuck")) setFlash("");
-    const body = o.body(words, files);
-    const was = unsent.get(key);
-    body.client_id = was && was.sig === sendSig(body) ? was.client_id : newClientId();
+    const body = held ? held.body(words, files, held.aim) : o.body(words, files);
+    const was = held ? null : unsent.get(key);
+    body.client_id = held?.cid || (was && was.sig === sendSig(body) ? was.client_id : newClientId());
+    claim(body.client_id, body.text);   // the feed's bubble of a voice message (outgoing.js) now waits for this very send
     // A late receipt owns only the retry record seen when this send began.
     // Another in-flight send may since have restored its own uncertain outcome.
-    const clearUnsent = () => { if (unsent.get(key) === was) unsent.delete(key); };
-    // the field and attachments are cleared at once: a second quick message will not carry them again; on error — restore them
-    S.drafts[key] = "";
-    ta.value = "";
-    S.pending[key] = [];
+    const clearUnsent = () => { if (!held && unsent.get(key) === was) unsent.delete(key); };
+    // the field and attachments are cleared at once: a second quick message will not carry them again; on error — restore them.
+    // A voice message leaves what was added after its "send" (the files and their marks); its reply and cards left the field then
+    S.drafts[key] = [left, ...later.filter((p) => p.label && !left.includes(`[${p.label}]`)).map((p) => `[${p.label}]`)].filter(Boolean).join(" ");
+    ta.value = S.drafts[key];
+    S.pending[key] = later;
     S.errors[key] = "";
-    o.before?.(body);
+    if (!held) o.before?.(body);
     draw();
     if (!ta.isConnected) boxes.get(key)?.refresh();   // a voice message that waited for its files: the rebuilt field empties too
     let res;
-    try { res = (await (o.send ? o.send({ ...body }) : sendMessage(body))) || {}; }
+    try { res = (await (way.send ? way.send({ ...body }) : sendMessage(body))) || {}; }
     catch { res = { receipt: "unknown", error: t("web.api.no_answer") }; }
     if (res.error || res.ok === false) {
       const error = sentence(String(res.error || t("web.api.rejected")));
@@ -377,12 +435,15 @@ export function buildComposer(props) {
       if (res.receipt === "refused") clearUnsent();
       else unsent.set(key, { sig: sendSig(body), client_id: res.client_id || body.client_id });
       // a plugin transport's own phrase is shown as is; the core's phrase says that the text came back into the field
-      giveBack(words, files, o.send ? error
-        : t(res.receipt === "unknown" ? "web.composer.send_unknown" : "web.composer.send_failed", { error }), false, body);
+      settled(body.client_id);
+      giveBack(words, files, way.send ? error
+        : t(res.receipt === "unknown" ? "web.composer.send_unknown" : "web.composer.send_failed", { error }), false, body, way);
     } else {
       clearUnsent();
+      // the bubble leaves when the core's row with this seq is in the feed; still queued — follow() says when
+      if (!(res.receipt === "queued" && !way.send)) sent(body.client_id, res.data?.seq);
       // the core did not decide within 3 s (API 1.29) — ask for the outcome later; a plugin's own transport handles it itself
-      if (res.receipt === "queued" && !o.send && body.client_id) follow(body, words, files);
+      if (res.receipt === "queued" && !way.send && body.client_id) follow(body, words, files, way);
       // while the field waits for a receipt, the caller's "Sent…" does not override the waiting caption
       o.sent?.({ text: body.text, to: o.to }, (text) => { if (!waits) setFlash(text); });
     }
@@ -391,14 +452,15 @@ export function buildComposer(props) {
   }
 
   // text and files go back into the field (before whatever was typed since), with the reason under the field. late —
-  // the outcome came later (a receipt): the caller's failed() would restore the reply target of an already later send
-  function giveBack(words, files, why, late, body) {
+  // the outcome came later (a receipt): the caller's failed() would restore the reply target of an already later send.
+  // way — whose restore/failed: a voice message's are those of its "send"
+  function giveBack(words, files, why, late, body, way = o) {
     S.drafts[key] = words + (S.drafts[key] ? "\n" + S.drafts[key] : "");
     S.pending[key] = files.concat(S.pending[key] || []);
     S.errors[key] = why;
     ta.value = S.drafts[key];
-    o.restore?.(body);   // the cards of this very send (a late refusal too: they belong to the message, not to the reply target)
-    if (!late) o.failed?.();
+    way.restore?.(body);   // the cards of this very send (a late refusal too: they belong to the message, not to the reply target)
+    if (!late) way.failed?.(body);
     draw();
     grow();
     // the field may have been rebuilt (another session and back; a voice message that waited for its files) — the visible
@@ -411,19 +473,20 @@ export function buildComposer(props) {
   // goes back too: a retry yields a single message. 10 minutes without a decision — say so and stop asking: do not
   // return the text, the core will deliver it when it frees up (otherwise a duplicate).
   // The waiting caption is one per field while any send is waiting (waits)
-  async function follow(body, words, files) {
+  async function follow(body, words, files, way) {
     const wait = t("web.composer.send_queued");
     waits++;
     setFlash(wait);
     let stuck = false;
     try {
       const got = await awaitDecision(body.session, body.client_id);
+      if (got.receipt === "accepted") sent(body.client_id, got.seq); else settled(body.client_id);
       if (got.receipt === "refused")
-        return giveBack(words, files, t("web.composer.send_failed", { error: sentence(String(got.error || t("web.api.rejected"))) }), true, body);
+        return giveBack(words, files, t("web.composer.send_failed", { error: sentence(String(got.error || t("web.api.rejected"))) }), true, body, way);
       if (got.receipt === "lost") {
         // the same without edits — with the same id: if the first one still reaches the core, there will be no second message
         unsent.set(key, { sig: sendSig(body), client_id: body.client_id });
-        return giveBack(words, files, t("web.composer.send_lost"), true, body);
+        return giveBack(words, files, t("web.composer.send_lost"), true, body, way);
       }
       if (got.receipt === "stuck") stuck = true;   // in the outbox or no connection — 10 minutes
     } finally {

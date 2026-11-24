@@ -22,7 +22,7 @@ const codexHub = () => lists().codex === true;   // a hub entirely on Codex: its
 async function call(path, body, ok) {
   const r = await post(path, body);
   if (r.error) throw new Error(r.error);
-  return r.data?.queued ? r.data.text : ok;
+  return r.data?.queued || r.data?.text ? r.data.text : ok;
 }
 
 // the same list for clients outside the page — commands.list of the snapshot (server.py COMMANDS; a test checks the names)
@@ -46,9 +46,14 @@ const CORE = [
     run: (a, c) => call("/api/session/spec", { session: c.name, on: a === "on" },
       t(a === "on" ? "web.cmd.spec_on" : "web.cmd.spec_off", { name: c.name })) },
   { name: "away", args: t("web.cmd.away_args"), hint: t("web.cmd.away_hint"), run: (a) => {
-    const hours = a ? Number(a.replace(",", ".")) : null;
-    if (a && !(hours > 0)) throw new Error(t("web.cmd.away_bad"));
-    return call("/api/away", hours ? { hours } : {}, hours ? t("web.cmd.away_for", { hours: a }) : t("web.cmd.away_ok"));
+    // /away [hours] [deputies [<person> …]]: the deputies' areas go to them (core/deputies.py)
+    const words = a.split(/\s+/).filter(Boolean), at = words.findIndex((w) => w.toLowerCase() === "deputies");
+    const flag = at < 0 ? null : (words.slice(at + 1).length ? words.slice(at + 1) : true);
+    const h = at < 0 ? words : words.slice(0, at);
+    const hours = h.length ? Number(h[0].replace(",", ".")) : null;
+    if (h.length > 1 || (h.length && !(hours > 0))) throw new Error(t("web.cmd.away_bad"));
+    return call("/api/away", { ...(hours ? { hours } : {}), ...(flag ? { deputies: flag } : {}) },
+      hours ? t("web.cmd.away_for", { hours: h[0] }) : t("web.cmd.away_ok"));
   } },
   { name: "back", hint: t("web.cmd.back_hint"), run: () => call("/api/owner/back", {}, t("web.cmd.back_ok")) },
   { name: "restart", args: t("web.cmd.restart_args"), hint: t("web.cmd.restart_hint"), run: (a) => {

@@ -758,6 +758,13 @@ function contactCard(c, v) {
     if (!c.code_wait) box.append(el("p", "hint", t(c.code ? "web.bus.code_hint" : "web.bus.code_hint_typed")));
   }
   box.append(personRow(c));
+  // the person is the owner's deputy (core/deputies.py): their area in his words; set in the terminal or by the hub
+  if (c.deputy) {
+    const d = el("div", "hint bus-deputy", t("web.bus.deputy", { zone: c.deputy.zone })
+      + (c.deputy.not ? t("web.bus.deputy_not", { nope: c.deputy.not }) : "")
+      + (c.deputy.off ? t("web.bus.deputy_off", { why: c.deputy.off }) : ""));
+    box.append(d);
+  }
   return box;
 }
 

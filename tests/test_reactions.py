@@ -124,6 +124,95 @@ class Reactions(unittest.TestCase):
         self.ev("turn.result", "a", text="", turns=0)
         self.assertEqual(self.badge(mid), "👍")
 
+    # --- the thumb leads to the answer: reactions.links {session, seq}  ------------------------------------------
+    def link(self, key):
+        return (self.st.get("badge_links") or {}).get(key)
+
+    def answered_turn(self, mid, text="Done.", session="a"):
+        """A turn that answered in a timeline row (session.said); its event number is where the thumb leads."""
+        self.ev("turn.started", session, marker=mid)
+        self.ev("session.said", session, text="Looking.")
+        self.ev("session.said", session, text=text)
+        said = self.seq
+        self.ev("turn.stopped", session)
+        self.result(text, session)
+        return said
+
+    def test_the_thumb_links_to_the_last_row_the_turn_said(self):
+        mid = self.say()
+        said = self.answered_turn(mid)
+        self.assertEqual(self.badge(mid), "👍")
+        self.assertEqual(self.link(mid), {"session": "a", "seq": said})
+
+    def test_the_link_is_in_the_reactions_of_the_snapshot(self):
+        r = views.Reader()
+        n = 0
+        for type, entity, data in (("session.requested", "a", {"cwd": "/w", "session_id": "s-a", **OWNER}),
+                                   ("session.started", "a", {}),
+                                   ("message.received", None, {"to": "a", "text": "do it", **OWNER}),
+                                   ("turn.started", "a", {"marker": "m3"}), ("session.said", "a", {"text": "Done."}),
+                                   ("turn.result", "a", {"text": "Done."})):
+            n += 1
+            r.feed({"seq": n, "ts": 100 + n, "type": type, "entity": entity, "data": data})
+        snap = r.snapshot()
+        self.assertEqual(snap["reactions"]["links"], {"m3": {"session": "a", "seq": 5}})
+        self.assertNotIn("reaction_link", snap["messages"]["m3"])
+
+    def test_no_row_said_in_the_turn_means_no_link(self):
+        """A row said by an earlier turn is not this turn's answer; a blank row is not shown in the timeline."""
+        first = self.say("one")
+        self.answered_turn(first)
+        second = self.say("two")
+        self.ev("turn.started", "a", marker=second)
+        self.ev("session.said", "a", text="   ")
+        self.ev("session.said", "a", text="A helper agent's step", parent="toolu_1")
+        self.ev("turn.stopped", "a")
+        self.result()
+        self.assertEqual(self.badge(second), "👍")
+        self.assertIsNone(self.link(second))
+        self.assertIsNotNone(self.link(first))
+
+    def test_no_thumb_no_link(self):
+        """An interrupted turn gets neither; the answered one before it keeps its link."""
+        first = self.say("one")
+        self.answered_turn(first)
+        self.assertIsNotNone(self.link(first))
+        mid = self.say()
+        self.ev("turn.started", "a", marker=mid)
+        self.ev("session.said", "a", text="Half of it")
+        self.ev("turn.result", "a", text="Interrupted", is_error=True)
+        self.assertIsNone(self.badge(mid))
+        self.assertIsNone(self.link(mid))
+        self.assertIsNotNone(self.link(first))
+
+    def test_the_owners_own_badge_drops_the_link(self):
+        for emoji in ("", "❤️"):
+            mid = self.say()
+            self.answered_turn(mid)
+            self.assertIsNotNone(self.link(mid))
+            self.assertIsNone(self.ev("message.reacted", None, target=mid, emoji=emoji, **OWNER))
+            self.assertIsNone(self.link(mid))
+
+    def test_links_go_with_the_badges_they_belong_to(self):
+        """The core keeps the last BADGES_KEEP badges; a link outlives its badge nowhere."""
+        mids = []
+        for _ in range(3):
+            mids.append(self.say())
+            self.answered_turn(mids[-1])
+        keep, reducer.BADGES_KEEP = reducer.BADGES_KEEP, 2
+        try:
+            mids.append(self.say())
+            self.answered_turn(mids[-1])
+        finally:
+            reducer.BADGES_KEEP = keep
+        self.assertEqual(set(self.st["badge_links"]), set(self.st["badges"]))
+
+    def test_a_renamed_session_keeps_the_link(self):
+        mid = self.say()
+        said = self.answered_turn(mid)
+        self.assertIsNone(self.ev("session.renamed", "a", to="b", **OWNER))
+        self.assertEqual(self.link(mid), {"session": "b", "seq": said})
+
     # --- 1: only the owner's own message  --------------------------------------------------------------------------
     def test_a_marker_quoted_in_another_sessions_turn_is_not_taken(self):
         """A foreign message label in another session's turn (background notice, quote) is not a take: no 👀 for a

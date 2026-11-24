@@ -64,6 +64,7 @@ class Rule(unittest.TestCase):
         self.assertEqual(status("busy"), "working")
         self.assertEqual(status("starting"), "working")
         self.assertEqual(status("idle", background=BG), "working")   # free, background work is running
+        self.assertEqual(status("idle", compacting=100.0), "working")   # free, its conversation is being compacted
 
     def test_idle(self):
         self.assertEqual(status("idle"), "idle")

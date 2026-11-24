@@ -24,9 +24,12 @@ function insertMark(name, label) {
   if (ta) { ta.value = S.drafts[name]; ta.selectionStart = ta.selectionEnd = at + ins.length; }
 }
 
+// the text without a file's "[Image #N]" mark
+export const withoutMark = (text, p) => (p.label ? text.replace(MARK(p.label) + " ", "").replace(MARK(p.label), "") : text);
+
 export function dropMark(name, p) {
   if (!p.label) return;
-  S.drafts[name] = (S.drafts[name] || "").replace(MARK(p.label) + " ", "").replace(MARK(p.label), "");
+  S.drafts[name] = withoutMark(S.drafts[name] || "", p);
   const ta = taOf(name);
   if (ta) ta.value = S.drafts[name];
 }
@@ -84,10 +87,10 @@ export function addFiles(name, files) {
     if (p.label) insertMark(name, p.label);
     upload(f, p.name, f.type || "application/octet-stream").then((res) => {
       if (res.error) {
-        p.failed = true;   // a voice message waiting for this file keeps its words in the field instead of going out without it
+        p.failed = `${p.name}: ${res.error}`;   // a voice message waiting for this file keeps its words in the field (next to this) instead of going out without it
         S.pending[name] = (S.pending[name] || []).filter((q) => q !== p);
         dropMark(name, p);
-        S.errors[name] = `${p.name}: ${res.error}`;
+        S.errors[name] = p.failed;
       } else {
         p.meta = p.label ? { ...res.data, label: p.label } : res.data;
         S.errors[name] = note;
@@ -124,7 +127,8 @@ export function pickFiles(name) {
 }
 
 // A voice message is recording: the field is hidden, so ⌘V lands on the page, not in the field. A file from the clipboard
-// goes to the recording field and rides out with the voice message (typing into another field keeps its own paste).
+// goes to the recording field and rides out with the voice message: it is there before "send" is pressed (typing into
+// another field keeps its own paste).
 export function recordingBox() {
   for (const [name, b] of boxes) if (b.files !== false && b.ta.isConnected && b.ta.closest("form.composer.rec")) return name;
   return null;

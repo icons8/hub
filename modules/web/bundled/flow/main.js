@@ -657,7 +657,8 @@ function draw() {
     bar.style.width = `${replay.pos * 100}%`;
     if (!seeking) seekEl.value = String(Math.round(replay.pos * 1000));
     seekEl.style.setProperty("--p", `${replay.pos * 100}%`);   // the elapsed part of the line is colored
-    clockEl.textContent = new Date(flowNow * 1000).toLocaleString(hub.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    clockEl.textContent = hub.clock?.(flowNow, { day: "numeric", month: "short" })   // a page not reloaded after an update has none
+      ?? new Date(flowNow * 1000).toLocaleString(hub.locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
   notify();   // the replay position goes to hubflow:state listeners (notify itself skips frames with no change)
 }

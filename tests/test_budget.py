@@ -7,7 +7,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Lines; this is a stretch limit against bloat, not a target (owner decision 2026-09-30). Raise it deliberately,
 # with the reason in the commit.
 BUDGET = {
-    "hub-home/CLAUDE.md": 122,   # +2: the away item (spec d2549241); its rule comes in the core's AWAY_CARD
+    "hub-home/CLAUDE.md": 126,   # +2: the away item (spec d2549241); its rule comes in the core's AWAY_CARD; +4: the
+    # deputies — set on his words, one form to set one up, a card to a deputy (spec d2679763)
     "plugins/hub-base/skills/hub/SKILL.md": 80,
     "plugins/hub-base/skills/voice/SKILL.md": 15,
     "plugins/hub-coordinator/skills/fleet/SKILL.md": 150,

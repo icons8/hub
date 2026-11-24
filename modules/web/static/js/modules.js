@@ -2,6 +2,7 @@
 // gives. A module card shows what it gives, whether it is on, and how to turn it on; browsers and voice carry their
 // setup inside; optional modules (voice reply) have a toggle.
 import { el } from "./dom.js";
+import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { browsersSection } from "./browsers.js";
 import { voiceSection } from "./voicehelp.js";
@@ -163,7 +164,7 @@ const THIRD_LABEL = {
   ready: t("web.modules.third_ready"), static: t("web.modules.third_static"), starting: t("web.modules.third_starting"), disabled: t("web.modules.third_disabled"),
   suspended: t("web.modules.third_suspended"), stopped: t("web.modules.third_stopped"), blocked: t("web.modules.third_blocked"),
 };
-const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+const hhmm = (ts) => clock(ts, locale);
 
 function thirdParty() {
   const sec = el("section", "third-party-list");

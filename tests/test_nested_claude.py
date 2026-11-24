@@ -207,6 +207,100 @@ class WindowsShim(unittest.TestCase):
             out = subprocess.run(argv, env=env, capture_output=True, timeout=60)
             self.assertIn("hub-up", out.stderr.decode("utf-8", "replace"), argv)
 
+    @unittest.skipUnless(git_bash(), "no Git Bash")
+    def test_hub_slash_from_git_bash_keeps_the_command(self):
+        # 18.11: `hub slash "/ship X-12"` from a session's Bash: MSYS took "/ship …" for a path and the hub got
+        # "C:/Program Files/Git/ship X-12" ("the command starts with /"). The text of hub slash is not a path; the
+        # paths of other commands are still converted
+        hub = os.path.join(tempfile.mkdtemp(), "hub.py")
+        with open(hub, "w") as f:
+            f.write("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+        env = {**self.env, "HUB_NESTED_HUB": hub}
+        run = lambda line: json.loads(subprocess.run([git_bash(), "-c", line], env=env, capture_output=True,  # noqa: E731
+                                                     timeout=60).stdout)
+        self.assertEqual(run('hub slash "/ship X-12"'), ["slash", "/ship X-12"])
+        self.assertNotEqual(run("hub send-file /tmp/x.png"), ["send-file", "/tmp/x.png"])
+
+    @unittest.skipUnless(git_bash(), "no Git Bash")
+    def test_any_text_from_git_bash_keeps_its_slash_and_paths_convert_as_before(self):
+        # 18.11: not only hub slash - `hub send <session> "/ship X-12"` reached the session as "C:/Program Files/Git/ship
+        # X-12", and so does the task of `hub session new … --cwd DIR` or `hub task run … --repo DIR`, where a path and a
+        # text come in one call. A path (its first folder is there: /tmp, /c) is converted as MSYS converts it
+        hub = os.path.join(tempfile.mkdtemp(), "hub.py")
+        with open(hub, "w") as f:
+            f.write("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+        env = {**self.env, "HUB_NESTED_HUB": hub}
+        run = lambda line: json.loads(subprocess.run([git_bash(), "-c", line], env=env, capture_output=True,  # noqa: E731
+                                                     timeout=60).stdout)
+        tmp, png = run('"$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" /tmp /tmp/x.png')   # MSYS itself, past the shim
+        self.assertNotEqual(tmp, "/tmp")
+        self.assertEqual(run('hub send maps "/ship X-12"'), ["send", "maps", "/ship X-12"])
+        self.assertEqual(run('hub notify "/usr is not a folder here"'), ["notify", "/usr is not a folder here"])
+        self.assertEqual(run('hub session new maps --cwd /tmp "/ship X-12"'),
+                         ["session", "new", "maps", "--cwd", tmp, "/ship X-12"])
+        self.assertEqual(run('hub task run maps "/loop 5m /foo" --work normal --repo /tmp'),
+                         ["task", "run", "maps", "/loop 5m /foo", "--work", "normal", "--repo", tmp])
+        self.assertEqual(run('hub send-file /tmp/x.png "/caption"'), ["send-file", png, "/caption"])
+        self.assertEqual(run("hub send-file /tmp/x.png"), ["send-file", png])
+
+    @unittest.skipUnless(git_bash(), "no Git Bash")
+    def test_a_nested_claude_from_git_bash_gets_its_prompt_and_paths_as_before(self):
+        # 18.11: the same MSYS as in hub's text - `claude -p "/ship X-12"` from a session's Bash; a path of the same call
+        # (--mcp-config, --add-dir) is converted as MSYS converts it
+        shim = os.path.join(tempfile.mkdtemp(), "claude.py")
+        with open(shim, "w") as f:
+            f.write("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+        env = {**self.env, "HUB_NESTED_SHIM": shim}
+        run = lambda line: json.loads(subprocess.run([git_bash(), "-c", line], env=env, capture_output=True,  # noqa: E731
+                                                     timeout=60).stdout)
+        tmp, mcp = run('"$HUB_NESTED_PYTHON" "$HUB_NESTED_SHIM" /tmp /tmp/m.json')   # MSYS itself, past the shim
+        self.assertNotEqual(tmp, "/tmp")
+        self.assertEqual(run('claude -p "/ship X-12"'), ["-p", "/ship X-12"])
+        self.assertEqual(run('claude -p "/ship X-12" --mcp-config /tmp/m.json --add-dir /tmp'),
+                         ["-p", "/ship X-12", "--mcp-config", mcp, "--add-dir", tmp])
+        self.assertEqual(run("claude --mcp-config /tmp/m.json"), ["--mcp-config", mcp])
+
+    @unittest.skipUnless(git_bash(), "no Git Bash")
+    def test_the_real_claude_gets_its_prompt_and_not_the_wrappers_switch(self):
+        # MSYS reads its exclusions from the environment of what it starts: through the wrapper the call's texts would
+        # reach the nested claude and its Bash; the caller's own value stays
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "real.py"), "w") as f:
+            f.write("import json, os, sys\n"
+                    "print(json.dumps([sys.argv[-1], *map(os.environ.get, ('MSYS2_ARG_CONV_EXCL', 'HUB_NESTED_ARGS'))]))\n")
+        real = os.path.join(d, "claude.cmd")
+        with open(real, "w") as f:
+            f.write(f'@"{sys.executable}" "{os.path.join(d, "real.py")}" %*\n')
+        env = {**self.env, "HUB_REAL_CLAUDE": real}
+        env.pop("MSYS2_ARG_CONV_EXCL", None)
+        run = lambda line: json.loads(subprocess.run([git_bash(), "-c", line], env=env, capture_output=True,  # noqa: E731
+                                                     timeout=60).stdout.splitlines()[-1])
+        self.assertEqual(run('claude -p "/ship X-12"'), ["/ship X-12", None, None])
+        self.assertEqual(run('MSYS2_ARG_CONV_EXCL=--x claude -p "/ship X-12"'), ["/ship X-12", "--x", None])
+        self.assertEqual(run('MSYS2_ARG_CONV_EXCL=--x claude -p hi'), ["hi", "--x", None])
+
+    @unittest.skipUnless(git_bash(), "no Git Bash")
+    def test_a_text_leaves_the_rest_of_the_call_to_msys(self):
+        # review: with a "/…" text in the call MSYS converted nothing and the wrapper only whole path arguments: a path
+        # glued to an option went as typed, "//x" kept its escape, the caller's own MSYS_NO_PATHCONV and exclusions did
+        # not count. Each text is one more exclusion, whole: "/t foo" does not keep the path /tmp/x from MSYS
+        hub = os.path.join(tempfile.mkdtemp(), "hub.py")
+        with open(hub, "w") as f:
+            f.write("import json, sys; print(json.dumps(sys.argv[1:]))\n")
+        env = {**self.env, "HUB_NESTED_HUB": hub}
+        for k in ("MSYS2_ARG_CONV_EXCL", "MSYS_NO_PATHCONV"):
+            env.pop(k, None)
+        run = lambda line: json.loads(subprocess.run([git_bash(), "-c", line], env=env, capture_output=True,  # noqa: E731
+                                                     timeout=60).stdout)
+        msys = run('"$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" /tmp/x --x=/tmp/f //x')   # MSYS itself, past the shim
+        self.assertNotEqual(msys, ["/tmp/x", "--x=/tmp/f", "//x"])
+        self.assertEqual(run('hub send maps "/ship X-12" /tmp/x --x=/tmp/f //x'), ["send", "maps", "/ship X-12", *msys])
+        self.assertEqual(run('hub send maps "/t foo" /tmp/x'), ["send", "maps", "/t foo", msys[0]])
+        self.assertEqual(run('MSYS2_ARG_CONV_EXCL=--x= hub send maps "/ship X-12" --x=/tmp/f /tmp/x'),
+                         ["send", "maps", "/ship X-12", "--x=/tmp/f", msys[0]])
+        self.assertEqual(run('MSYS_NO_PATHCONV=1 hub send maps "/ship X-12" /tmp/x //x'),
+                         ["send", "maps", "/ship X-12", "/tmp/x", "//x"])
+
 
 class WindowsShimFiles(unittest.TestCase):
     """Wrapper files are written on any OS: a check without Windows."""
@@ -220,7 +314,14 @@ class WindowsShimFiles(unittest.TestCase):
         self.assertTrue(os.path.samefile(env["HUB_NESTED_HUB"],
                                          os.path.join(os.path.dirname(platforms.__file__), "..", "bin", "hub")))
         with open(os.path.join(d, "hub"), newline="") as f:
-            self.assertIn('"$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB"', f.read())
+            text = f.read()
+        self.assertIn('"$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB"', text)
+        with open(os.path.join(d, "claude"), newline="") as f:
+            nested = f.read()
+        for shim in (text, nested):   # Git Bash: a text that starts with "/" is an exclusion; MSYS converts the rest
+            self.assertIn('MSYS2_ARG_CONV_EXCL="$excl"', shim)
+            self.assertNotIn("cygpath", shim)
+            self.assertLess(shim.index('MSYS2_ARG_CONV_EXCL="$excl"'), shim.index("exec"))
         with open(os.path.join(d, "hub.cmd"), newline="") as f:
             self.assertIn('"%HUB_NESTED_PYTHON%" "%HUB_NESTED_HUB%" %*', f.read())
 
