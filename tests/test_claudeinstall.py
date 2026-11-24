@@ -4,6 +4,7 @@ it stopped, a refusal of the download server is shown in Anthropic's words, the 
 All on a fake server (tests/fakes/claude_downloads.py) and in a home folder of the test: the machine's claude is not
 touched, nothing goes to the network."""
 import tests  # noqa: F401 — keep the machine's settings out
+import errno
 import hashlib
 import os
 import re
@@ -256,6 +257,42 @@ class Installs(unittest.TestCase):
                 self.fetch()
         self.assertEqual(e.exception.why, "busy")
         self.assertEqual(self.srv.requests, [])
+        with open(os.path.join(self.state, "logs", "setup.log"), encoding="utf-8") as f:
+            log = f.read()
+        self.assertIn("waiting for the other install", log)   # the other install is no failure: nobody reads FAILED
+        self.assertNotIn("FAILED", log)
+
+    def test_a_lock_taken_is_waiting_in_the_log_as_each_platform_says_it(self):
+        # flock says EAGAIN, msvcrt.locking EACCES (EDEADLK after its tries): all of them are the other install, none a failure
+        for code in ownclaude.LOCK_TAKEN:
+            with self.subTest(errno=errno.errorcode[code]):
+                def taken(f, code=code):
+                    raise OSError(code, os.strerror(code))
+                log_file = os.path.join(self.state, "logs", "setup.log")
+                if os.path.exists(log_file):
+                    os.unlink(log_file)
+                with mock.patch.object(platforms.current, "try_lock", taken):
+                    with self.assertRaises(claudeinstall.Failed) as e:
+                        self.fetch()
+                self.assertEqual(e.exception.why, "busy")
+                with open(log_file, encoding="utf-8") as f:
+                    log = f.read()
+                self.assertIn("waiting for the other install", log)
+                self.assertNotIn("FAILED", log)
+                self.assertNotIn("the lock", log)   # the diagnostic line is for a lock that broke, not for one that is taken
+
+    def test_a_lock_that_fails_for_another_reason_is_still_logged_as_a_failure(self):
+        def broken(f):
+            raise OSError(errno.ENOLCK, "No locks available")
+        with mock.patch.object(platforms.current, "try_lock", broken):
+            with self.assertRaises(claudeinstall.Failed) as e:
+                self.fetch()
+        self.assertEqual(e.exception.why, "busy")
+        with open(os.path.join(self.state, "logs", "setup.log"), encoding="utf-8") as f:
+            log = f.read()
+        self.assertIn("FAILED busy", log)
+        self.assertIn("No locks available", log)
+        self.assertNotIn("waiting for the other install", log)
 
     def test_too_little_disk_space_downloads_nothing_and_says_how_much(self):
         free = len(self.binary) + ownclaude.SPARE - 1

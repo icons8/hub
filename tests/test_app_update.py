@@ -1273,6 +1273,128 @@ class Fold(unittest.TestCase):
             self.assertNotIn("stands", st["update_check"])   # the count of hubs is gone (09.11)
 
 
+class RestartTaken(Stand):
+    """The restart an installed release waited for is done (an issue: the page said "Restarting for 1.3.0…" on a hub that
+    already ran 1.3.0 until the update's first pass on it, and the person pressed "Restart" again and again): the core's
+    start on that release ends the wait at once."""
+
+    def setUp(self):
+        super().setUp()
+        self.release("v1.3.0")
+        self.publish("v1.3.0")
+        self.seq = 0
+
+    def fold(self, st, kind, data):
+        from core import reducer
+        self.seq += 1
+        st, _, why = reducer.reduce(st, {"seq": self.seq, "ts": self.clock[0], "type": kind, "entity": None, "data": data})
+        self.assertIsNone(why)
+        return st
+
+    def checked(self, st=None):
+        from core import reducer
+        st = st or reducer.empty()
+        for data in [e["data"] for e in self.events("update.checked")]:
+            st = self.fold(st, "update.checked", data)
+        return st
+
+    def started(self, st):
+        from core import appwatch   # as core/daemon.started_data names it (tests/test_app_layer: a real start)
+        version, base = appwatch.release(os.path.join(self.codes(), self.current()))
+        return self.fold(st, "core.started", {"pid": 1, "i18n": 1, "release": version,
+                                              **({"release_base": base} if base != version else {})})
+
+    def test_the_core_on_the_installed_release_ends_the_wait(self):
+        self.assertEqual(self.updater().check(apply=True, manual=False), "applied")   # in the background
+        self.assertEqual(self.updater().check(apply=True, manual=False), "restarting")
+        st = self.checked()
+        self.assertEqual((st["update_check"]["result"], st["update_check"].get("ask_restart")), ("restarting", True))
+        appcode.take_next(self.state)                                  # hub-up's full restart
+        check = self.started(st)["update_check"]
+        self.assertEqual((check["result"], check.get("version"), check.get("have_version")), ("current", "1.3.0", "1.3.0"))
+        self.assertNotIn("ask_restart", check)                         # no "Restart" on the band or in "Updates"
+        self.assertEqual(self.updater().check(apply=True, manual=False), "current")   # the update's own pass agrees
+
+    def test_a_release_installed_and_not_looked_at_again_ends_the_same_way(self):
+        self.assertEqual(self.updater().check(apply=True, manual=False), "applied")
+        st = self.checked()
+        appcode.take_next(self.state)
+        self.assertEqual(self.started(st)["update_check"]["result"], "current")
+
+    def test_a_pass_of_the_previous_code_taken_after_the_start_does_not_bring_the_wait_back(self):
+        # the old update process spooled its pass while hub-up stopped the hub: the new core takes it after its start
+        from core import reducer
+        self.updater().check(apply=True, manual=False)
+        self.updater().check(apply=True, manual=False)
+        late = [e["data"] for e in self.events("update.checked")]
+        appcode.take_next(self.state)
+        st = self.started(reducer.empty())
+        for data in late:
+            st = self.fold(st, "update.checked", data)
+        check = st["update_check"]
+        self.assertEqual((check["result"], check.get("have_version")), ("current", "1.3.0"))
+        self.assertNotIn("ask_restart", check)
+
+    def test_a_pass_that_waits_for_nothing_is_kept_as_the_update_wrote_it(self):
+        from core import reducer
+        st = self.fold(reducer.empty(), "core.started", {"pid": 1, "release": "1.3.0"})
+        for result in ("current", "available", "offline"):
+            st = self.fold(st, "update.checked", {"result": result, "app": True, "layer": True, "version": "1.3.1",
+                                                  "have_version": "1.2.3"})   # the pointer already back, say
+            self.assertEqual((st["update_check"]["result"], st["update_check"]["have_version"]), (result, "1.2.3"))
+
+    def test_a_return_by_the_watchdog_names_the_version_that_runs_again(self):
+        # the new core came up (current), the page did not: the watchdog puts the previous release back
+        self.updater().check(apply=True, manual=False)
+        st = self.checked()
+        appcode.take_next(self.state)
+        st = self.started(st)
+        appcode.point(os.path.join(self.state, "code"), self.codes(), "1.2.3-team")
+        check = self.started(st)["update_check"]
+        self.assertEqual((check.get("version"), check.get("have_version")), ("1.3.0", "1.2.3"))   # "runs on 1.2.3"
+
+    def test_the_fields_of_the_layer_that_ran_before_wait_for_the_next_pass(self):
+        from core import reducer
+
+        def taken(low):
+            st = self.fold(reducer.empty(), "update.checked", {
+                "result": "restarting", "app": True, "layer": True, "version": "1.3.0", "have_version": "1.2.3",
+                "ask_restart": True, "own": {"release": "1.2.3", "edits": 2}, "previous": "1.2.2",
+                "min": {"version": low, "below": True}})
+            self.assertIn("min", st["update_check"])
+            return self.fold(st, "core.started", {"pid": 1, "release": "1.3.0"})["update_check"]
+
+        check = taken("1.2.9")
+        self.assertEqual({k for k in ("own", "min", "ask_restart") if k in check}, set())
+        self.assertEqual((check["result"], check["previous"]), ("current", "1.2.3"))   # "Return" to what ran before
+        self.assertEqual(taken("1.5.0")["min"]["version"], "1.5.0")   # still below the minimum: the band stays
+
+    def test_a_start_on_the_previous_release_keeps_the_wait(self):
+        # `hub restart hubd`, a crash of the core: the layer is not taken, the restart is still to come
+        self.updater().check(apply=True, manual=False)
+        self.updater().check(apply=True, manual=False)
+        st = self.started(self.checked())
+        self.assertEqual((st["update_check"]["result"], st["update_check"].get("ask_restart")), ("restarting", True))
+        st = self.fold(st, "core.started", {"pid": 1, "i18n": 1})     # a hub from git, a core before this field
+        self.assertEqual(st["update_check"]["result"], "restarting")
+
+    def test_a_waiting_build_of_edits_is_not_its_release(self):
+        from core import reducer
+        st = self.fold(reducer.empty(), "update.checked", {"result": "applied", "app": True, "layer": True,
+                                                           "version": "1.2.3+local.abc1234", "ask_restart": True})
+        st = self.fold(st, "core.started", {"pid": 1, "release": "1.2.3"})
+        self.assertEqual(st["update_check"]["result"], "applied")
+        st = self.fold(st, "core.started", {"pid": 1, "release": "1.2.3+local.abc1234", "release_base": "1.2.3"})
+        self.assertEqual(st["update_check"]["result"], "current")
+        self.assertEqual(st["update_check"]["have_version"], "1.2.3")   # the release under the edits, as the update says
+
+    def test_a_hub_from_git_is_not_touched(self):
+        from core import reducer
+        st = self.fold(reducer.empty(), "update.checked", {"result": "applied", "version": "1.3.0", "behind": 2})
+        st = self.fold(st, "core.started", {"pid": 1, "release": "1.3.0"})
+        self.assertEqual(st["update_check"]["result"], "applied")
+
+
 class Settings(unittest.TestCase):
     def test_one_channel_for_the_layer_and_the_app_from_git(self):
         from core import packaged

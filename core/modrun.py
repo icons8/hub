@@ -918,15 +918,17 @@ class Modules:
         order = sorted(wanted.items(), key=lambda x: (x[1].get("order", 0), x[0]))
         return [n for n, _ in order if point in ((recs.get(n) or {}).get("points") or []) and self.ready(n, wanted)]
 
-    def declared(self, point):
+    def declared(self, point, cap=None):
         """Names of modules whose last hello declared the point: those ordered kept, in load order — ready or not yet (a
         module coming up after a hub restart or paused still declares it), then those the core stopped after failures
         (STOPPED: not ordered kept, yet nobody removed them); one that was removed, switched off or whose new version
-        dropped the point does not."""
+        dropped the point does not. cap: also one ordered kept with that right that has not answered hello yet (its
+        first start)."""
         recs, wanted = self.records() or {}, wants(self.state_dir)
         order = [n for n, _ in sorted(wanted.items(), key=lambda x: (x[1].get("order", 0), x[0]))]
         order += sorted(n for n, r in recs.items() if n not in wanted and isinstance(r, dict) and r.get("state") in STOPPED)
-        return [n for n in order if point in ((recs.get(n) or {}).get("points") or [])]
+        return [n for n in order if point in ((recs.get(n) or {}).get("points") or [])
+                or cap and "points" not in (recs.get(n) or {}) and cap in ((wanted.get(n) or {}).get("capabilities") or [])]
 
     def call(self, name, point, payload, ctx=None):
         """Call a module's point: an answer per the point's schema, or None if the module is not ready, did not declare

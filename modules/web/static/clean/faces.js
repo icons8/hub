@@ -98,18 +98,24 @@ export function kitFaces() {
   for (const [e, f] of Object.entries(FACES)) for (const k of [e, `${e}️`]) out[k] = DIR + f;
   return out;
 }
+// the character of the Hub: that of the icon it has (the owner's, else its declared one), else its own head. "" — an emoji with no
+// character (it stays an emoji), or no pictures at all and no icon (the hub's icon is drawn instead). One rule of the Hub's row in
+// the list and of its byline in the feed
+export const hubCharacter = (s) => { const icon = s.own_icon || s.icon; return faceOf(icon) || (icon ? "" : hubFace()); };
 // the character of a session: that of the icon the owner chose, else — for a specialist — that of its role, else that of the icon it
-// declares, else that of whoever raised it, else one by the name of the last in the chain.
+// declares, else that of whoever raised it, else one by the name of the last in the chain. An executor's icon is its raiser's, copied
+// when it was raised (the owner's own pick of it is its own_icon): without its own pick it shows its raiser's character, so an
+// executor of a specialist wears the head of the specialist's role, not the head of the emoji the profile declares.
 // "" — the icon is an emoji with no character (the owner's own): it stays an emoji. byName: a Map of the snapshot's sessions
 export function characterOf(s, byName) {
   let x = s;
   for (let i = 0; i < 5; i++) {
-    if (x.kind === "hub" && !x.icon) return hubFace();   // the hub with no icon: its own head, as in the list
+    if (x.kind === "hub") return hubCharacter(x);   // the hub: its icon's character, else its own head, as in the list
     if (x.own_icon) return faceOf(x.own_icon);   // the owner chose it (the picker): nothing comes before it
     const role = faceByRole(x);   // a specialist's role comes before the emoji its profile declares
     if (role) return role;
-    if (x.icon) return faceOf(x.icon);
     const up = x.raised_by && byName.get(x.raised_by);
+    if (x.icon && !(x.role === "executor" && up && up !== x)) return faceOf(x.icon);
     if (!up || up === x) break;
     x = up;
   }

@@ -77,6 +77,19 @@ class Items(Folder):
         for cfg in (None, {}, {"agents": None}, {"agents": ["x"]}, {"agents": "x"}, []):
             self.assertEqual(profcap.cap_kb(cfg), 250)
 
+    def test_one_agents_own_cap_overrides_the_shared_one(self):
+        cfg = {"agents": {"profile_max_kb": 60, "profile_max_kb_for": {"maps": 300, "docs": 0}}}
+        self.assertEqual(profcap.cap_kb(cfg, "maps"), 300)
+        self.assertEqual(profcap.cap_kb(cfg, "docs"), 0)                        # 0 — no cap for that agent
+        self.assertEqual(profcap.cap_kb(cfg, "notes"), 60)                      # not listed: the shared cap
+        self.assertEqual(profcap.cap_kb(cfg), 60)
+        for v in (None, "abc", -1, True, float("nan"), [1]):                    # a bad value: the shared cap
+            with self.subTest(v=v):
+                self.assertEqual(profcap.cap_kb({"agents": {"profile_max_kb": 60, "profile_max_kb_for": {"maps": v}}},
+                                                "maps"), 60)
+        for box in (None, "x", ["maps"], {"maps": {"kb": 1}}):
+            self.assertEqual(profcap.cap_kb({"agents": {"profile_max_kb_for": box}}, "maps"), 250)
+
 
 class Evict(Folder):
     def test_under_the_cap_nothing_changes(self):
@@ -435,6 +448,21 @@ class Daemon(unittest.TestCase):
     def run_check(self, cap):
         self.h.config = {"agents": {"profile_max_kb": cap}}
         self.h.execute({"do": "profile_check", "session": "maps", "profile": "s-maps"})
+
+    def test_an_agents_own_cap_is_the_one_checked_and_journalled(self):
+        self.h.record("core.profile_marked", "maps", {"pinned": 1})
+        self.h.config = {"agents": {"profile_max_kb": 5, "profile_max_kb_for": {"maps": 0}}}
+        self.h.execute({"do": "profile_check", "session": "maps", "profile": "s-maps"})
+        self.assertEqual(self.facts("core.profile_evicted"), [])          # no cap for this agent: nothing goes
+        (size,) = self.facts("core.profile_size")
+        self.assertEqual(size["data"]["cap"], 0)
+        self.h.config["agents"]["profile_max_kb_for"] = {"maps": 100}
+        self.h.execute({"do": "profile_check", "session": "maps", "profile": "s-maps"})
+        self.assertEqual(self.facts("core.profile_size")[-1]["data"]["cap"], 100)
+        self.assertEqual(self.facts("core.profile_evicted"), [])          # under its own cap, over the shared one
+        self.h.config["agents"]["profile_max_kb_for"] = {"other": 0}
+        self.h.execute({"do": "profile_check", "session": "maps", "profile": "s-maps"})
+        self.assertEqual(len(self.facts("core.profile_evicted")), 1)      # not listed: the shared 5 KB holds
 
     def test_bad_settings_never_stop_the_tick(self):
         for cap in ("abc", "10", -1, 0.5, None, float("inf"), [1], {"x": 1}):

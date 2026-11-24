@@ -208,6 +208,48 @@ class Backlog(unittest.TestCase):
             doc = out.split()[2]
             self.assertIn("- the first line", self.run_(["doc", "view", doc])[1])
 
+    def test_a_documents_text_from_a_file_or_stdin(self):
+        """A long document in --content went over the command line's limit (Windows: about 32K, "Argument list too long"):
+        `--content -` reads the text from stdin, `--content-file <path>` from a file; empty is refused as an empty --content."""
+        long = "\n".join(f"- line {i} of a long document" for i in range(2000))
+        path = os.path.join(self.cwd, "text.md")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(long + "\n")
+
+        def stdin(text):
+            return mock.patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(text.encode()), encoding="utf-8"))
+
+        code, out = self.run_(["doc", "create", "From a file", "--content-file", path])
+        self.assertEqual(code, 0, out)
+        doc = out.split()[2]
+        self.assertIn(long, self.run_(["doc", "view", doc])[1])
+        with stdin("- from stdin\n"):
+            code, out = self.run_(["doc", "update", doc, "--content", "-"])
+        self.assertEqual(code, 0, out)
+        text = self.run_(["doc", "view", doc])[1]
+        self.assertIn("- from stdin", text)
+        self.assertNotIn("line 1999", text)
+        with stdin("- created from stdin\n"):
+            code, out = self.run_(["doc", "create", "From stdin", "-c", "-"])
+        self.assertEqual(code, 0, out)
+        other = out.split()[2]
+        self.assertIn("- created from stdin", self.run_(["doc", "view", other])[1])
+        code, out = self.run_(["doc", "update", other, "--content-file", path])
+        self.assertEqual(code, 0, out)
+        self.assertIn(long, self.run_(["doc", "view", other])[1])
+        empty = os.path.join(self.cwd, "empty.md")
+        open(empty, "w").close()
+        for argv, given in ((["doc", "update", doc, "--content-file", empty], None),
+                            (["doc", "update", doc, "--content", "-"], "  \n")):
+            with stdin(given or ""):
+                code, out = self.run_(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("is empty", out, argv)
+        self.assertIn("- from stdin", self.run_(["doc", "view", doc])[1])   # the refused updates wrote nothing
+        code, out = self.run_(["doc", "update", doc, "--content-file", os.path.join(self.cwd, "missing.md")])
+        self.assertEqual(code, 2, out)
+        self.assertIn("missing.md", out)
+
     def test_what_was_meant_by_an_unknown_option(self):
         for argv, want in ((["task", "edit", "1", "--note", "x"], "--append-notes adds"),
                            (["task", "edit", "1", "--notes-append", "x"], "--append-notes adds"),

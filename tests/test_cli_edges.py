@@ -91,6 +91,25 @@ class RejectedExitCode(Base):
             self.assertIn("not yours", r.stdout, args)
             self.assertEqual(r.returncode, 1, (args, r.stdout, r.stderr))
 
+    def test_refused_fyi_send_does_not_claim_delivery(self):
+        """`hub send --fyi` the core refused: the reason and code 1, and not the line "it gets it with its next turn"."""
+        self.core(reject=lambda ev: "not yours")
+        r = self.hub("send", "b", "status", "--fyi", me="a", HUB_CLI_WAIT="5")
+        self.assertIn("not yours", r.stdout)
+        self.assertNotIn("next turn", r.stdout + r.stderr)
+        self.assertNotIn("woke", r.stdout.lower())
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+
+    def test_refused_wait_and_wake_claim_nothing(self):
+        """`hub wait` and `hub session wake <s> text` refused: the reason and code 1, and no line that says the checks
+        are set or the job is queued."""
+        self.core(reject=lambda ev: "not yours")
+        for args, claim in ((("wait", "vendor reply"), "waiting for a reply"), (("session", "wake", "b", "do it"), "queue")):
+            r = self.hub(*args, me="a", HUB_CLI_WAIT="5")
+            self.assertIn("not yours", r.stdout, args)
+            self.assertNotIn(claim, r.stdout.lower(), args)
+            self.assertEqual(r.returncode, 1, (args, r.stdout, r.stderr))
+
     def test_accepted_command_succeeds(self):
         self.core()
         r = self.hub("decided", "x · y", me="a", HUB_CLI_WAIT="5")

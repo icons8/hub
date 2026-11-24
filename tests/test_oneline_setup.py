@@ -1557,7 +1557,7 @@ class Shortcut(Base):
             return f.read()
 
     def test_linux_gets_a_desktop_file_that_opens_the_page_of_this_hub(self):
-        self.assertEqual(self.install(), 0, self.out)
+        self.assertEqual(self.install(environ={"DISPLAY": ":0"}), 0, self.out)
         text = self.desktop()
         py = os.path.join(self.state, "app", "runtime", "python", "bin", "python3")
         self.assertEqual(text.splitlines()[0], shortcut.MARK)
@@ -1569,10 +1569,21 @@ class Shortcut(Base):
         self.assertTrue(os.path.isfile(os.path.join(self.state, "code", shortcut.ICON)))
         self.assertIn('The shortcut "Hub by Icons8" is in the applications menu', self.out)
 
+    def test_a_machine_with_no_screen_gets_the_file_but_is_not_told_about_a_menu(self):
+        # a server: the line about the applications menu would sit right above "This machine has no screen"
+        self.assertEqual(self.install(), 0, self.out)
+        self.assertTrue(os.path.isfile(os.path.join(self.apps(), "agents-hub.desktop")))
+        self.assertNotIn("applications menu", self.out)
+        self.assertIn("This machine has no screen", self.out)
+
+    def test_a_wayland_session_has_a_menu_too(self):
+        self.assertEqual(self.install(environ={"WAYLAND_DISPLAY": "wayland-0"}), 0, self.out)
+        self.assertIn('The shortcut "Hub by Icons8" is in the applications menu', self.out)
+
     def test_a_run_again_does_not_double_it_nor_say_it_again(self):
-        self.assertEqual(self.install(), 0, self.out)
+        self.assertEqual(self.install(environ={"DISPLAY": ":0"}), 0, self.out)
         first = self.desktop()
-        self.assertEqual(self.install(), 0, self.out)
+        self.assertEqual(self.install(environ={"DISPLAY": ":0"}), 0, self.out)
         self.assertEqual(os.listdir(self.apps()), ["agents-hub.desktop"])
         self.assertEqual(self.desktop(), first)
         self.assertNotIn("applications menu", self.out)

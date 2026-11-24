@@ -65,6 +65,16 @@ class DeclineGoesBack(unittest.TestCase):
         a.bus["inbox"]["b800"] = {**item, "outcome": None, "source": None}   # as if it came to the liaison
         before = len(a.bus["out"])
         _, verdict = a.as_liaison("bus.decline_requested", {"inbox": "b800", "why": "ok"})
+        self.assertTrue(str(verdict).startswith("decline_ours:"), verdict)   # in api's own thread: done, not declined
+        self.assertEqual(len(a.bus["out"]), before)
+
+    def test_a_decline_notice_in_their_thread_is_not_declined_back(self):
+        a, b, wire, name_at_b, bid, _ = asked("no")
+        (item,) = [x for x in a.bus["inbox"].values() if x["text"].startswith(busstate.DECLINE_PREFIX)]
+        a.bus["threads"][item["thread"]]["theirs"] = True                    # as if the other hub opened it
+        a.bus["inbox"]["b800"] = {**item, "outcome": None, "source": None}
+        before = len(a.bus["out"])
+        _, verdict = a.as_liaison("bus.decline_requested", {"inbox": "b800", "why": "ok"})
         self.assertIsNone(verdict)
         self.assertEqual(len(a.bus["out"]), before)
 

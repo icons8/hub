@@ -5,6 +5,8 @@ itself from a template: the owner's words verbatim, the context, the contract. T
 task is the answer to the owner's message, and `REPLIED` for the hub; a turn with an error or a crashed session is
 `STOPPED`; 90 minutes without a result is `TIMEOUT` (once). "Done" only by an explicit `delegation.done`.
 """
+import re
+
 from core import askexpired, busstate, chain, coretext, forms, langdata, liaison, minihub, owner, specmode
 from core.coretext import T
 from core.guards import checker
@@ -181,12 +183,10 @@ def brief_of(msg):
     positions; None when the core did not mark them (a task of an earlier version) or the text no longer holds them.
     The message keeps the span in characters (`brief`, set when the task is typed: the text moves only at its start,
     coretext.prepend moves the span with it)."""
-    span, text = msg.get("brief"), msg.get("text")
-    if not (isinstance(span, list) and len(span) == 2 and isinstance(text, str)):
+    span, text = coretext.brief_span(msg), msg.get("text")
+    if span is None:
         return None
     a, b = span
-    if not all(isinstance(x, int) and not isinstance(x, bool) for x in span) or not 0 <= a < b <= len(text):
-        return None
     units = lambda n: n + sum(ord(c) > 0xFFFF for c in text[:n])
     return [units(a), units(b)]
 
@@ -202,6 +202,8 @@ def move(st, d, event, ev, ctx, first=False):
         d["since"] = ev["ts"]
     d["state"] = to
     name = d["session"]
+    if to in ENDED:
+        forget(st["sessions"].get(name), d["id"])   # a closed task waits for no answer (_asked_neighbour)
     for act in todo:
         if act == "task":
             text, at = task_parts(d["words"], d["for"], d["context"], d.get("for_session"), d.get("by"), d["id"],
@@ -493,6 +495,7 @@ def on_turn(st, name, marker, head=None, fresh=True, now=None, also=None):
         sess["sent_in_turn"] = []   # whom the session wrote to in this turn: the core does not forward their result (on_result)
         sess.pop("sent_chars", None)   # and its longest message to each (got_result)
         sess.pop("answer_to", None)   # (a notice inserted mid-turn is the same turn: it forgets neither)
+        sess.pop("asked_turn", None)   # whose answers this turn read (_asked_neighbour): a new turn says nothing of them
     if marker or fresh:   # a notification inserted mid-turn does not make it a monitor turn (review 2026-10-14)
         sess["monitor_turn"] = not marker and monitor_turn(head)
     if not marker:
@@ -562,8 +565,108 @@ def on_turn(st, name, marker, head=None, fresh=True, now=None, also=None):
         # parent cannot be pinned in last_task, otherwise the next label-less turn about something else would go to
         # its owner (2026-10-14: the result of an unrelated turn went to that task's owner)
         sess["delegation"] = up["id"]
+    _asked_neighbour(st, sess, msg, also, now)
     if not sess.get("delegation"):
         _followup(st, sess, msg)
+
+
+def _asked_neighbour(st, sess, msg, also=(), now=None):
+    """An executor asked a session (`hub send`) during a turn of its task and ended the turn waiting: the turn that
+    reads that session's answer continues the task, so its result reaches whoever set it (before, that turn belonged to
+    no task and the final report reached nobody). The answer is the first letter from the asked session the executor
+    reads: the turn's own line, a line read with it (`also`), an FYI riding with them, or that session's turn result
+    the core relayed. One question, one answer: the entry goes with it, and the session's next letter is its own matter
+    again, unless the executor says in that turn that it still waits (`hub waiting`, still_waiting: an "accepted, will
+    send" is not the answer). An entry dies unanswered after ASK_WINDOW, or with its task (forget): an urgent task set
+    meanwhile does not end it, the first one is still open."""
+    asked = sess.get("questions")
+    if not asked:
+        return
+    read = [msg, *(st["messages"].get(m) or {} for m in also or () if isinstance(m, str))]
+    ids = {m.get("id") for m in read} - {None}
+    read += [m for m in st["messages"].values() if m.get("with") in ids and m["session"] == sess["name"]]
+    for who in [w for w in asked if now is not None and now - asked[w]["ts"] > ASK_WINDOW]:
+        del asked[who]   # unanswered too long
+    for who in dict.fromkeys(_letter_from(m) for m in read):   # in the order read, not a set's: replays agree
+        if who not in asked:
+            continue
+        entry = asked.pop(who)
+        d = st["delegations"].get(entry["task"])
+        if sess.get("role") == "executor" and d and d["state"] in ("working", "replied", "stopped"):
+            answer = {"who": who, **entry}
+            if not sess.get("delegation"):
+                answer["was"] = sess.get("last_task")   # the letter made the turn the task's (asked_back)
+                sess["delegation"] = sess["last_task"] = d["id"]
+            sess.setdefault("asked_turn", []).append(answer)
+    if not asked:
+        sess.pop("questions", None)
+
+
+ASK_WINDOW = 24 * 3600   # an answer later than this after the question is a letter of its own
+
+
+def forget(sess, did=None):
+    """The executor's open questions of task did (all of them, did None) end: the task closed, the executor left."""
+    asked = (sess or {}).get("questions") or {}
+    for who in [w for w in asked if did is None or asked[w]["task"] == did]:
+        del asked[who]
+    if not asked and sess:
+        sess.pop("questions", None)
+
+
+def asked_back(st, sess, data):
+    """The turn ends; an answer made it the task's (asked_turn), and a session that wrote to the executor in this turn
+    waits on it (`hub waiting`, still fresh): the asked neighbour asking back, or anyone else whose plain letter the
+    turn took, its line or one inserted mid-turn. Its letter asks something, so the turn answers it, as on main: the
+    turn is not the task's when its text answers someone (_turn_answers, the rule relay_targets keeps: a short result,
+    or one already sent by `hub send`, answers nobody, and the task keeps the turn). The questions stay open for the
+    neighbours' next letters. Decided at the end of the turn, not at its start: a session says it waits after it
+    wrote, maybe after the turn began. An urgent task inserted mid-turn (also_tasks) holds the turn, as on main. A
+    failed turn (an error, a hook's refusal: the letters go back to their senders) read no answer: the questions stay
+    open, and the task handles the failure as any of its turns."""
+    turn = sess.get("asked_turn") or []
+    t = next((a for a in turn if "was" in a), None)
+    if data.get("is_error") and turn:
+        del sess["asked_turn"]
+        _ask_again(sess, turn)
+        return
+    if not t or sess.get("delegation") != t["task"] or sess.get("also_tasks") or not _turn_answers(st, sess, data):
+        return
+    del sess["asked_turn"], sess["delegation"]
+    sess["last_task"] = t["was"]
+    _ask_again(sess, turn)   # the turn is not the task's: the answers it read with that letter answered nothing either
+
+
+def _ask_again(sess, turn):
+    """The answers a turn read count for nothing: their questions are open again (one the executor said it still
+    waits for in this turn keeps that newer entry: still_waiting)."""
+    for a in turn:
+        sess.setdefault("questions", {}).setdefault(a["who"], {"task": a["task"], "ts": a["ts"]})
+
+def asks(st, sess, name):
+    """Is the executor's `hub send` to `name` a question (delegations._asked_neighbour)? Not when it answers that
+    session's own plain letter the turn took (liaison_askers names them for any session): the neighbour asked, the
+    executor answered, and the neighbour's next letter is no answer to anything."""
+    return not any(w["to"] == name for w in liaison_askers(st, sess))
+
+
+def still_waiting(sess, ts, text):
+    """The executor says it waits for a session it asked (`hub waiting`, naming it) in the turn that read that
+    session's letter: the letter was not the answer ("accepted, will send"), the question stays open for the next one.
+    Each such session: two acknowledgements read together keep both questions open. Waiting for something else (a CI
+    run, the owner) says nothing of the letter: it was the answer."""
+    for t in sess.get("asked_turn") or []:
+        if re.search(rf"(?<![\w-]){re.escape(t['who'])}(?![\w-])", text, re.IGNORECASE):
+            sess.setdefault("questions", {})[t["who"]] = {"task": t["task"], "ts": ts}
+
+
+def _letter_from(msg):
+    """The session a message is from: its own `hub send`, or its turn result the core relayed (a `from` field and no
+    sender); None for the core and the owner."""
+    f = forms.sender(msg)
+    if f:
+        return f["name"] if f["kind"] == "session" else None
+    return None if forms.is_core(msg) else msg.get("sender")
 
 
 def _service(msg):
@@ -714,13 +817,23 @@ def relay_targets(st, sess, data):
     The liaison's turn also answers those whose words it did not carry out (liaison_targets)."""
     if sess.get("delegation") or sess.get("also_tasks") or data.get("is_error"):
         return []
+    return _turn_answers(st, sess, data)
+
+
+def _turn_answers(st, sess, data):
+    """Whom a turn's text answers, were it no task's (relay_targets; asked_back asks it of a task's turn)."""
     text = (data.get("text") or "").strip()
     told = liaison_targets(st, sess, data)
     if len(text) < RELAY_MIN:
         return told
-    return told + [w for w in sess.get("answer_to") or []
-                   if w not in told and not got_result(sess, w["to"], data.get("text")) and w["to"] != sess["name"]
-                   and (wait := (st["sessions"].get(w["to"]) or {}).get("waiting")) and "stale" not in wait]
+    return told + [w for w in _waiters(st, sess) if w not in told and not got_result(sess, w["to"], data.get("text"))]
+
+
+def _waiters(st, sess):
+    """Those who wrote to the session in this turn with a plain letter and say they wait (`hub waiting`, still fresh:
+    not written to since)."""
+    return [w for w in sess.get("answer_to") or [] if w["to"] != sess["name"]
+            and (wait := (st["sessions"].get(w["to"]) or {}).get("waiting")) and "stale" not in wait]
 
 
 def _relay_result(st, sess, ev, data, ctx):

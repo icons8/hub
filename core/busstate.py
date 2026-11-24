@@ -82,6 +82,10 @@ NOT_ACCEPTED = T("core.busstate.not_accepted", "contact {name} is not accepted (
 NOT_VERIFIED = T("core.busstate.not_verified", "not_verified: hub {name} is not checked — the owner checks the pair code "
                                                "on the page (the \"External hubs\" tab)")
 EMPTY_TEXT = T("core.busstate.empty_text", "empty text")
+OWNER_CHANGED = T("core.busstate.owner_changed",
+                  "owner_changed: the owner answered your question {qid} about {basis} in words ({id}) — they may have "
+                  "changed the text: send it as they changed or approved it, in your own words: hub bus send {contact} "
+                  "--text '…'")
 HUB_NAME_BAD = T("core.busstate.hub_name_bad",
                  "the hub name is a line up to 100 characters without control and invisible characters")
 CONTACT_NAME_BAD = T("core.busstate.contact_name_bad",
@@ -193,36 +197,153 @@ def live_thread(bus, thread, contact, now):
     return th
 
 
+HAND_MAX = 8              # sessions in a row the question of a thread is passed through (A → B → C …)
+
+
+def _thread_why(bus, thread, contact, session, now):
+    """Why a session's words to this contact do not go in this thread: None — they may; "closed" — it is gone, another
+    contact's, full or the owner's own; else the name of the session that leads it (its answers go there)."""
+    th = live_thread(bus, thread, contact, now)
+    if not th or th.get("n", 0) >= THREAD_MAX or th.get("owner"):
+        return "closed"
+    src = th.get("source")
+    return None if src in (None, session) or _handed(th, session) else src
+
+
+def _handed(th, session):
+    """The thread's question came to this session from its source (`handed`, written by the core in message_taken): the
+    source passed it on in its turn on that hub's words, or a session it passed it to did so in turn."""
+    handed, seen = th.get("handed") or {}, {session}
+    for _ in range(HAND_MAX):
+        by = (handed.get(session) or {}).get("by")
+        if by is None or by in seen:
+            return False
+        if by == th.get("source"):
+            return True
+        seen.add(by)
+        session = by
+    return False
+
+
 def auto_thread_ok(bus, thread, contact, session, now):
     """May the core put a session's words to this contact in this thread by itself (spec d2423478): the thread is
     alive and takes one more message with room for the answer (under THREAD_MAX), it is not the owner's own, and its
-    answers would come back to this session — its source is the session or nobody yet."""
-    th = live_thread(bus, thread, contact, now)
-    return bool(th and th.get("n", 0) < THREAD_MAX and not th.get("owner") and th.get("source") in (None, session))
+    answers would come back to this session — its source is the session or nobody yet, or the source passed the
+    thread's question on to it (`handed`): then its words make it the source (_signed). The gate of `--thread` and of
+    the checks again at sending and sealing; the core's own choice (reply_thread) takes only a thread it is free in."""
+    return _thread_why(bus, thread, contact, session, now) is None
 
 
-def reply_thread(st, session, contact, now):
-    """The thread a session's request to the liaison continues by itself (spec d2423478): the one of another hub's
-    words its turn is on (words of that hub from one thread only — from two, which one it answers is unknown), else
-    the latest thread that hub's words came to the session in; None — a new thread, as before."""
+THREAD_FULL = T("core.busstate.thread_full_id", " — the thread with {name} you may mean: {thread} (name it in full)")
+
+
+def _full_id(bus, thread, contact, now):
+    """A thread named by its first characters, or by the `<<<bus-xxxxxxxx` mark of a message of that hub (the random
+    fence of the liaison's frame, not a part of the id): the refusal names the full id when exactly one live thread
+    with that contact fits — never taken for it; "" otherwise."""
+    threads = bus.get("threads") or {}
+    if not isinstance(thread, str) or not thread or thread in threads:
+        return ""
+    thread = thread.strip().removeprefix("<<<").removesuffix(">>>")   # copied with the fence's brackets
+    short = thread[4:] if thread.startswith("bus-") else thread
+    like = {t for t in threads if short and t.startswith(short)}
+    like |= {x["thread"] for x in (bus.get("inbox") or {}).values() if x.get("contact") == contact and x.get("thread")
+             and x.get("marker") in (thread, "bus-" + short)}
+    like = [t for t in like if live_thread(bus, t, contact, now)]
+    return THREAD_FULL.format(name=contact, thread=like[0]) if len(like) == 1 else ""
+
+
+def thread_refusal(bus, thread, contact, session, now):
+    """The refusal of a session's `--thread` (None — the thread takes its words): the gate is auto_thread_ok's."""
+    why = _thread_why(bus, thread, contact, session, now) if isinstance(thread, str) else "closed"
+    if why is None:
+        return None
+    if why == "closed" or not session:   # the owner's terminal: no session to pass the words to
+        return coretext.join(DIRECT_THREAD.format(thread=thread, name=contact), _full_id(bus, thread, contact, now))
+    return THREAD_LED.format(thread=thread, name=contact, session=why)
+
+
+def _turn_threads(st, session):
+    """The threads of another hub's words the session's turn is on, by contact: of the words the core delivered to it
+    (`hubbus.inbox`) and of a question of a thread another session passed on to it (`bus_handed`, message_taken). The
+    head of a finished turn stays on the session: not this one's."""
     from core import chain, reducer
-    bus = st.get("bus") or {}
     sess = (st.get("sessions") or {}).get(session) or {}
-    inbox = bus.get("inbox") or {}
-    # the turn it runs now (the head of a finished turn stays on the session: not this request's)
-    marks = reducer._took(sess) if sess.get("state") in chain.BUSY else []
-    took = [((st.get("messages") or {}).get(m) or {}).get("hubbus") or {} for m in marks]
-    turn = {inbox[h["inbox"]].get("thread") for h in took
-            if h.get("inbox") in inbox and inbox[h["inbox"]].get("contact") == contact}
-    turn.discard(None)
-    if len(turn) == 1 and auto_thread_ok(bus, next(iter(turn)), contact, session, now):
+    inbox = (st.get("bus") or {}).get("inbox") or {}
+    out = {}
+    for m in reducer._took(sess) if sess.get("state") in chain.BUSY else ():
+        msg = (st.get("messages") or {}).get(m) or {}
+        item = inbox.get(((msg.get("hubbus") or {}).get("inbox")) or "") or {}
+        pairs = [(item["contact"], item["thread"])] if item.get("contact") and item.get("thread") else []
+        pairs += [(c, t) for c, t in (msg.get("bus_handed") or {}).items()]
+        for c, t in pairs:
+            out.setdefault(c, set()).add(t)
+    return out
+
+
+def reply_thread(st, session, contact, now, turn=None):
+    """The thread a session's request to the liaison continues by itself (spec d2423478): the one of another hub's
+    words its turn is on (words of that hub from one thread only — from two, which one it answers is unknown; a
+    question of a thread another session passed on to it counts as those words, hand_on), else the latest thread that
+    hub's words came to the session in; None — a new thread, as before. Only a thread nobody else leads (_free): a
+    hand-off takes a led thread only by `--thread`. The owner's week: a session given a question wrote to that hub
+    about another matter in that same turn, and days later; by itself its words went into the thread of the session
+    that had passed the question on and took that session's answers. turn — the threads of the session's turn as they
+    were when it wrote the words ({contact: {thread}}, `bus_turn_threads`), instead of its turn now."""
+    bus = st.get("bus") or {}
+    turn = (_turn_threads(st, session) if turn is None else turn).get(contact) or set()
+    if len(turn) == 1 and _free(bus, next(iter(turn)), contact, session, now):
         return next(iter(turn))
     # the latest by the time it was handed over, then by arrival (bN carries the seq): equal times keep the order
     got = [(x.get("done") or x.get("ts") or 0, int(k[1:]) if k[1:].isdigit() else 0, x["thread"])
-           for k, x in inbox.items() if x.get("contact") == contact and x.get("thread")
+           for k, x in (bus.get("inbox") or {}).items() if x.get("contact") == contact and x.get("thread")
            and session in (x.get("passed_to") or [])]
     last = max(got, default=None)
-    return last[2] if last and auto_thread_ok(bus, last[2], contact, session, now) else None
+    return last[2] if last and _free(bus, last[2], contact, session, now) else None
+
+
+def _free(bus, thread, contact, session, now):
+    """A thread the core takes for a session's words by itself: it takes them (auto_thread_ok) and nobody else leads it
+    — a hand-off lets the receiver take a led thread only by naming it (`--thread`)."""
+    return auto_thread_ok(bus, thread, contact, session, now) and bus["threads"][thread].get("source") in (None, session)
+
+
+def hand_on(st, ev, data, msg):
+    """A session writes to another one in its turn on another hub's words: the question of that thread (one per
+    contact) is passed on with it, if the thread takes the writer's words — the core marks it on the message and on the
+    thread (`handed`: to whom, by whom, when). The receiver may answer in the thread with `--thread`, and its answer
+    makes it the source; by itself (reply_thread) only in its turn on this message, in a thread nobody leads yet. Not
+    by an FYI or a command (no words to answer on), nor a schedule script's words on behalf of a session (not from its
+    turn); a card's own thread to a deputy (core/deputyroute.py) stays with the session the card is of; one that may
+    answer there already keeps its way to the source (a word back along the chain would loop it)."""
+    from core import liaison
+    sender, to = data.get("sender"), msg.get("session")
+    bus = st.get("bus") or {}
+    if data.get("channel") != "session" or data.get("schedule_job") or msg.get("fyi") or msg.get("command") \
+            or not sender or not to or to == sender or liaison.NAME in (sender, to) \
+            or to not in (st.get("sessions") or {}) or not bus.get("threads"):
+        return
+    given = {}
+    for c, ts in _turn_threads(st, sender).items():
+        if len(ts) != 1:
+            continue
+        (t,) = ts
+        th = bus["threads"].get(t) or {}
+        if th.get("route") or not auto_thread_ok(bus, t, c, sender, ev["ts"]):
+            continue
+        if _thread_why(bus, t, c, to, ev["ts"]) is not None:
+            handed = th.setdefault("handed", {})
+            was = handed.get(to)
+            handed[to] = {"by": sender, "ts": ev["ts"]}
+            if not _handed(th, to):   # past HAND_MAX: nothing changes
+                if was is None:
+                    del handed[to]
+                else:
+                    handed[to] = was
+                continue
+        given[c] = t
+    if given:
+        msg["bus_handed"] = given
 
 
 def owner_turn(st, name):
@@ -251,8 +372,9 @@ def asked_in_owner_turn(st, data):
 
 def whose(o):
     """The session an outgoing message is for: the one whose words it carries, else the one whose request the liaison
-    answered with its own words (`asker`, set by the core from the liaison's turn, not by the model). None — nobody."""
-    return o["source"] if o.get("source") not in ("liaison", "owner") else o.get("asker")
+    answered with its own words or the owner's answer to its question (`asker`, set by the core from the liaison's
+    turn, not by the model; the words the hub passed on for him answer the request too). None — nobody."""
+    return o["source"] if o.get("source") not in ("liaison", "owner") and not o.get("answers") else o.get("asker")
 
 
 def _turn_words(st):
@@ -284,15 +406,140 @@ def _turn_words(st):
     return out or None
 
 
-def _asker(st, name):
-    """The session on whose message the liaison's turn is now (its words are asked for by that session: «ask them…»):
-    only when the turn's messages come from one session of this hub and none from the bus or the owner, and the message
-    named no other contact."""
+def _turn_requests(st, idx=None):
+    """The sessions' words the liaison's turn is on, [(message, session)]: the messages of sessions of this hub it took,
+    and for the owner's answer to its question about their requests (_asked: his words, a press, his ×, the hub
+    passing his words on) — those requests. None when the turn has words of the bus or someone else's, or the owner's
+    words on nothing it asked him about. idx — _asked(st), if the caller has it."""
     words = _turn_words(st)
-    if not words or any(who == "owner" or msg.get("bus_to") not in (None, name) for msg, who in words):
+    if not words:
+        return None
+    about = (_asked(st) if idx is None else idx).get("about") or {}
+    out, seen = [], set()
+    for msg, who in words:
+        if not about.get(msg["id"]) and who == "owner":
+            return None
+        for m, w in about.get(msg["id"]) or [(msg, who)]:
+            if m["id"] not in seen:
+                seen.add(m["id"])
+                out.append((m, w))
+    return out
+
+
+def _asker_in(words, name):
+    """The session on whose message the liaison's turn is now (its words are asked for by that session: «ask them…»),
+    or on the owner's answer to the liaison's question about it (words — _turn_requests): only when those messages come
+    from one session of this hub and none from the bus or the owner on anything else, and the message named no other
+    contact."""
+    if not words or any(msg.get("bus_to") not in (None, name) for msg, _ in words):
         return None
     asked = {who for _, who in words}
     return next(iter(asked)) if len(asked) == 1 else None
+
+
+QUESTIONS_KEPT = 4   # the liaison's latest questions about one request the core links the owner's answers by
+
+
+def _asked(st):
+    """The owner's answers to the liaison's questions about sessions' requests (liaison_asked), from one pass over its
+    messages: {"on": {request: [(message, in words)], in order}, "about": {message: [(request message, session)]}};
+    {} when no request carries a question of the liaison (nothing to link)."""
+    from core import liaison, tools
+    bus = st.get("bus") or {}
+    reqs = {k: r for k, r in (bus.get("requests") or {}).items() if r.get("questions")}
+    msgs = st.get("messages") or {}
+    by_q, words = {}, []
+    for m in msgs.values():
+        if m.get("session") != liaison.NAME or m.get("state") == "failed":
+            continue
+        if (m.get("bus_asked") or {}).get("questions"):   # a session's words with no request (no --to): asked about
+            reqs.setdefault(m["id"], {**m["bus_asked"], "session": m.get("sender")})
+        if m.get("answers_question"):
+            by_q.setdefault(m["answers_question"], []).append(m)
+        elif m.get("from_owner") and not m.get("on_behalf") and not m.get("action") and not tools.dismissal(m):
+            words.append(m)
+    if not reqs:
+        return {}
+    on, about = {}, {}
+    for mid, req in reqs.items():
+        on[mid] = _owner_on(bus, mid, req, by_q, words)
+        for m, _ in on[mid] if mid in msgs else ():
+            about.setdefault(m["id"], []).append((msgs[mid], req.get("session")))
+    return {"on": on, "about": about}
+
+
+def _owner_on(bus, mid, req, by_q, words):
+    """The messages to the liaison that answer its questions about the session's request mid, in order, as
+    [(message, in words)]: what closed the card — a press of its option or a refusal (False), his own text in the
+    card, his words typed to the liaison, the hub passing his words on with --card (True), his × (False) — and for a
+    request (--to) his own words to the liaison within 30 minutes after his × (True) while it still waits for its answer. By the
+    core's facts only: the question's id on the message, the order and the time of the messages; never what the
+    words say. by_q, words — the liaison's messages by the question they close, and the owner's own words to it."""
+    from core import tools
+    out, closed = [], []
+    for q in req.get("questions") or ():
+        labels = [str(x).strip() for x in q.get("labels") or ()]
+        for m in by_q.get(q.get("qid")) or ():
+            if tools.dismissal(m):
+                closed.append(m)
+                out.append((m, False))
+            elif m.get("card_declined"):
+                out.append((m, False))
+            elif m.get("on_behalf") == "owner":   # the core's note of his answer on the card: his choices
+                out.append((m, any(not _pressed(v, labels) for v in (m.get("answers") or {}).values())))
+            else:
+                out.append((m, True))
+    # (words with no --to have no answer that closes them: a × on them takes no later words)
+    if closed and mid in (bus.get("requests") or {}) and _unanswered(bus, mid):
+        out += [(m, True) for m in words if any(_num(m) > _num(x) and (m.get("created") or 0) - (x.get("created") or 0)
+                                                <= STALE for x in closed)]
+    return sorted(out, key=lambda x: _num(x[0]))
+
+
+def _open(bus, mid):
+    """The session's words still wait for the liaison: a request with no answer yet (_unanswered), or words with no
+    request (no --to) not sent by reference yet."""
+    if mid in (bus.get("requests") or {}):
+        return _unanswered(bus, mid)
+    return not any((o.get("basis") == mid or mid in (o.get("answers") or ())) and o.get("status") != "refused"
+                   for o in (bus.get("out") or {}).values())
+
+
+def _asked_rec(st, mid):
+    """The liaison's questions about the session's words mid as _asked_on keeps them, read only: {} — none."""
+    req = ((st.get("bus") or {}).get("requests") or {}).get(mid)
+    return req if req is not None else ((st.get("messages") or {}).get(mid) or {}).get("bus_asked") or {}
+
+
+def _asked_on(st, mid):
+    """Where the liaison's questions about the session's words mid are kept: its request, or for words with no request
+    (no --to) the message itself (`bus_asked`); None — not the words of a session to the liaison."""
+    from core import liaison
+    req = ((st.get("bus") or {}).get("requests") or {}).get(mid)
+    if req is not None:
+        return req
+    msg = (st.get("messages") or {}).get(mid) or {}
+    if msg.get("session") == liaison.NAME and msg.get("sender") and msg.get("sender") != liaison.NAME \
+            and not msg.get("from_owner") and msg.get("channel") != "hubbus" and msg.get("bus_to") is None:
+        return msg.setdefault("bus_asked", {})
+    return None
+
+
+def _edited(idx, mid, req):
+    """The owner's latest words on the liaison's questions about request mid (_asked), else the ones it kept from
+    questions gone from the window (`edited`): None — he never answered about it in words."""
+    return next((m["id"] for m, words in reversed((idx.get("on") or {}).get(mid) or []) if words), None) \
+        or req.get("edited")
+
+
+def _pressed(value, labels):
+    """An answer on the card that is its option(s) — the page joins several picks with ", " — not his own text."""
+    return isinstance(value, str) and (value.strip() in labels or all(p.strip() in labels for p in value.split(", ")))
+
+
+def _num(msg):
+    mid = str(msg.get("id") or "")
+    return int(mid[1:]) if mid[1:].isdigit() else 0
 
 
 def _owner(data):
@@ -460,6 +707,9 @@ NOT_DIRECT = T("core.busstate.not_direct", "not_direct: {why} — words to {name
 DIRECT_THREAD = T("core.busstate.direct_thread",
                   "thread_closed: thread {thread} does not take your words to {name} (another contact's, gone, full, "
                   "the owner's own or another session's) — send without --thread")
+THREAD_LED = T("core.busstate.thread_led",
+               "thread_closed: thread {thread} with {name} is led by {session}, its answers go there — pass your words "
+               "to {session} (hub send {session} \"…\"), or send without --thread for a new thread")
 
 
 def _direct(st, ev, data, actions):
@@ -486,8 +736,9 @@ def _direct(st, ev, data, actions):
         return T("core.busstate.send_too_big", "text over 60 KB — the bus has no attachments, only a text or a link")
     thread, auto = data.get("thread"), False
     if thread is not None:
-        if not isinstance(thread, str) or not auto_thread_ok(bus, thread, name, sender, ts):
-            return DIRECT_THREAD.format(thread=thread, name=name)
+        why = thread_refusal(bus, thread, name, sender, ts)
+        if why:
+            return why
     else:
         thread = reply_thread(st, sender, name, ts)
         auto = thread is not None
@@ -1415,6 +1666,11 @@ def _from_liaison(st, ev, kind, data, actions):
                      ).format(id=data.get("inbox"), status=item.get("status"))
         if key in bus["requests"] and _live_answer(bus, item):   # its answer is on its way: not a decline any more
             return T("core.busstate.basis_sent", "{id} is already sent (or waits for a card)").format(id=key)
+        if decline and key in bus["inbox"] and ours(bus, item):
+            # an answer in a thread this hub opened: a refusal would go back as this hub refusing its own words — the
+            # liaison closes it (done) or answers in the thread
+            return forms.Why(DECLINE_OURS.format(id=key, contact=item.get("contact"), thread=item.get("thread")),
+                             "decline_ours")
         why = " ".join(own_words(str(data.get("why") or "")).split())[:300] or None
         item.update(outcome="declined" if decline else "read", why=why, done=ts)
         # only another hub's request is answered with the refusal; a session's request the liaison does not send is this
@@ -1465,6 +1721,19 @@ def _decline_notice(bus, item, ev, actions):
                        "source": "liaison", "basis": None, "via": None, "text": text, "agent_to": None,
                        "thread": thread, "ts": ev["ts"], "of": ev["seq"], "decline": True}
     actions.append({"do": "bus_send", "session": None, "out": oid, "of": ev["seq"]})
+
+
+DECLINE_OURS = T("core.busstate.decline_ours",
+                 "decline_ours: {id} is an answer in a thread this hub opened, to its words — a refusal would go back "
+                 "to them as this hub refusing its own words. Nothing to do — hub bus done {id}; to say no to something "
+                 "in it — answer in the thread: hub bus send {contact} --thread {thread} --text '…'")
+
+
+def ours(bus, item):
+    """An incoming item in a thread this hub opened (its words went first): an answer to this hub's words, not a request
+    of the other hub's."""
+    th = (bus.get("threads") or {}).get(item.get("thread") or "")
+    return bool(th) and th.get("contact") == item.get("contact") and not th.get("theirs")
 
 
 def is_decline_notice(text):
@@ -1582,7 +1851,7 @@ def _send_request(st, ev, data, actions):
     """hub bus send: the liaison asks to send the words of a session by reference (--text-from mN), or its own (--text);
     the core checks what the liaison cannot know or must not choose, and the daemon decides: a card to the owner or,
     for an allowed pair «source session × contact», straight out."""
-    from core import chain, forms, liaison
+    from core import chain, forms, liaison, tools
     bus = _bus(st)
     ts = ev["ts"]
     name = data.get("contact")
@@ -1602,7 +1871,8 @@ def _send_request(st, ev, data, actions):
     if thread is not None:
         th = bus["threads"].get(thread)
         if th is None:
-            return T("core.busstate.unknown_thread", "unknown_thread: no thread {thread}").format(thread=thread)
+            return coretext.join(T("core.busstate.unknown_thread", "unknown_thread: no thread {thread}").format(
+                thread=thread), _full_id(bus, thread, name, ts))
         if th.get("contact") != name:
             return T("core.busstate.wrong_thread", "wrong_contact: thread {thread} is open with {other}, not with "
                                                    "{name}").format(thread=thread, other=th.get("contact"), name=name)
@@ -1623,7 +1893,8 @@ def _send_request(st, ev, data, actions):
             return T("core.busstate.basis_from_bus", "{id} is from the bus; these are not the words of a session of "
                                                      "this hub").format(id=basis)
         frm = forms.sender(msg) or {}
-        if msg.get("from_owner"):
+        # the core's note in his name (his press on a card, his ×) is not his words: the liaison says it in its own
+        if msg.get("from_owner") and not msg.get("on_behalf") and not tools.dismissal(msg):
             source = "owner"
         elif frm.get("kind") == "session" and frm.get("name") and frm["name"] != liaison.NAME:
             source = frm["name"]
@@ -1638,23 +1909,59 @@ def _send_request(st, ev, data, actions):
         if any(o.get("basis") == basis and o.get("status") not in ("refused",) for o in bus["out"].values()) \
                 or (basis in bus["requests"] and _live_answer(bus, bus["requests"][basis])):   # or the liaison's own words
             return T("core.busstate.basis_sent", "{id} is already sent (or waits for a card)").format(id=basis)
+        # the owner answered the liaison's question about these words in words (a correction, or a yes with words): the
+        # text he saw is no longer the one to send — his, as he wrote it, goes in the liaison's words; for good (a
+        # later card may show his text: a press on it is no yes to the old words)
+        idx = _asked(st)   # the owner's answers to the liaison's questions about sessions' requests
+        req = _asked_rec(st, basis) if source != "owner" else None
+        edit = (st.get("messages") or {}).get(_edited(idx, basis, req) or "") if req else None
+        if edit is not None:   # his words after his × name no question: the latest one it asked about these words
+            qid = edit.get("answers_question") or req["questions"][-1]["qid"]
+            return forms.Why(OWNER_CHANGED.format(qid=qid, id=edit["id"], basis=basis, contact=name), "owner_changed")
         via = msg.get("bus_to_via")
-        text = msg.get("text")
+        text = coretext.said(msg)   # the author's words: not the core's head of an answer or tail of a relay
+        # the owner's answer to the liaison's question about one session's requests (or the hub passing it on): it
+        # answers them as the liaison's own words on it do — their thread, their outcome, their session gets the answer
+        about = [(m, who) for m, who in (idx.get("about") or {}).get(basis) or ()
+                 if m.get("bus_to") in (name, None) and _open(bus, m["id"])]   # a request to this contact, or no --to
+        if len({who for _, who in about}) == 1:
+            asker, answers = about[0][1], [m["id"] for m, _ in about]
         # the liaison named no thread: the one the core kept on the session's request, if it still takes the answer
-        kept = (bus["requests"].get(basis) or {}).get("thread")
-        if thread is None and kept and auto_thread_ok(bus, kept, name, source, ts):
-            thread, auto = kept, True
+        kept = {(bus["requests"].get(k) or {}).get("thread") for k in answers or [basis]}
+        if thread is None and len(kept) == 1 and None not in kept \
+                and auto_thread_ok(bus, next(iter(kept)), name, asker or source, ts):
+            thread, auto = next(iter(kept)), True
     else:
         text = own_words(data.get("text"))
-        asker = _asker(st, name)
+        turn = _turn_requests(st)
+        asker = _asker_in(turn, name)
         # its own words on the asker's requests to this contact the turn is on answer them as the words by reference
         # do: in the thread the core kept for them (one), and they are closed by this message's fate (_request_outcome)
-        answers = [m["id"] for m, who in (_turn_words(st) or ()) if asker and who == asker and m.get("bus_to") == name
+        answers = [m["id"] for m, who in (turn or ()) if asker and who == asker and m.get("bus_to") == name
                    and _unanswered(bus, m["id"])]
         kept = {bus["requests"][mid].get("thread") for mid in answers}
         if thread is None and len(kept) == 1 and None not in kept and auto_thread_ok(bus, next(iter(kept)), name, asker,
                                                                                      ts):
             thread, auto = next(iter(kept)), True
+    # the session's words to that hub with no thread kept for them (written without --to, or before the thread was
+    # alive): the one its request would continue now — the thread of that hub's words its turn is on, else the latest
+    # it got them in (reply_thread)
+    # (a thread kept for the request that no longer takes them is not replaced by another: a new thread, as before)
+    who = asker or (source if source not in (liaison.NAME, "owner") else None)
+    kept_any = any((bus["requests"].get(k) or {}).get("thread") for k in answers or [basis])
+    if thread is None and who and not kept_any:
+        # the session's words: the basis, the requests the owner's answer answers, its messages the turn took
+        if basis is not None:
+            took = [st["messages"][k] for k in answers if k in st["messages"]] or [msg]
+        else:
+            took = [m for m, w in turn or () if w == who]
+        seen = {t for m in took for t in [(m.get("bus_turn_threads") or {}).get(name)] if t}
+        if len(seen) == 1:   # the thread of the turn it wrote in, if it still takes them — never another one instead
+            t = next(iter(seen))
+            thread = t if _free(bus, t, name, who, ts) else None
+        elif not seen:       # it wrote outside a turn on that hub's words: the latest thread they came to it in
+            thread = reply_thread(st, who, name, ts, turn={})
+        auto = bool(thread)
     if not isinstance(text, str) or not text.strip():
         return EMPTY_TEXT
     if len(text.encode("utf-8")) > SEND_MAX:
@@ -1667,13 +1974,13 @@ def _send_request(st, ev, data, actions):
     # liaison): an answer in the thread is an answer to him; the owner's own words and the liaison's carry no mark
     if basis is not None:
         root, sched = chain.root(st, basis), chain.scheduled(st, basis)
-        mine = bool(msg.get("in_owner_turn"))
+        mine = all((st["messages"].get(k) or {}).get("in_owner_turn") for k in answers or [basis])
     elif asker:
         lia = st["sessions"].get(liaison.NAME) or {}
         root = chain.turn_root(st, liaison.NAME)
         sched = chain.of_turn_scheduled(st, lia.get("turn_marker"), lia.get("turn_also") or ())
         # every one of its messages the turn took: one from a turn without him makes the liaison's words not his answer
-        words = [m for m, who in _turn_words(st) or () if who == asker]
+        words = [m for m, who in turn or () if who == asker]
         mine = bool(words) and all(m.get("in_owner_turn") for m in words)
     else:
         root, sched, mine = None, False, False
@@ -1829,7 +2136,11 @@ def _out(st, ev, data):
                                        **({"route": o["route"]} if o.get("route") else {})}
     else:
         th["n"] = th.get("n", 0) + 1
-        if th.get("source") is None and whose(o):
+        if whose(o) and (th.get("source") is None or _handed(th, whose(o))):
+            # the session the source passed the thread's question to answers: its answers go there; the one that led
+            # it keeps its way through it (its own word in the thread takes the answers back)
+            if th.get("source") not in (None, whose(o)):
+                th.setdefault("handed", {})[th["source"]] = {"by": whose(o), "ts": ts}
             th["source"] = whose(o)
     if whose(o) is not None and not o.get("decline"):
         # a session's request: the answers that follow are to the latest one, and go to the source — its chain, if
@@ -2100,7 +2411,8 @@ def _owned(st, ev, bid, item, source):
 def _to_liaison(st, ev, bid, item, contact):
     from core import forms, liaison, reducer
     msg = reducer.new_message(st, f"m{ev['seq']}", liaison.NAME,
-                              liaison.inbound(bid, item, contact, item["marker"], rules_for(_bus(st), item["contact"])),
+                              liaison.inbound(bid, item, contact, item["marker"],
+                                              rules_for(_bus(st), item["contact"]), ours=ours(_bus(st), item)),
                               ev["ts"],
                               origin=ORIGIN, channel="hubbus",
                               hubbus={"inbox": bid, "contact": item["contact"]}, **_chain(item))
@@ -2132,9 +2444,12 @@ def _deliver(st, ev, bid, item, to, note, direct=False, owned=False):
     from core import deputyroute, liaison, reducer
     # a deputy's answer on the card the thread was opened for (core/deputyroute.py): its own frame
     frame = deputyroute.reply(st, ev, item, to) if item.get("route") and direct and to == item.get("source") else None
-    frame = frame or (liaison.owned(item, item["marker"], rules_for(_bus(st), item["contact"]), direct,
+    # the thread is named to it only if its words may go there (the gate of `--thread`, thread_refusal)
+    shown = item if auto_thread_ok(_bus(st), item.get("thread"), item["contact"], to, ev["ts"]) \
+        else {**item, "thread": None}
+    frame = frame or (liaison.owned(shown, item["marker"], rules_for(_bus(st), item["contact"]), direct,
                                     of=owned if isinstance(owned, str) else None) if owned
-                      else liaison.passed(item, item["marker"], note, direct))
+                      else liaison.passed(shown, item["marker"], note, direct))
     # the answer to the request its source wrote in a turn of the owner's, given to that source: its turn on it is
     # an answer to him (reducer: turn_bus_owner) — to another session it is only words of another hub
     asked = item.get("in_owner_turn") and to == item.get("source")
@@ -2257,10 +2572,26 @@ def liaison_asked(st, sess, rid, ts):
     msgs = st.get("messages") or {}
     items = {(msgs.get(m) or {}).get("hubbus", {}).get("inbox") for m in reducer._took(sess)} - {None}
     open_ = [b for b in items if b in inbox and inbox[b].get("outcome") is None and inbox[b].get("status", "ok") == "ok"]
+    ask = next((a for a in sess.get("asks") or [] if rid and a.get("request_id") == rid), None)
+    qid = (ask or {}).get("id")
     if len(items) == 1 and open_ and rid:
-        qid = next((a.get("id") for a in sess.get("asks") or [] if a.get("request_id") == rid), None)
         inbox[open_[0]]["asked"] = {"rid": rid, "ts": ts, **({"qid": qid} if qid else {})}
         inbox[open_[0]].pop("since", None)   # a new question: an earlier answer's 30 minutes are not this one's
+    # a turn on sessions' requests (their words, or the owner's answer to its earlier question about them): the question
+    # is about them — the owner's answer to it is linked to them by its id (_owner_on), with the card's options (a press
+    # is not words); his words on one stay on the request (`edited`) as its oldest questions leave the window. The 30
+    # minutes of a request are not changed; words with no request (no --to) keep them on the message (_asked_on)
+    if qid:
+        labels = [str(o.get("label")).strip() for q in ((ask.get("input") or {}).get("questions") or [])
+                  for o in q.get("options") or [] if isinstance(o, dict) and o.get("label")]
+        idx = _asked(st)
+        for msg, _ in _turn_requests(st, idx) or ():
+            req = _asked_on(st, msg["id"]) if _open(st.get("bus") or {}, msg["id"]) else None
+            if req is not None:
+                edit = _edited(idx, msg["id"], req)
+                if edit:
+                    req["edited"] = edit
+                req["questions"] = ((req.get("questions") or []) + [{"qid": qid, "labels": labels}])[-QUESTIONS_KEPT:]
 
 
 def _asked_since(st, item):
@@ -2462,8 +2793,8 @@ def message_refusal(st, data, name, now=0):
         if data.get("bus_to_via") not in ("local", "person"):
             return T("core.busstate.bus_to_via", "bus_to_via — local or person")
         t = data.get("bus_thread")
-        if t is not None and not (isinstance(t, str) and auto_thread_ok(b, t, to, data.get("sender"), now)):
-            return DIRECT_THREAD.format(thread=t, name=to)
+        if t is not None:
+            return thread_refusal(b, t, to, data.get("sender"), now)
     return None
 
 
@@ -2473,8 +2804,16 @@ def message_taken(st, ev, data, msg):
     person — through a person of the book; an allowed pair works only for local), and the request waits for an
     outcome (sent, declined, asked_owner)."""
     from core import liaison
+    hand_on(st, ev, data, msg)
     if msg.get("session") == liaison.NAME and asked_in_owner_turn(st, data):
         msg["in_owner_turn"] = True   # a request written in a turn of the owner's: its answer is to him (_send_request)
+    if msg.get("session") == liaison.NAME and data.get("bus_to") is None and data.get("channel") == "session" \
+            and not data.get("schedule_job"):   # a script on its behalf is not its turn's
+        # the threads of other hubs' words its turn is on now: the liaison's own words on these words continue the one
+        # with the hub it writes to, as a request with --to does (_send_request) — read when written, not when sent
+        turn = {c: next(iter(t)) for c, t in _turn_threads(st, data.get("sender")).items() if len(t) == 1}
+        if turn:
+            msg["bus_turn_threads"] = turn
     if msg.get("session") != liaison.NAME or data.get("bus_to") is None:
         return
     msg["bus_to"], msg["bus_to_via"] = data["bus_to"], data["bus_to_via"]

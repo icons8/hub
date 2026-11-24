@@ -1459,6 +1459,8 @@ def status(as_json):
             print(i18n.t("cli.status.mcp_failed_row", servers=', '.join(failed), server=failed[0], name=s['name']))
         if s.get("plugins_stale"):   # an updated plugin: the core restarts the session itself when it is free and has no background work
             print(i18n.t("cli.status.plugins_stale_row", plugins=', '.join(s['plugins_stale'])))
+        if s.get("env_missing"):   # its process went without a module's launch.env: restarts after the module's next start, once free
+            print(i18n.t("cli.status.env_missing_row", modules=', '.join(s['env_missing']), name=s['name']))
         if (s.get("info") or {}).get("problem"):  # the Claude Code version does not support the hub on this OS (platforms.claude_problem)
             print(f"      {s['info']['problem']}")
         if s.get("attention") and s["state"] == "idle":
@@ -1535,9 +1537,9 @@ def wait_cmd(rest):
                     sys.exit(i18n.t("cli.wait.done_many", label=label, waiting=left))
             if hit:
                 mine = hit
-        for jid in mine:
-            put("schedule.remove_requested", jid)
-        print(i18n.t("cli.wait.removed_checks", n=len(mine)))
+        done = [seq for seq in (put("schedule.remove_requested", jid) for jid in mine) if seq not in REJECTED]
+        if done or not mine:   # refused (the reason is printed, code 1): nothing was removed to claim
+            print(i18n.t("cli.wait.removed_checks", n=len(done)))
         return
     limit, words = value_of(rest, "--for")
     limit = limit or "4h"
@@ -1563,12 +1565,12 @@ def wait_cmd(rest):
     # 16.10: of eight checks (2, 5 ... 240 min) 116 of 122 turns ended with "—"; real replies were found on the 2nd,
     # 6th and 8th: so two checks: a quick reply after 10 min, a late one at the end of the period (later, but not lost)
     steps = sorted({min(WAIT_FIRST, horizon // 60), horizon // 60} - {0})
-    for k, m in enumerate(steps):
-        put("schedule.set", f"{ME}-wait-{tag}-{k + 1}", {"session": ME, "at": now + m * 60, "prompt": prompt,
-                                                         "wait": what})
-    print(i18n.t("cli.wait.armed", count=len(steps), times=', '.join(
-        i18n.t("cli.wait.in_hours", n=m // 60) if m >= 60 and not m % 60 else i18n.t("cli.wait.in_minutes", n=m)
-        for m in steps)))
+    seqs = [put("schedule.set", f"{ME}-wait-{tag}-{k + 1}", {"session": ME, "at": now + m * 60, "prompt": prompt,
+                                                             "wait": what}) for k, m in enumerate(steps)]
+    if any(seq not in REJECTED for seq in seqs):   # refused (the reason is printed, code 1): not armed
+        print(i18n.t("cli.wait.armed", count=len(steps), times=', '.join(
+            i18n.t("cli.wait.in_hours", n=m // 60) if m >= 60 and not m % 60 else i18n.t("cli.wait.in_minutes", n=m)
+            for m in steps)))
 
 
 def app_src(rest):
@@ -2090,7 +2092,8 @@ def main(argv):
         if own and seq not in REJECTED:
             print(i18n.t("cli.send.own_sleeper_woken", name=name, task=own))
             queued_note(name, seq)
-        if fyi:   # who actually got it: the core may have passed it to another (an executor that handed in, the mini-hub bus)
+        if fyi and seq not in REJECTED:   # refused (the reason is printed, code 1): nothing to claim about its delivery
+            # who actually got it: the core may have passed it to another (an executor that handed in, the mini-hub bus)
             msg = current()["messages"].get(f"m{seq}") or {}
             got = msg.get("session") or name
             redirect = i18n.t("cli.send.fyi_redirect", name=name) if got != name else ""
@@ -2994,7 +2997,8 @@ def main(argv):
                 rec = m.stage(rest[1], to=dev)
             except (market.Error, subprocess.CalledProcessError, OSError) as e:
                 sys.exit(i18n.t("cli.market.review_failed", error=getattr(e, 'stderr', '') or e).strip())
-            put("message.received", None, {"to": dev, "text": market.review_task(rec)})
+            if put("message.received", None, {"to": dev, "text": market.review_task(rec)}) in REJECTED:
+                sys.exit(1)   # the reason is printed; the task did not reach the developer
             sys.exit(print(i18n.t("cli.market.review_staged", repo=rec['repo'], commit=rec['commit'][:7], dev=dev)))
         from modules.market.market import main as market_main
         hooks = plugin_hooks()

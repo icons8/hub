@@ -8,11 +8,13 @@ does not call the utility at all, and reads old files as its own).
                    [--append-notes …] [--plan …] [--priority …] [-l …] [--add-label …]
     task list [-s <status>] [--exclude-status <status>]  ·  task view <id>  ·  task archive <id>
     doc create "<title>" [-t <type>] [--content …]  ·  doc update <id> [--content …] [--title …]  ·  doc list  ·  doc view <id>
+                   (--content - reads the text from stdin, --content-file <path> from a file)
     decision list  ·  decision view <id>       (to record a decision: hub direction decide)
     task show / doc show are the same as view; --help (on any command) and --version
 """
 import glob, io, os, re, sys, time
 
+import platforms
 from core import i18n
 
 CAN = "task create|edit|list|view|archive, doc create|update|list|view, decision list|view"
@@ -31,7 +33,8 @@ TAKES = {"create": {"--description", "--ac", "--status", "--notes", "--plan", "-
          "edit": {"--title", "--description", "--status", "--ac", "--check-ac", "--uncheck-ac", "--remove-ac",
                   "--notes", "--append-notes", "--plan", "--priority", "--labels", "--add-label"},
          "list": {"--status", "--exclude-status"}, "view": set(), "archive": set(),
-         "doc create": {"--type", "--title", "--content"}, "doc update": {"--content", "--title"}, "doc list": set(),
+         "doc create": {"--type", "--title", "--content", "--content-file"},
+         "doc update": {"--content", "--content-file", "--title"}, "doc list": set(),
          "doc view": set()}
 
 
@@ -420,6 +423,17 @@ class Backlog:
         if f"doc {sub}" not in TAKES:
             raise Fail(i18n.t("directions.cli.backlog_doc_cannot", sub=sub, can=CAN))
         pos, o = parse(rest, f"doc {sub}")
+        # a long text as an argument goes over the command line's limit (Windows: about 32K, "Argument list too long"):
+        # `--content -` takes it from stdin, `--content-file <path>` from a file
+        if one(o, "--content-file") is not None:
+            src = one(o, "--content-file")
+            try:
+                with open(os.path.expanduser(src), encoding="utf-8-sig") as f:
+                    o["--content"] = [f.read()]
+            except (OSError, ValueError) as e:   # ValueError: not UTF-8
+                raise Fail(f"--content-file {src}: {e.strerror if isinstance(e, OSError) else e}")
+        elif one(o, "--content") == "-":
+            o["--content"] = [platforms.current.read_stdin()]
         # a blank --content is a failed `$(cat …)`, not a text: update would wipe the document (17.11), create would leave
         # an empty one; refused before anything is read or written (no --content at all is still fine)
         if one(o, "--content") is not None and not one(o, "--content").strip():

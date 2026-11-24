@@ -32,7 +32,7 @@ import { clock } from "../js/clock.js";
 import { mountFit } from "./fit.js";
 import { AGO, byRecent, detailOf, liveLine, sessionIndex } from "./rows.js";
 import { WORDS as USAGE_WORDS, emailSteps, usageModel } from "./usage.js";
-import { characterOf, faceByName, faceOf, hubFace, loadTags } from "./faces.js";
+import { characterOf, faceByName, hubCharacter, loadTags } from "./faces.js";
 
 const on = () => document.documentElement.classList.contains("th-clean");
 
@@ -217,19 +217,40 @@ export default function register(hub) {
   };
   // under the character: the session's emoji or the first letter of the name, seen while there is no character
   const faceText = (name) => sessionOf(name)?.icon || Array.from(name)[0].toUpperCase();
+  // a byline whose picture the core drew (kit-img: the theme's picture of the declared icon): the character goes over it; the core's own
+  // picture is kept in data-clean-kit and goes back when the author has no character any more
+  const setKit = (av, url) => {
+    if (url) {
+      if (!("cleanKit" in av.dataset)) av.dataset.cleanKit = av.style.backgroundImage;
+      const v = `url("${url}")`;
+      if (av.style.backgroundImage !== v) av.style.backgroundImage = v;
+    } else if ("cleanKit" in av.dataset) {
+      av.style.backgroundImage = av.dataset.cleanKit;
+      delete av.dataset.cleanKit;
+    }
+  };
   const avatars = () => {
     // an author's byline shows the character of the list's row (characterOf): the core draws the picture of the declared icon
     // (kit-img), the list puts the owner's choice and a specialist's role before it — the row's character replaces the core's
-    // picture. "" (an emoji of the owner's own) — the core's node stays as it is
+    // picture. "" (an emoji of the owner's own) — the core's node stays as it is: a picture the theme put there before goes back.
+    // The Hub's byline follows the Hub's row (hubCharacter): its character, else its emoji, else the hub's icon (data-clean-hub
+    // on the byline tells clean.css which of the three). Core's own byline keeps the hub's icon
+    const hubSession = sessions().hub;
     for (const av of document.querySelectorAll(".byline .av")) {
       const b = av.closest(".byline");
       const who = b.querySelector(":scope > b")?.textContent?.trim();
-      const url = who && !["hub", "core"].includes(b.dataset.clean) ? characterFor(who) : "";
-      if (av.classList.contains("kit-img")) {
-        const v = url ? `url("${url}")` : "";
-        if (v && av.style.backgroundImage !== v) av.style.backgroundImage = v;
+      if (b.dataset.clean === "core") continue;
+      const isHub = b.dataset.clean === "hub" && !!hubSession;
+      if (isHub) {
+        const u = hubCharacter(hubSession);
+        put(b, "cleanHub", u ? "head" : (hubSession.own_icon || hubSession.icon) ? "emoji" : "mark");
+        if (!av.classList.contains("kit-img")) { putFace(av, u); continue; }
+        setKit(av, u);
         continue;
       }
+      if (b.dataset.clean === "hub") continue;   // no hub session in the snapshot yet: the stylesheet's head
+      const url = who ? characterFor(who) : "";
+      if (av.classList.contains("kit-img")) { setKit(av, url); continue; }
       putFace(av, url);
     }
     // "hub-dev replied to your message": the name in bold, the replier's face in the left column instead of ●. The name is the
@@ -759,7 +780,7 @@ export default function register(hub) {
       const k = hubRow ? "hub" : s.role === "agent" ? "agent" : dirs.includes(s.name) || s.backlog ? "dir" : r.closest("li.forks") ? "exec" : "other";
       put(r, "cleanK", k);
       put(r, "cleanTile", k === "dir" ? "1" : "");
-      const u = k === "dir" ? "" : hubRow ? faceOf(s.icon) || (s.icon ? "" : hubFace()) : characterOf(s, ix.byName), v = u ? `url("${u}")` : "";
+      const u = k === "dir" ? "" : hubRow ? hubCharacter(s) : characterOf(s, ix.byName), v = u ? `url("${u}")` : "";
       put(r, "cleanFace", hubRow && !s.icon && !u ? "1" : "");   // no head of its own to draw: the hub's icon (CSS)
       if (v) { if (r.style.getPropertyValue("--clean-face") !== v) r.style.setProperty("--clean-face", v); }
       else if (r.style.getPropertyValue("--clean-face")) r.style.removeProperty("--clean-face");
@@ -1372,7 +1393,7 @@ export default function register(hub) {
     detailClass();
     if (active !== on()) {
       active = on();
-      for (const b of document.querySelectorAll(".byline[data-clean]")) delete b.dataset.clean;
+      for (const b of document.querySelectorAll(".byline[data-clean]")) { delete b.dataset.clean; delete b.dataset.cleanHub; }
       if (!on()) {
         for (const b of document.querySelectorAll(".lightbox.clean-tall")) b.classList.remove("clean-tall");
         for (const x of document.querySelectorAll("[data-settings-tab] .clean-att")) x.replaceWith(" ·");

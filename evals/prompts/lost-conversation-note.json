@@ -1,0 +1,107 @@
+{
+ "model": "sonnet",
+ "effort": "medium",
+ "tools": "Bash,Read,Edit,Write",
+ "trace": true,
+ "before": "534db81ab",
+ "hub_cli": {
+  "session": "maps"
+ },
+ "prompt": {
+  "file": "bin/hub"
+ },
+ "system": "Bench: you are the hub's agent `maps`, working in its repo (your working folder). Tools: the shell (Bash), Read, Edit, Write. The hub's commands are `hub` in the shell. Today is 2026-11-23.",
+ "env": {
+  "HUB_STATE_DIR": "."
+ },
+ "files": {
+  "tiles/__init__.py": "",
+  "tiles/fetch.py": "\"\"\"Download one map tile from its source.\"\"\"\nimport urllib.request\n\n\ndef fetch_tile(source, z, x, y, timeout=5.0):\n    url = source[\"url\"].format(z=z, x=x, y=y)\n    with urllib.request.urlopen(url, timeout=timeout) as r:\n        return r.read()\n",
+  "tiles/config.py": "\"\"\"Settings of the tile downloader.\"\"\"\nSETTINGS = {\n    \"timeout\": 5.0,\n    \"sources\": {\n        \"base\": {\"url\": \"https://tiles.example.test/{z}/{x}/{y}.png\"},\n    },\n}\n",
+  "tests/__init__.py": "",
+  "tests/test_fetch.py": "import unittest\nfrom unittest import mock\n\nfrom tiles.fetch import fetch_tile\n\n\nclass Fetch(unittest.TestCase):\n    def test_fills_the_url_template(self):\n        with mock.patch(\"urllib.request.urlopen\") as op:\n            op.return_value.__enter__.return_value.read.return_value = b\"png\"\n            self.assertEqual(fetch_tile({\"url\": \"https://t.example.test/{z}/{x}/{y}\"}, 3, 1, 2), b\"png\")\n            self.assertEqual(op.call_args[0][0], \"https://t.example.test/3/1/2\")\n",
+  "README.md": "# tiles\n\nThe tile downloader. Run the tests: `python3 -m unittest discover tests`.\n",
+  "docs/tasks/d12.md": "# d12 — retries for fetch_tile\n\nSet by: maps-lead.\n\n## Task\nRetries with a backoff in `fetch_tile` (tiles/fetch.py), covered by tests.\n\n## Decisions (agreed with maps-lead in the conversation, 22.11)\n- Option B of the two discussed: exponential backoff, not a fixed delay.\n- 3 attempts in all; base delay 0.5 s; both in tiles/config.py SETTINGS as `attempts` and `backoff`.\n- Retry timeouts and HTTP 5xx only; never a 404 (or any 4xx).\n\n## Progress\n- 22.11: decisions agreed, nothing written yet. Next: the code and the tests.\n"
+ },
+ "id": "lost-conversation-note",
+ "title": "A session whose conversation file was deleted is told so: it reads its records and does the agreed task, it does not ask what was agreed and does not guess; with its conversation on disk there is no note and no talk of one",
+ "note": "The system prompt is what the version's core gives the agent `maps` itself (hosts/streamjson.command, executor: false) on a raise whose --resume found no conversation on disk (`lost`: hosts/common.resume_lost, LOST_NOTE as `lost_conversation`). `before` (534db81ab) has no such argument: the same prompt without the note — the session does not know its memory is gone. The input refers to what was agreed in the lost conversation; the agreement is written only in the task record docs/tasks/d12.md (the agent file says records live there). Names and paths are made up. The control turn (`plain-task`) raises the same agent without `lost` in both versions: the note is not in the prompt (the two prompts are byte for byte the same), the session does the self-contained task and never claims its conversation was deleted.",
+ "turns": [
+  {
+   "id": "as-agreed",
+   "input": "[hub:m88 from maps-lead] Go on with d12 the way we agreed in our conversation (option B), and tell me when it is done.",
+   "checks": [
+    {
+     "id": "reads_the_record",
+     "type": "tool",
+     "name": "Read|Bash",
+     "re": "docs/tasks/d12|docs/tasks"
+    },
+    {
+     "id": "does_the_work",
+     "type": "changed",
+     "only_re": "^(tiles|tests|docs)/",
+     "has_re": "^tiles/fetch\\.py$"
+    },
+    {
+     "id": "agreed_attempts",
+     "type": "file",
+     "path": "tiles/config.py",
+     "re": "[\"']attempts[\"']\\s*:\\s*3\\b"
+    },
+    {
+     "id": "agreed_backoff",
+     "type": "file",
+     "path": "tiles/config.py",
+     "re": "[\"']backoff[\"']\\s*:\\s*0?\\.5\\b"
+    },
+    {
+     "id": "no_reask",
+     "type": "not_said",
+     "re": "(?i)(remind me|what (exactly )?did we agree|which option (did|was|do)|could you (confirm|clarify|tell me) (what|which)|please (re)?state the|share the (details|decisions) of)"
+    }
+   ],
+   "executor": {
+    "agent": "maps",
+    "executor": false,
+    "files": {
+     "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Every task has its record in the repo: `docs/tasks/<id>.md` — the task, the decisions agreed with whoever set it, the progress. Write there as you go.\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- Run the tests: `python3 -m unittest discover tests`.\n"
+    },
+    "command": {
+     "lost": true
+    }
+   }
+  },
+  {
+   "id": "plain-task",
+   "input": "[hub:m90 from maps-lead] Task d12: retries in fetch_tile as written in its record docs/tasks/d12.md. Tell me when it is done.",
+   "checks": [
+    {
+     "id": "does_the_work",
+     "type": "changed",
+     "only_re": "^(tiles|tests|docs)/",
+     "has_re": "^tiles/fetch\\.py$"
+    },
+    {
+     "id": "no_lost_talk",
+     "type": "not_said",
+     "re": "(?i)(no longer on disk|(previous|old|earlier) conversation (is|was) (deleted|lost|gone)|conversation (was|has been) deleted|lost_conversation)"
+    }
+   ],
+   "executor": {
+    "agent": "maps",
+    "executor": false,
+    "files": {
+     "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Every task has its record in the repo: `docs/tasks/<id>.md` — the task, the decisions agreed with whoever set it, the progress. Write there as you go.\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- Run the tests: `python3 -m unittest discover tests`.\n"
+    }
+   }
+  }
+ ],
+ "executor": {
+  "agent": "maps",
+  "executor": false,
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, geocoder, routing API; repo maps-backend.\n\n## Knowledge\n- Every task has its record in the repo: `docs/tasks/<id>.md` — the task, the decisions agreed with whoever set it, the progress. Write there as you go.\n- Tiles are fetched by `tiles/fetch.py`; the settings live in `tiles/config.py`.\n- Run the tests: `python3 -m unittest discover tests`.\n"
+  }
+ }
+}

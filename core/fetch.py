@@ -18,7 +18,13 @@ CHUNK = 1 << 20
 PROGRESS_STEP = 1 << 18   # bytes between two calls of progress()
 TRIES = 4             # attempts in a row that bring not one byte, within one run; the next run continues the same .part
 RUN_SECONDS = 600     # past this a run starts no new attempt (the bytes so far stay): a link that gives a byte per try is not waited on
-ATTEMPTS_MAX = 16     # attempts within one run, with bytes or without: a link that gives a little each time is not for ever
+ATTEMPTS_MAX = 32     # attempts within one run, with bytes or without: a link that gives a little each time is not for ever
+# an attempt that sat silent and brought not one byte asks for a quarter of what it asked, from WINDOW_FIRST down to
+# WINDOW_MIN: a middlebox on the way that takes the whole answer before it passes a byte (a scanner, a proxy that
+# inspects) is silent for as long as it takes to fetch it all, and an answer of a size it fetches within the socket's
+# silence comes
+WINDOW_FIRST = 4 << 20
+WINDOW_MIN = 1 << 17
 UA = "agents-hub (fetch)"
 # where the open build's environments are (the assets of its GitHub releases): an address its releases.json names off
 # its own pages, and every redirect of that download, is https to one of these exactly — no port, no login
@@ -137,21 +143,33 @@ def download(url, dest, sha, size, what, again, progress=None, log=None, say=Non
         have = 0
     if have and say:
         say(i18n.t("cli.fetch.resumed", what=what, mb=f"{have / 1e6:.1f}"))
-    last, fruitless, began = None, 0, time.monotonic()
+    last, fruitless, began, broke = None, 0, time.monotonic(), False
+    window, bad = None, None   # the bytes one request asks for (None: all that is left); the least that came to nothing
     for attempt in range(ATTEMPTS_MAX):
         if have >= size or fruitless >= TRIES or (attempt and time.monotonic() - began > RUN_SECONDS):
             break
-        if attempt:
+        if attempt and broke:   # an answer that was a window is no failure: the next is asked at once
             time.sleep(pause * (fruitless or 1))
-        before = have
+        before, asked, broke, silent = have, time.monotonic(), False, False
+        note = lambda text: log(f"{what}, attempt {attempt + 1}: {text} after {time.monotonic() - asked:.1f} s")   # noqa: E731
         try:
-            have = _attempt(url, part, have, size, what, again, progress, pause, private, allow)
-            last = None
+            have = _attempt(url, part, have, size, what, again, progress, pause, private, allow, window, note)
         except OSError as e:
-            last = e
+            last, broke = e, True
+            silent = _silence(e)
             have = os.path.getsize(part) if os.path.isfile(part) else 0
-            log(f"attempt {attempt + 1}: {e} (have {have} of {size})")
-        fruitless = 0 if have > before else fruitless + 1
+            note(f"{e} (have {have} of {size}{f', window {window}' if window else ''})")
+        if have > before:
+            fruitless = 0
+            if window and not broke:   # a window that came whole: a bigger one, never as big as one that came to nothing
+                window = max(WINDOW_MIN, min(window * 2, bad // 2))
+        else:
+            narrowed = False
+            if have == before and silent:   # a silence, not a refusal or a part thrown away
+                bad = min(window or size - before, size - before)
+                least = max(WINDOW_MIN, min(bad // 4, WINDOW_FIRST))
+                narrowed, window = window != least, least
+            fruitless += 0 if narrowed else 1   # a window not yet down to the least is tried before the tries run out
     if have < size:
         raise Failed("broken", i18n.t("cli.fetch.broken", what=what, error=str(last or "?"), mb=f"{have / 1e6:.1f}",
                                       again=again))
@@ -162,12 +180,31 @@ def download(url, dest, sha, size, what, again, progress=None, log=None, say=Non
     return dest
 
 
-def _attempt(url, part, have, size, what, again, progress, pause, private=None, allow=None):
+def _silence(e):
+    """e is a socket's silence (a timeout), or comes from one: the read of the body re-raises it as a plain OSError."""
+    for _ in range(4):
+        if isinstance(e, TimeoutError):
+            return True
+        e = e.__cause__ or e.__context__
+        if e is None:
+            return False
+    return False
+
+
+def _attempt(url, part, have, size, what, again, progress, pause, private=None, allow=None, window=None, note=None):
     """One request: continue `part` from `have` (Range) or start over when the server sends the whole file; the bytes
-    in `part`. OSError — broken or a passing failure (the bytes so far stay)."""
+    in `part`. window — ask for that many bytes only (the answer is whole when it ends there: the bytes so far, not a
+    failure); note(text) — what the answer was. OSError — broken or a passing failure (the bytes so far stay)."""
     import http.client
-    resp, conn = open_url(url, {"Range": f"bytes={have}-"} if have else None, private=private, allow=allow)
+    stop = have + window if window and have + window < size else None   # where a window ends (not asked: to the end)
+    if stop is not None:
+        rng = f"bytes={have}-{stop - 1}"
+    else:
+        rng = f"bytes={have}-" if have else None
+    resp, conn = open_url(url, {"Range": rng} if rng else None, private=private, allow=allow)
     try:
+        if note:
+            note(f"HTTP {resp.status}")
         got_range = resp.getheader("Content-Range") or ""
         skip = 0   # bytes at the start of the answer that the part already holds
         if resp.status == 206 and got_range.startswith(f"bytes {have}-"):
@@ -224,9 +261,11 @@ def _attempt(url, part, have, size, what, again, progress, pause, private=None, 
             os.remove(part)
             raise Failed("checksum", i18n.t("cli.fetch.checksum", what=what, size=f"> {size}", want_size=size,
                                             again=again))
+        if stop is not None and have == stop and resp.status == 206:
+            return have
         length = resp.getheader("Content-Length")
-        if have < size and length and _number(length) and body == int(length):
-            # the server sent the whole answer, and it is shorter than pinned: not this file
+        if (stop is None or resp.status == 200) and have < size and length and _number(length) and body == int(length):
+            # the server sent the whole answer, and it is shorter than pinned: not this file (a window is shorter by its nature)
             os.remove(part)
             raise Failed("checksum", i18n.t("cli.fetch.checksum", what=what, size=have, want_size=size, again=again))
         if have < size:

@@ -732,6 +732,12 @@ class Core(Base):
         self.hub.watch_app()                                       # tried again a minute later
         self.assertEqual([f["count"] for f in self.facts("app.code_modified")], [1])
 
+    def test_the_start_names_the_release_the_core_runs(self):
+        # the fold ends an update's "waits for the restart" of that release (tests/test_app_update.RestartTaken)
+        self.assertEqual(self.hub.app_release(), ("1.2.3", "1.2.3"))
+        self.hub.start()
+        self.assertEqual(self.facts("core.started")[-1]["release"], "1.2.3")
+
     def test_a_hub_from_git_never_looks(self):
         from unittest import mock
         from core import packaged
@@ -740,6 +746,7 @@ class Core(Base):
             import types
             hub = Hub(os.path.join(self.root, "s2"), types.SimpleNamespace(poll=lambda: []), clock=lambda: 0.0)
             hub.watch_app()
+            self.assertNotIn("release", hub.started_data())
         self.assertIs(hub.app_layer, False)
 
 

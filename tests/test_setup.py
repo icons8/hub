@@ -1022,6 +1022,56 @@ class PurgeMarks(Base):
             self.assertEqual(self.trees(link), {self.state})
 
 
+class Screen(Base):
+    def test_the_checklist_says_whether_this_machine_shows_a_browser(self):
+        # a server opened through an SSH tunnel asks from 127.0.0.1 like its own keyboard; only «no screen here» tells
+        # the page that the sign-in's localhost link would land on the person's computer, not on this one
+        for screen in (True, False):
+            s = setup.Setup(self.state, lambda: {}, claude=[self.claude], screen=lambda v=screen: v)
+            got = s.status(local=True, full=False)
+            self.assertEqual((got["local"], got["screen"]), (True, screen))
+
+    def test_the_default_check_is_the_platforms_and_is_not_asked_on_every_poll(self):
+        import platforms
+        asked = []
+        with mock.patch.object(platforms.current, "has_screen", lambda env: asked.append(env) or False):
+            s = setup.Setup(self.state, lambda: {}, claude=[self.claude])
+            self.assertIsNone(s.status(local=False, full=False)["screen"])   # a remote browser: not its business
+            self.assertEqual(asked, [])
+            self.assertFalse(s.status(local=True, full=False)["screen"])
+            self.assertFalse(s.status(local=True, full=False)["screen"])
+        self.assertEqual(len(asked), 1)   # a service asks systemd and loginctl for it: once a minute
+
+    def test_a_linux_service_without_a_display_still_has_the_users_screen(self):
+        # the installer's hub is a systemd --user service: its environment has no DISPLAY on a desktop too, and the
+        # one-click sign-in must stay there; a server with only ssh sessions is the one without a screen
+        from platforms import posix, windows
+        which = {"systemctl": "/bin/systemctl", "loginctl": "/bin/loginctl"}.get
+        me = 1000
+
+        def run(manager="", sessions=None):
+            def fake(cmd, **kw):
+                out = ""
+                if cmd[:3] == ["systemctl", "--user", "show-environment"]:
+                    out = manager
+                elif cmd[:2] == ["loginctl", "list-sessions"]:
+                    out = "".join(f"{sid} {uid} user seat0 -\n" for sid, (uid, _) in (sessions or {}).items())
+                elif cmd[:2] == ["loginctl", "show-session"]:
+                    out = (sessions or {}).get(cmd[2], (0, ""))[1] + "\n"
+                return subprocess.CompletedProcess(cmd, 0, out, "")
+            return fake
+        with mock.patch.object(posix.os, "getuid", lambda: me, create=True):
+            self.assertTrue(posix.has_screen({"DISPLAY": ":0"}, "linux", which, run()))
+            self.assertTrue(posix.has_screen({"WAYLAND_DISPLAY": "wayland-0"}, "linux", which, run()))
+            self.assertTrue(posix.has_screen({}, "linux", which, run(manager="PATH=/bin\nDISPLAY=:0\n")))
+            self.assertTrue(posix.has_screen({}, "linux", which, run(sessions={"3": (me, "wayland")})))
+            self.assertTrue(posix.has_screen({}, "darwin", {}.get, run()))   # a Mac under launchd has no DISPLAY either
+            for sessions in ({"5": (me, "tty")}, {"7": (me + 1, "x11")}, {}):
+                self.assertFalse(posix.has_screen({}, "linux", which, run(sessions=sessions)), sessions)
+            self.assertFalse(posix.has_screen({}, "linux", {}.get, run(sessions={"3": (me, "x11")})))   # no loginctl
+        self.assertTrue(windows.has_screen({}))
+
+
 class PageRoutes(Base):
     def setUp(self):
         super().setUp()
@@ -1038,6 +1088,7 @@ class PageRoutes(Base):
         self.assertEqual([i["id"] for i in got["items"]][:3], ["claude", "login", "chrome"])
         self.assertEqual(got["blocking"], ["login"])
         self.assertTrue(got["local"])
+        self.assertIn("screen", got)
         code, body = self.w.req("POST", "/api/setup/run", {"step": "nonsense"})
         self.assertEqual(code, 400)
         code, body = self.w.req("POST", "/api/setup/input", {"step": "login", "text": "x"})

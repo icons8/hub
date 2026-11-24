@@ -64,7 +64,9 @@ export function paint(node, who) {
 export function byline(name, who = whoOf(name)) {
   const b = el("span", "byline");
   // an agent has its own emoji in the list — it is also the avatar; without one, the first letter of the name
-  const icon = (S.snap?.sessions || []).find((s) => s.name === name)?.icon;   // a member has no session: name is null
+  // a member has no session: name is null; "hub" is the hub session whatever it is called
+  const all = S.snap?.sessions || [];
+  const icon = (all.find((s) => s.name === name) || (name === "hub" ? all.find((s) => s.kind === "hub") : null))?.icon;
   const av = icon ? avatarNode(icon, "av emoji") : el("span", "av", who.initial);
   av.setAttribute("aria-hidden", "true");
   b.append(av, el("b", null, who.label));

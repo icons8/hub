@@ -166,7 +166,9 @@ class Report(Stand):
         # a failed download names its address with the key (a link of the installer): cut, and the lengths still hold
         u = self.updater()
 
-        def broken(url, dest, sha, size, what, again, private=None, progress=None):
+        def broken(url, dest, sha, size, what, again, private=None, progress=None, log=None):
+            log("attempt 1: HTTP 206 after 0.1 s")
+            log("attempt 1: The read operation timed out after 60.1 s (have 0 of 16005168, window 4000000)")
             raise u.fetch_failed("network", f"GET {url}?key={base.BUILD_KEY}: cut at 4 MB")
         u.download = broken
         self.assertEqual(u.check(apply=True, manual=True), "broken")
@@ -175,6 +177,9 @@ class Report(Stand):
         self.assertEqual(event["tags"]["step"], "download")
         self.assertIn("key=[build key]", event["extra"]["error"])
         self.assertEqual(event["exception"]["values"][0]["type"], "Failed")
+        # what each attempt met: whether the answer came and how late, where the silence was
+        self.assertEqual(len(event["extra"]["attempts"]), 2)
+        self.assertIn("HTTP 206 after 0.1 s", event["extra"]["attempts"][0])
 
     def test_a_release_the_server_refuses_to_read_is_a_check_report(self):
         self.deliver(report=self.sentry.dsn)

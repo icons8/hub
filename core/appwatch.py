@@ -49,6 +49,16 @@ def manifest(root):
     return {k: v for k, v in man.items() if k != "files"}
 
 
+def release(root):
+    """(version, release) the layer folder runs: its manifest's version and the release under a build of edits
+    ("<release>+local.<sha>", "<release>"; a release — the same twice); None when unread."""
+    man = manifest(root)
+    got = man.get("version")
+    if not (isinstance(got, str) and got):
+        return None
+    return got, (appcode.own_of(man) or {}).get("release") or got
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8") as f:

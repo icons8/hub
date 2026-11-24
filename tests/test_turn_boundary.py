@@ -214,7 +214,7 @@ class Turn(unittest.TestCase):
         self.assertTrue(self.st["messages"][now]["injected"])
         self.ev("turn.started", liaison.NAME, marker=now, prompt_head="x")
         self.assertEqual(self.liaison_words(), [(first, "w"), (second, "w"), (now, "owner")])
-        self.assertIsNone(busstate._asker(self.st, "bee"))
+        self.assertIsNone(busstate._asker_in(busstate._turn_requests(self.st), "bee"))
 
     def test_the_liaisons_turn_words_take_a_letter_of_a_session_inserted_by_the_watchdog(self):
         first, second = self.liaison_turn()

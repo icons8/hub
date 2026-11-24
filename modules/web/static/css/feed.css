@@ -14,6 +14,12 @@
 .row.mine .meta { text-align: end; }
 /* a voice message being transcribed (js/outgoing.js): the spinner and the caption in the line of its future words */
 .row.mine.outgoing .outgoing-wait { display: inline-flex; align-items: center; gap: var(--space-2); }
+/* a typed message on its way: "sending" in its head line only after 400 ms (counted from the press, feed.js) — a quick core never shows it */
+.row.mine.outgoing .outgoing-head { position: relative; visibility: hidden; }
+.row.mine.outgoing .outgoing-sending { position: absolute; inset-inline-end: 0; animation: outgoing-late 0s 400ms both; }
+/* its Copy and Reply hold the row's height but are not there yet: nothing to press while the send is on its way */
+.row.mine.outgoing :is(.copy-btn, .reply-btn, .reply-btn-bottom) { visibility: hidden; }
+@keyframes outgoing-late { from { visibility: hidden; } to { visibility: visible; } }
 .row.from > .b { border-inline-start: 3px solid var(--who); padding-inline-start: var(--space-3); white-space: pre-wrap; }
 .row.from > .b > .md, .row.from .md { white-space: normal; }
 .byline { display: inline-flex; align-items: center; gap: 6px; color: var(--who); font: 600 var(--text-xs)/1.55 var(--font); }

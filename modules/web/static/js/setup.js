@@ -163,16 +163,21 @@ function claudeBand(c, waits, running) {
     acts: [{ label: t("web.setup.claude_install"), run: "claude", primary: true }, { label: t("web.setup.manual"), href: MANUAL }, CODEX_INSTEAD()] };
 }
 
+// the browser is on the hub's machine: a request from it, and the machine has a screen (a server opened through an SSH
+// tunnel asks from 127.0.0.1 too, but its localhost link would land on the person's computer, a port the tunnel lacks)
+const browserIsHere = () => !!st?.local && st.screen !== false;
+const loginUrl = (j) => browserIsHere() ? j.local_url || j.url : j.url || j.local_url;
+
 function loginBand(l) {
   const j = l.job || {};
-  const url = st.local ? j.local_url || j.url : j.url || j.local_url;
+  const url = loginUrl(j);
   if (l.state === "running" && !url) return { kind: "login", level: "hold", text: t("web.setup.login_starting") };
   // no sign-in yet: the engine is chosen here — Claude, or Codex (it writes the hub's host and restarts the core)
   const codex = { label: t("web.setup.app_codex_go"), post: ["/api/setup/host", { host: "codex" }] };
   const band = { kind: "login", level: "hold", text: t(appOn() ? "web.setup.app_choose" : "web.setup.band_login") };
   if (l.state === "running") {
     band.acts = [{ label: t("web.setup.app_login_go"), href: url, primary: true }, codex];
-    band.code = !st.local;   // a browser on another machine: Anthropic shows a code to paste here
+    band.code = !browserIsHere();   // a browser on another machine: Anthropic shows a code to paste here
     if (j.code_sent) band.why = t("web.setup.login_checking");
   } else {
     band.acts = [{ label: t("web.setup.app_login_go"), run: "login", primary: true, open: true }, codex];
@@ -335,7 +340,7 @@ async function runOpening(step) {
   const look = () => {
     const j = item("login")?.job || {};
     const fresh = j.state === "running" && j.started !== was;
-    const url = fresh ? (st?.local ? j.local_url || j.url : j.url || j.local_url) : "";
+    const url = fresh ? loginUrl(j) : "";
     if (url && /^https?:\/\//.test(url)) { if (w && !w.closed) w.location.href = url; return; }
     if (Date.now() < end && !(w && w.closed)) setTimeout(look, 500);
     else if (w && !w.closed) w.close();

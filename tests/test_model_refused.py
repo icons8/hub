@@ -239,6 +239,42 @@ class Fold(unittest.TestCase):
         self.assertIn("same conversation", self.notes()[0]["text"])
         self.assertFalse(self.view()["cut"])
 
+    def test_a_lost_conversation_drops_it(self):
+        # the raise found no conversation on disk and started a new one with the same session id (host.done says
+        # "conversation": "lost"): there is no stopped turn to cut and no fallback latched, so no mark, no note
+        self.refused()
+        self.ev("turn.stopped", "maps")
+        self.ev("host.done", "maps", do="spawn", result="spawned", conversation="lost")
+        self.assertNotIn("refused", self.st["sessions"]["maps"])
+        self.ev("session.started", "maps", session_id="s-maps", source="startup")
+        self.assertIsNone(self.view())
+        self.assertEqual(self.notes(), [])
+
+    def test_a_lost_conversation_after_the_return_keeps_the_window_of_a_repeat(self):
+        # returned already (done): the conversation is lost later, the mark stays - the filter again within the window
+        # is only shown, no second automatic return (it is what the filter counts for the account)
+        self.refused()
+        self.ev("turn.stopped", "maps")
+        self.ev("host.done", "maps", do="spawn", result="spawned", cut=True)
+        self.ev("session.started", "maps", session_id="s-maps", source="resume")
+        done = self.st["sessions"]["maps"]["refused"]["done"]
+        self.ev("host.done", "maps", do="spawn", result="spawned", conversation="lost")
+        self.assertEqual(self.st["sessions"]["maps"]["refused"]["done"], done)
+        self.turn()
+        self.assertEqual(self.refused(), [])
+        self.assertEqual(self.ev("turn.stopped", "maps"), [])
+        self.assertEqual(self.view()["state"], "again")
+
+    def test_a_lost_conversation_with_a_cut_in_the_same_fact_leaves_no_mark(self):
+        # the order in _apply: lost first, then spawned finds nothing to put the cut on and does not bring the mark back
+        self.refused()
+        self.ev("turn.stopped", "maps")
+        self.ev("host.done", "maps", do="spawn", result="spawned", conversation="lost", cut=True)
+        self.assertNotIn("refused", self.st["sessions"]["maps"])
+        self.ev("session.started", "maps", session_id="s-maps", source="resume")
+        self.assertIsNone(self.view())
+        self.assertEqual(self.notes(), [])
+
     def test_a_new_conversation_drops_it(self):
         self.refused()
         self.ev("session.started", "maps", session_id="s-other", source="clear")

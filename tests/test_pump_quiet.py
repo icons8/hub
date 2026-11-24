@@ -78,6 +78,7 @@ class PumpQuiet(unittest.TestCase):
             "dirty": ({"dirty": True}, lambda g: "release" in self.last(g)),
             "rename_to": ({"rename_to": "a2"}, lambda g: "a2" in g["state"]["sessions"]),
             "plugins_stale": ({"plugins_stale": ["p@x"]}, lambda g: "plugins_stale" not in g["state"]["sessions"]["a"]),
+            "env_stale": ({"env_stale": True}, lambda g: "env_stale" not in g["state"]["sessions"]["a"]),
         }
         for label, (kv, fired) in cases.items():
             with self.subTest(label):
@@ -85,7 +86,7 @@ class PumpQuiet(unittest.TestCase):
                 self.assertTrue(fired(got), label)
 
     def test_falsy_marks_do_nothing(self):
-        for kv in ({"dirty": False}, {"limit_cut": None}, {"rename_to": ""}, {"plugins_stale": []},
+        for kv in ({"dirty": False}, {"limit_cut": None}, {"rename_to": ""}, {"plugins_stale": []}, {"env_stale": False},
                    {"browser_stale": True}, {"compacting": 1}):
             with self.subTest(kv):
                 got = self.run_both(base() + [put("a", **kv), tick()])

@@ -763,8 +763,9 @@ function feed(s, live) {
   f.addEventListener("scroll", () => { if (f.scrollTop < 200 && anchorFor !== s.name && (older[s.name] || olderKnown(s.name) !== false)) loadOlder(s.name); },
     { passive: true });
   let stale = null;
-  // a voice message being transcribed and sent: after the feed (outgoing.js). It leaves when the core has its row at
-  // all — in the feed or still queued (the strip shows those, feedList leaves them out). A search excerpt has none (above)
+  // the owner's messages on their way (a voice one being transcribed, a typed one before the core has it): after the
+  // feed (outgoing.js). One leaves when the core has its row — unless that row is still "typing" (being handed to the
+  // session; feedList leaves it out and the strip does not repeat it): then it keeps its place. A search excerpt has none (above)
   const outs = waitingOut(s.name, S.snap.timelines[s.name] || []);
   if (failed(s.name)) {
     // /api/timeline did not answer. The row is recreated with the feed — without role=alert (a screen reader would repeat

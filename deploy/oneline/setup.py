@@ -1155,7 +1155,7 @@ class Install:
             self.log(f"the shortcut: {type(e).__name__}: {e}")
             self.notes.append(t("cli.oneline.shortcut_failed", error=f"{type(e).__name__}: {e}"))
             return
-        if made:
+        if made and self.has_screen():   # a machine with no screen has no menu to look in
             self.notes.append(t("cli.oneline.shortcut_windows" if self.windows() else "cli.oneline.shortcut_linux",
                                 name=shortcut.label(name)))
 
@@ -1505,6 +1505,11 @@ class Install:
         self.say_tunnel(url)
         return OK
 
+    def has_screen(self):
+        """A Linux machine with a display (DISPLAY or WAYLAND_DISPLAY; the rule of `hub open`); any other OS: yes."""
+        from platforms import posix
+        return self.os != "linux" or posix.has_browser(self.environ, "linux")
+
     def tunnel_lines(self, url):
         """A Linux without a display (a server, install.sh --server): the page is on 127.0.0.1 here — what to say and the one
         SSH command that brings it to the person's computer (install.sh --server shows the last such line at every SSH
@@ -1512,8 +1517,7 @@ class Install:
         if self.os != "linux":
             return None
         from core import remote
-        from platforms import posix
-        if posix.has_browser(self.environ, "linux"):   # the rule of `hub open`
+        if self.has_screen():   # the rule of `hub open`
             return None
         return t("cli.service.tunnel", url=url), remote.tunnel(self.port(), instance.port("files", self.state, environ=self.ports()),
                                                                self.user_name(), self.environ)

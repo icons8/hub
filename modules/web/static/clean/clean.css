@@ -862,7 +862,7 @@ html.th-clean [style*="/a/clay-magenta-cat-ears.png"] { --c-head-bg: light-dark(
 html.th-clean [style*="/a/clay-sand-straw-hat.png"] { --c-head-bg: light-dark(#fbe4c8, #4a3313); }
 html.th-clean [style*="/a/clay-powder-headlamp.png"] { --c-head-bg: light-dark(#d6eaff, #27394f); }
 html.th-clean [style*="/a/clay-cherry-sailor.png"] { --c-head-bg: light-dark(#ffdddb, #472020); }
-html.th-clean .byline[data-clean="hub"] .av { --c-head-bg: light-dark(#cfecff, #1a3b55); }
+html.th-clean .byline[data-clean="hub"]:not([data-clean-hub]) .av { --c-head-bg: light-dark(#cfecff, #1a3b55); }
 html.th-clean .kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }
 html.th-clean .byline .av.emoji.kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }   /* a session's character in a byline: stronger than the gray plate of .av.emoji above */
 html.th-clean .byline .av.kit-img { background-size: cover; }
@@ -870,9 +870,12 @@ html.th-clean .byline .av.kit-img { background-size: cover; }
 html.th-clean .byline .av.kit-img[style*=".svg"] { background-color: var(--c-fill); background-size: 16px; background-repeat: no-repeat; background-position: center; box-shadow: none; }
 /* every author has a picture: "Hub" and "Core" — the hub's icon, a session — the theme's picture of its icon (kit-img), the others — a
    character by the name (clean.js avatars, data-clean-av); the core's letter or emoji under it is not seen. An emoji of one's own stays */
-html.th-clean .byline[data-clean="hub"] .av { background: url("/static/clean/a/hub.png") center / cover var(--c-head-bg); }   /* the Hub's own head, as in the list (faces.js HUB_FACE) */
+/* the Hub's byline is what its row in the list is (clean.js avatars, data-clean-hub): a character — as any (data-clean-av), an emoji of its own —
+   the core's node as it is, no character and no pictures — the hub's icon. Until the page knows the Hub's session (no data-clean-hub yet) — its own head */
+html.th-clean .byline[data-clean="hub"]:not([data-clean-hub]) .av { background: url("/static/clean/a/hub.png") center / cover var(--c-head-bg); }   /* the Hub's own head (faces.js HUB_FACE) */
+html.th-clean .byline[data-clean-hub="mark"] .av { background: url("/static/favicon/tab.svg") center / cover; }
 html.th-clean .byline[data-clean="core"] .av { background: url("/static/favicon/tab.svg") center / cover; }
-html.th-clean .byline:is([data-clean="hub"], [data-clean="core"]) .av.av, html.th-clean .byline .av.av[data-clean-av] { font-size: 0; color: transparent; }
+html.th-clean .byline:is([data-clean="hub"]:not([data-clean-hub="emoji"]), [data-clean="core"]) .av.av, html.th-clean .byline .av.av[data-clean-av] { font-size: 0; color: transparent; }
 html.th-clean .byline .av[data-clean-av] { background: var(--clean-av) center / cover var(--c-head-bg); }
 html.th-clean .byline:is([data-clean="core"], [data-clean-owner]) > b::first-letter { text-transform: uppercase; }   /* "Core" and "Owner", like "Hub" and "Schedule" */
 html.th-clean .row .meta { font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); letter-spacing: 0; color: var(--c-t3); }

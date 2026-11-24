@@ -331,12 +331,18 @@ function pasteTile(a, f) {
   a.append(head, size);
   name("");
   const show = (s) => { a.removeAttribute("aria-busy"); if (s) { head.textContent = s; name(s); } };
-  const known = pasteTitles.get(a.href);
+  // a bubble (outgoing.js) has no event number yet: the row that takes its place reuses the title it read, not asks again
+  const bare = a.href.replace(/&v=[^&]*$/, ""), key = pasteTitles.has(a.href) || !pasteTitles.has(bare) ? a.href : bare;
+  const known = pasteTitles.get(key);
   if (typeof known === "string") return show(known);
   a.setAttribute("aria-busy", "true");
-  pasteHead(a.href).then(show);
+  pasteHead(key).then(show);
 }
 
+// a picture a bubble shows (outgoing.js, from the field's preview): the core's row of the same file takes this very node and
+// points it at the file — the browser keeps the preview on screen until the file is in, so nothing blinks or jumps. A
+// bubble's node no row took (refused, never shown) is let go a minute after the bubble was last drawn
+const sendingPics = new Map(), PIC_KEEP = 60000;   // path → {img, at}
 export function attachList(files, ver) {
   // the paste cards go first, in a row of their own; the other files (lines and pictures) start a line under them, as on a
   // phone: beside the cards a file line stuck to their top
@@ -349,8 +355,14 @@ export function attachList(files, ver) {
     if (pastedFile(f)) pasteTile(a, f);
     else if (String(f.mime || "").startsWith("image/")) {
       a.append(pic("att:" + f.path, ver, () => {
-        const img = el("img");
-        img.src = a.href;
+        const img = sendingPics.get(f.path)?.img || el("img");   // a bubble's own one, every time it is built
+        sendingPics.delete(f.path);
+        if (f.preview) {
+          const now = Date.now();
+          for (const [k, v] of sendingPics) if (now - v.at > PIC_KEEP) sendingPics.delete(k);
+          sendingPics.set(f.path, { img, at: now });
+        }
+        if (!f.preview) img.src = a.href; else if (!img.src) img.src = f.preview;
         img.alt = f.name || t("web.feed.image");
         return img;
       }));
@@ -955,10 +967,15 @@ function inReply(it) {
   return note ? [line, el("div", "hint quote-note", t(NOTES[note]))] : [line];
 }
 
+
 // ---- feed entries by kind ----
 const KINDS = {
   in: (it) => {
-    const m = S.snap.messages[it.id] || {};
+    // a bubble (KINDS.outgoing) of known words has the head its row will have: delivered (the bubble stays while the row
+    // is "typing"; the page's key carries the core's word in every catalog, tests/test_i18n.py); a voice one being
+    // transcribed — the head of the page's row, no state
+    const m = it.outgoing ? (it.outgoing === "words" ? { state: "delivered", label: t("web.feed.outgoing_delivered") } : {})
+      : S.snap.messages[it.id] || {};
     const failed = m.state === "failed" ? t("web.feed.undelivered", { reason: (REASONS[m.reason] || m.reason) + (m.hook ? `: ${m.hook}` : "") }) : "";
     // the bus: words for this executor that its mini-hub got instead (core/views.py) — whom they went to, not its delivery state
     const status = it.relayed ? [t("web.feed.relayed", { name: nameOf(it.relayed) }), failed].filter(Boolean).join(" · ")
@@ -1007,7 +1024,7 @@ const KINDS = {
       const said = words || fileNames(files);
       if (mine && S.cur && said) b.append(replyBtn(t("web.feed.reply"), { session: S.cur.name, quote: said }));
       if (mine && S.cur && words) b.append(copyBtn(words));
-      if (mine && !it.relayed && reactOn()) {   // a reaction goes to the session that got the message
+      if (mine && !it.relayed && !it.outgoing && reactOn()) {   // a reaction goes to the session that got the message
         // own message: 👀 → 👍 from the core, can be changed; a badge the owner removed (empty) is not brought back by the
         // core — "Reaction" sets it again. With no badge by the core's decision (failure, question) — no "Reaction":
         // on a phone it would sit on every old message. Next to a 👍 that leads to the answer it stands beside the badge
@@ -1148,18 +1165,36 @@ const KINDS = {
     b.append(d);
   }), S.cur && quoteTo()),
 };
-// A page-side kind, not a journal record: the owner's voice message before the core has it (outgoing.js): on the right like his words, "Recognizing…" until
-// the words are known; the core's row takes its place
-KINDS.outgoing = (it) => row("me mine outgoing", "", (b) => {
-  const quiet = S.compact && !S.brief.meta;   // the same head as the row that takes its place: no jump
-  b.append(quiet ? meta("", it.ts) : meta(t("web.feed.you_via", { channel: CHANNELS.web }), it.ts));
-  if (it.text != null) b.append(el("span", "own-text", it.text));
-  else {
+// A page-side kind, not a journal record: the owner's message before the core has it (outgoing.js). It is drawn as the
+// core's row of it will be (the same quote, cards, pictures in the same place and size, Copy/Reply line), so that row
+// takes its place without a shift; only the head differs: "sending" in the place of its line (the core's row brings the time), or,
+// for a voice message being transcribed, the head of that row and "Recognizing…" in the place of its words. Read by no
+// one and not clickable: the core's row is the message (a screen reader would read it twice in the live feed)
+KINDS.outgoing = (it) => {
+  const r = KINDS.in({ kind: "in", outgoing: it.text != null ? "words" : "voice", ts: it.ts, channel: "web",
+    text: it.text || "", quote: it.quote,
+    tasks: it.tasks, attachments: it.files || [] });
+  r.classList.add("outgoing");
+  r.setAttribute("aria-hidden", "true");
+  r.inert = true;
+  const b = r.querySelector(":scope > .b");
+  if (it.text != null) {
+    // the word shows only if the core takes longer than a blink (feed.css); the delay counts from the send (a voice
+    // message: not from the hold), not from this build — a row with a picture is built anew on every redraw (main.js
+    // stamp), and the word must not blink
+    // the head keeps the core's line, unseen (the same width and height as that row's), with the word over it
+    const w = el("span", "outgoing-sending", t("web.feed.outgoing_sending"));
+    const late = Math.max(0, 400 - Math.round(Date.now() - (it.left || Date.now())));
+    if (late < 400) w.style.animationDelay = late + "ms";
+    b.firstElementChild.classList.add("outgoing-head");
+    b.firstElementChild.append(w);
+  } else {
     const wait = el("span", "outgoing-wait");
     wait.append(el("span", "spin-dot"), el("span", null, t("web.voice.recognizing_dots")));
     b.append(wait);
   }
-});
+  return r;
+};
 
 // Several service rows in a row (restarts, "in the schedule…") form one dense block, not a string of dots
 function detailed(list) {

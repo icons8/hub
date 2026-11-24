@@ -4,6 +4,7 @@ import tests  # noqa: F401 — do not see the machine's settings (~/.config/hub-
 import hashlib
 import http.server
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -24,17 +25,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         srv = self.server
         srv.asked.append(self.headers.get("Range"))
-        body, start, status, extra = srv.body, 0, 200, {}
+        body, start, end, status, extra = srv.body, 0, len(srv.body) - 1, 200, {}
         if self.headers.get("Range") and srv.ranges:
-            start = int(self.headers["Range"].split("=")[1].rstrip("-"))
-            status, extra = 206, {"Content-Range": f"bytes {start}-{len(body) - 1}/{len(body)}"}
+            first, _, last = self.headers["Range"].split("=")[1].partition("-")
+            start, end = int(first), min(int(last), end) if last else end
+            status, extra = 206, {"Content-Range": f"bytes {start}-{end}/{len(body)}"}
+        mine = body[start:end + 1]
+        if srv.silent > 0 or srv.limit and len(mine) > srv.limit:   # a middlebox that takes the whole answer before it lets a byte through
+            srv.silent -= 1                      # and the answer is too big for the client to wait for
+            srv.release.wait(5)
+            self.close_connection = True
+            return
+        if srv.refusals:
+            self.send_response(srv.refusals.pop(0))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         cap = srv.caps.pop(0) if srv.caps else None
         self.send_response(status)
-        self.send_header("Content-Length", str(len(body) - start))
+        self.send_header("Content-Length", str(len(mine)))
         for k, v in extra.items():
             self.send_header(k, v)
         self.end_headers()
-        mine = body[start:]
         self.wfile.write(mine if cap is None else mine[:cap])
         self.wfile.flush()
         if cap is not None:   # the link goes silent: the client's timeout is what ends this attempt
@@ -50,7 +62,8 @@ class Resume(unittest.TestCase):
         self.sha = hashlib.sha256(self.body).hexdigest()
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.server.daemon_threads = True
-        self.server.body, self.server.caps, self.server.ranges = self.body, [], True
+        self.server.body, self.server.caps, self.server.ranges, self.server.limit = self.body, [], True, 0
+        self.server.refusals, self.server.silent = [], 0
         self.server.asked, self.server.release = [], threading.Event()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/f"
@@ -90,7 +103,7 @@ class Resume(unittest.TestCase):
         with open(self.dest + ".part", "wb") as f:
             f.write(self.body[:2_000_000])
         self.server.caps = [500_000]   # this answer breaks off before it is past what the part already holds
-        with mock.patch.object(fetch, "TRIES", 1), self.assertRaises(fetch.Failed):
+        with mock.patch.object(fetch, "ATTEMPTS_MAX", 1), self.assertRaises(fetch.Failed):
             self.download()
         self.assertEqual(self.part(), 2_000_000)
 
@@ -117,6 +130,41 @@ class Resume(unittest.TestCase):
             self.download()
         self.assertEqual(len(self.server.asked), 1)
         self.assertEqual(self.part(), 400_000)
+
+    def test_an_answer_too_big_to_wait_for_is_asked_in_smaller_ones(self):
+        # the whole file, and every answer over 1.2 MB, comes after more silence than the socket's: nothing of it ever
+        # arrives; the next attempts ask for less, and what they bring is kept
+        self.server.limit = 1_200_000
+        self.download()
+        with open(self.dest, "rb") as f:
+            self.assertEqual(f.read(), self.body)
+        self.assertEqual(self.server.asked[0], None)
+        self.assertTrue(any(re.fullmatch(r"bytes=\d+-\d+", a or "") for a in self.server.asked))   # a window of its own
+
+    def test_a_whole_file_answered_to_a_window_that_is_shorter_than_pinned_is_not_this_file(self):
+        self.server.ranges = False   # a proxy that drops the Range
+        self.server.silent = 1       # the first answer is the silence that narrows the window
+        with self.assertRaises(fetch.Failed) as e:
+            fetch.download(self.url, self.dest, self.sha, SIZE + 5, "f", "again", pause=0.01)
+        self.assertEqual(e.exception.why, "checksum")
+        self.assertEqual(len(self.server.asked), 2)
+
+    def test_a_refusal_is_no_silence_and_asks_for_no_smaller_window(self):
+        self.server.refusals = [503, 503]
+        self.download()
+        self.assertEqual(self.server.asked, [None, None, None])
+
+    def test_an_answer_that_is_too_big_at_every_size_is_a_failure_with_what_the_attempts_were(self):
+        self.server.limit = 1000
+        log = []
+        with self.assertRaises(fetch.Failed):
+            fetch.download(self.url, self.dest, self.sha, SIZE, "f", "again", pause=0.01, log=log.append)
+        # the whole file, three narrower windows down to the least, then the tries of that size
+        self.assertEqual(len(self.server.asked), 3 + fetch.TRIES)
+        self.assertEqual(self.server.asked[-1], f"bytes=0-{fetch.WINDOW_MIN - 1}")
+        self.assertEqual(self.part(), 0)
+        self.assertEqual(len(log), len(self.server.asked))
+        self.assertIn(f"window {fetch.WINDOW_MIN}", log[-1])
 
     def test_progress_is_not_called_for_every_read_of_the_socket(self):
         calls = []

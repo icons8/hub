@@ -234,6 +234,228 @@ class AnAnswerContinuesTheThread(unittest.TestCase):
 
 @need_lib
 @need_ssh
+class AHandedThread(unittest.TestCase):
+    """The source of a thread passes another hub's question on to another session (`hub send docs "…"` in its turn on
+    that hub's words): the core marks the message, and docs may answer in the thread — by itself and with `--thread` —
+    its answer making docs the source, so the hub's reply comes back to docs. Nothing but the source's own message in
+    such a turn gives that right."""
+
+    def setUp(self):
+        self.a, self.b, self.wire = acquainted()
+        self.name_at_b = next(iter(self.b.bus["contacts"]))
+
+    def turn_on(self, session, *messages):
+        if session not in self.a.st["sessions"]:
+            self.a.up(session)
+        self.a.rec("turn.started", {"marker": messages[0], **({"also": list(messages[1:])} if messages[1:] else {})},
+                   entity=session)
+
+    def asked(self, text="Which port does the gateway take?"):
+        """api asked bee, bee answered in the thread straight to api, api's turn is on the answer; -> the thread."""
+        thread = ask(self.a, self.wire, "api", text)["thread"]
+        answer(self.b, self.name_at_b, self.wire, thread, "Which one do you mean, staging or prod?")
+        self.turn_on("api", delivered(self.a, "api", "Which one do you mean, staging or prod?")["id"])
+        return thread
+
+    def named(self, session, text, thread):
+        """`hub send liaison --to bee --thread <thread> "<text>"` from a session, sent; -> the outgoing record."""
+        mid, why = self.a.say(session, text, bus_to="bee", bus_to_via="local", bus_thread=thread)
+        self.assertIsNone(why)
+        _, why = self.a.as_liaison("bus.send_requested", {"contact": "bee", "text_from": mid})
+        self.assertIsNone(why)
+        for card in self.a.cards():
+            self.a.answer(card, "send")
+        self.wire.settle()
+        return next(o for o in self.a.bus["out"].values() if o.get("basis") == mid)
+
+    def hand(self, frm, to, text="please answer bee: prod"):
+        if to not in self.a.st["sessions"]:
+            self.a.up(to)
+        mid, why = self.a.say(frm, text, to=to)
+        self.assertIsNone(why)
+        return mid
+
+    def test_the_session_the_source_passed_the_question_to_answers_in_the_thread_naming_it(self):
+        a, b = self.a, self.b
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        o = self.named("docs", "prod: port 8443", thread)
+        self.assertEqual(o["thread"], thread)
+        self.assertEqual(a.bus["threads"][thread]["source"], "docs")    # the answer goes to docs now
+        (theirs,) = [x for x in b.bus["inbox"].values() if x["text"] == "prod: port 8443"]
+        self.assertEqual(theirs["thread"], thread)
+        answer(b, self.name_at_b, self.wire, thread, "thanks, works")
+        self.assertEqual(a.bus["inbox"][item_of(a, "thanks, works")]["passed_to"], ["docs"])
+
+    def test_by_itself_it_never_takes_a_thread_another_session_leads(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        o = ask(a, self.wire, "docs", "a bug of ours, another matter")  # the same turn, words of its own
+        self.assertEqual(o["thread"], o["id"])
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")     # api's answers stay api's
+
+    def test_by_itself_it_answers_in_a_thread_nobody_leads(self):
+        a, b = self.a, self.b
+        thread = opened_by_b(b, self.name_at_b, self.wire, "Can you share the build log?")
+        a.up("api")
+        _, why = a.as_liaison("bus.pass_requested", {"inbox": item_of(a, "Can you share the build log?"), "session": "api"})
+        self.assertIsNone(why)
+        self.turn_on("api", delivered(a, "api", "Can you share the build log?")["id"])
+        self.turn_on("docs", self.hand("api", "docs", "docs, the build log is yours"))
+        o = ask(a, self.wire, "docs", "here it is")
+        self.assertEqual((o["thread"], o.get("thread_auto")), (thread, True))
+        self.assertEqual(a.bus["threads"][thread]["source"], "docs")
+
+    def test_it_names_the_thread_itself(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        mid, why = a.say("docs", "prod: port 8443", bus_to="bee", bus_to_via="local", bus_thread=thread)
+        self.assertIsNone(why)
+        self.assertEqual(a.bus["requests"][mid]["thread"], thread)
+
+    def test_in_a_later_turn_it_answers_there_only_naming_the_thread(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        a.rec("turn.result", {"text": "looking", "turns": 1}, entity="docs")
+        mid, _ = a.say("docs", "an executor's report", to="docs")
+        self.turn_on("docs", mid)
+        o = ask(a, self.wire, "docs", "about something else")          # another matter: not into api's thread
+        self.assertEqual(o["thread"], o["id"])
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")
+        mid, why = a.say("docs", "prod: port 8443", bus_to="bee", bus_to_via="local", bus_thread=thread)
+        self.assertIsNone(why)
+        self.assertEqual(a.bus["requests"][mid]["thread"], thread)
+
+    def test_a_command_passes_nothing_on(self):
+        a = self.a
+        thread = self.asked()
+        a.up("docs")
+        data = {"channel": "session", "sender": "api", "to": "docs", "text": "/compact"}
+        for msg, given in (({"session": "docs", "command": True}, False), ({"session": "docs"}, True)):
+            busstate.hand_on(a.st, {"seq": 1, "ts": a.now}, data, msg)
+            self.assertEqual("bus_handed" in msg, given)
+            self.assertEqual(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now), given)
+
+    def test_a_word_back_along_the_chain_keeps_everyones_way_to_the_source(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        self.turn_on("ops", self.hand("docs", "ops", "ops, you know the port"))
+        self.turn_on("docs", self.hand("ops", "docs", "it is 8443"))
+        self.turn_on("api", self.hand("docs", "api", "found it"))
+        for who in ("api", "docs", "ops"):
+            self.assertTrue(busstate.auto_thread_ok(a.bus, thread, "bee", who, a.now), who)
+        self.assertEqual(a.bus["threads"][thread]["handed"], {"docs": {"by": "api", "ts": a.now},
+                                                              "ops": {"by": "docs", "ts": a.now}})
+
+    def test_an_fyi_passes_nothing_on(self):
+        a = self.a
+        thread = self.asked()
+        a.up("docs")
+        mid, why = a.say("api", "working on bee's question", to="docs", fyi=True)
+        self.assertIsNone(why)
+        self.assertNotIn("bus_handed", a.st["messages"][mid])
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))
+
+    def test_until_it_answers_the_source_keeps_the_thread(self):
+        a, b = self.a, self.b
+        thread = self.asked()
+        self.hand("api", "docs")
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")
+        answer(b, self.name_at_b, self.wire, thread, "never mind, found it")
+        self.assertEqual(a.bus["inbox"][item_of(a, "never mind, found it")]["passed_to"], ["api"])
+        self.assertEqual(ask(a, self.wire, "api", "good")["thread"], thread)   # api still answers in it
+
+    def test_the_session_that_passed_it_on_still_writes_there_and_takes_the_answers_back(self):
+        a, b = self.a, self.b
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        self.named("docs", "prod: port 8443", thread)
+        self.assertEqual(a.bus["threads"][thread]["source"], "docs")
+        self.named("api", "and the MR is merged", thread)
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")
+        answer(b, self.name_at_b, self.wire, thread, "great, closing")
+        self.assertEqual(a.bus["inbox"][item_of(a, "great, closing")]["passed_to"], ["api"])
+        self.assertTrue(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))   # docs keeps its way too
+
+    def test_it_passes_the_question_on_once_more(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        self.turn_on("ops", self.hand("docs", "ops", "ops, you know the port"))
+        self.assertEqual(self.named("ops", "prod: 8443", thread)["thread"], thread)
+        self.assertEqual(a.bus["threads"][thread]["source"], "ops")
+
+    def test_a_message_of_the_source_outside_a_turn_on_that_hubs_words_gives_nothing(self):
+        a = self.a
+        thread = self.asked()
+        a.rec("turn.result", {"text": "done", "turns": 1}, entity="api")
+        self.turn_on("docs", self.hand("api", "docs", "unrelated: the build is green"))
+        o = ask(a, self.wire, "docs", "words of docs")
+        self.assertEqual(o["thread"], o["id"])
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")
+        _, why = a.say("docs", "x", bus_to="bee", bus_to_via="local", bus_thread=thread)
+        self.assertIn("thread_closed", why)
+
+    def test_a_session_that_is_not_the_source_hands_nothing(self):
+        a = self.a
+        thread = self.asked()
+        a.up("ops")
+        _, why = a.as_liaison("bus.pass_requested", {"inbox": item_of(a, "Which one do you mean, staging or prod?"),
+                                                     "session": "ops"})
+        self.assertIsNone(why)
+        self.turn_on("ops", delivered(a, "ops", "Which one do you mean, staging or prod?")["id"])
+        self.turn_on("docs", self.hand("ops", "docs"))
+        for who in ("ops", "docs"):
+            _, why = a.say(who, "x", bus_to="bee", bus_to_via="local", bus_thread=thread)
+            self.assertIn("thread_closed", why, who)
+            self.assertIn("api", why, who)                                # the refusal names who leads the thread
+        self.assertEqual(a.bus["threads"][thread]["source"], "api")
+
+    def test_the_refusal_of_a_closed_thread_names_no_session(self):
+        _, why = self.a.say("api", "x", bus_to="bee", bus_to_via="local", bus_thread="t-nobody-knows")
+        self.assertIn("thread_closed", why)
+        self.assertIn("send without --thread", why)
+
+    def test_the_hint_of_the_frame_offers_a_thread_only_to_whom_it_takes_the_words(self):
+        a = self.a
+        thread = self.asked()
+        a.up("ops")
+        _, why = a.as_liaison("bus.pass_requested", {"inbox": item_of(a, "Which one do you mean, staging or prod?"),
+                                                     "session": "ops"})
+        self.assertIsNone(why)
+        self.assertNotIn(f"--thread {thread}", delivered(a, "ops", "Which one do you mean, staging or prod?")["text"])
+        self.assertIn(f"--thread {thread}", delivered(a, "api", "Which one do you mean, staging or prod?")["text"])
+
+    def test_a_cards_thread_to_a_deputy_is_not_passed_on(self):
+        a = self.a
+        thread = self.asked()
+        a.bus["threads"][thread]["route"] = "q1"
+        mid = self.hand("api", "docs")
+        self.assertNotIn("bus_handed", a.st["messages"][mid])
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))
+
+    def test_a_handed_thread_of_another_contact_a_full_one_an_old_one_is_not_taken(self):
+        a = self.a
+        thread = self.asked()
+        self.turn_on("docs", self.hand("api", "docs"))
+        th = a.bus["threads"][thread]
+        self.assertTrue(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "cee", "docs", a.now))
+        n = th["n"]
+        th["n"] = busstate.THREAD_MAX
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))
+        th["n"] = n
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now + busstate.THREAD_TTL + 60))
+        th["owner"] = True
+        self.assertFalse(busstate.auto_thread_ok(a.bus, thread, "bee", "docs", a.now))
+
+
+@need_lib
+@need_ssh
 class TwoHubs(unittest.TestCase):
     def test_words_to_one_hub_never_take_the_thread_of_another_hub(self):
         a, b, wire = acquainted()

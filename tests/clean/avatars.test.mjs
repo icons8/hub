@@ -162,7 +162,8 @@ test("the characters come back when a picture loads after they were missing", as
 });
 
 test("the Hub byline shows its own head, Core the hub's icon, the other authors a character", () => {
-  assert.match(css, /\.byline\[data-clean="hub"\] \.av \{ background: url\("\/static\/clean\/a\/hub\.png"\) center \/ cover var\(--c-head-bg\); \}/, "the Hub's byline: its own head, as in the list");
+  assert.match(css, /\.byline\[data-clean="hub"\]:not\(\[data-clean-hub\]\) \.av \{ background: url\("\/static\/clean\/a\/hub\.png"\) center \/ cover var\(--c-head-bg\); \}/, "the Hub's byline before the page knows its session: its own head");
+  assert.match(css, /\.byline\[data-clean-hub="mark"\] \.av \{ background: url\("\/static\/favicon\/tab\.svg"\)/, "no head and no icon: the hub's icon, as in the list");
   assert.match(css, /\.byline\[data-clean="core"\] \.av \{ background: url\("\/static\/favicon\/tab\.svg"\)/, "Core keeps the hub's icon");
   assert.match(css, /\.byline \.av\[data-clean-av\] \{ background: var\(--clean-av\) center \/ cover var\(--c-head-bg\); \}/);
   assert.ok(!fs.existsSync(path.join(DIR, "avatar-hub.png")) && !fs.existsSync(path.join(DIR, "avatar-core.png")), "the hub has one icon");
@@ -184,7 +185,7 @@ test("every head of a/ has the plate of its own color: tint in the light theme, 
     const re = new RegExp(`html\\.th-clean \\[style\\*="/a/${f.replace(".", "\\.")}"\\] \\{ --c-head-bg: light-dark\\(#[0-9a-f]{6}, #[0-9a-f]{6}\\); \\}`);
     assert.match(css, re, "no plate color for " + f);
   }
-  assert.match(css, /\.byline\[data-clean="hub"\] \.av \{ --c-head-bg: light-dark\(#[0-9a-f]{6}, #[0-9a-f]{6}\); \}/, "the Hub's head in the byline is drawn by a rule, not by an inline style");
+  assert.match(css, /\.byline\[data-clean="hub"\]:not\(\[data-clean-hub\]\) \.av \{ --c-head-bg: light-dark\(#[0-9a-f]{6}, #[0-9a-f]{6}\); \}/, "the Hub's head in the byline is drawn by a rule, not by an inline style");
 });
 
 test("the icon picker: characters first, large; the search, the owner's own emoji field and the rest of the page's list stay", () => {
@@ -370,7 +371,8 @@ const avOf = (who, { cls = [], clean = "" } = {}) => {
 const av = (n) => n.dataset.cleanAv;
 
 test("bylines: a letter gets a character by the name, an emoji of one's own and the theme's picture are left alone", async () => {
-  const { faceByName, faceOf } = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  const { faceByName, faceOf } = f;
   const letter = avOf("tester"), own = avOf("fox", { cls: ["emoji"] }), kit = avOf("writer", { cls: ["emoji", "kit-img"] });
   const hubAv = avOf("Hub", { clean: "hub" }), exec = avOf("writer-exec");
   await scene({ sessions: [...SESSIONS, { name: "fox", icon: "\u{1F98A}" }, { name: "writer-exec", raised_by: "writer" }],
@@ -379,7 +381,8 @@ test("bylines: a letter gets a character by the name, an emoji of one's own and 
   assert.equal(letter.style.props["--clean-av"], `url("${faceByName("tester")}")`);
   assert.equal(av(own), undefined, "an emoji of one's own stays");
   assert.equal(av(kit), undefined, "the core drew the character itself");
-  assert.equal(av(hubAv), undefined, "Hub has the picture of its own (CSS)");
+  assert.equal(av(hubAv), f.HUB_FACE, "a hub with no icon: its own head, as in its row");
+  assert.equal(hubAv.closest(".byline").dataset.cleanHub, "head");
   assert.equal(av(exec), faceOf("\u{1F3A8}"), "an executor shows its raiser's character, as in the list");
 });
 
@@ -471,4 +474,87 @@ test("rowFaces: the Hub's own head is not drawn when the pictures are missing: t
   assert.equal(f.characterOf({ name: "hub-core", kind: "hub" }, new Map()), f.HUB_FACE, "a reply of the hub session in the feed: the same head as its row");
   assert.equal(f.characterOf({ name: "hub-core", kind: "hub", icon: "\u{1F3A8}" }, new Map()), f.faceOf("\u{1F3A8}"), "…unless it has an icon");
   assert.equal(f.HUB_FACE, "/static/clean/a/hub.png");
+});
+
+test("the Hub's byline is its row: its own icon's character, an emoji of its own, the hub's icon when there are no pictures", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  const line = (a) => a.closest(".byline").dataset.cleanHub;
+  // an icon with a character: that character, on the byline and on the row
+  const a = avOf("Hub", { clean: "hub" }), r = row("Hub", { emoji: "\u{1F916}" });
+  await scene({ sessions: [{ name: "hub", kind: "hub", icon: "\u{1F916}" }], rows: [r], hubRow: r, avs: [a] });
+  assert.equal(av(a), f.faceOf("\u{1F916}"));
+  assert.equal(face(r), `url("${av(a)}")`, "the same picture in the list");
+  assert.equal(line(a), "head");
+  // the owner's pick comes first, as in the list
+  const b = avOf("Hub", { clean: "hub" }), r2 = row("Hub", { emoji: "\u{1F3A8}" });
+  await scene({ sessions: [{ name: "hub", kind: "hub", icon: "\u{1F916}", own_icon: "\u{1F3A8}" }], rows: [r2], hubRow: r2, avs: [b] });
+  assert.equal(av(b), f.faceOf("\u{1F3A8}"));
+  assert.equal(face(r2), `url("${av(b)}")`);
+  // an emoji with no character: it stays an emoji, as in the row; the byline does not paint the Hub's head over it
+  const c = avOf("Hub", { clean: "hub" }), r3 = row("Hub", { emoji: "\u{1F4E6}" });
+  await scene({ sessions: [{ name: "hub", kind: "hub", icon: "\u{1F4E6}" }], rows: [r3], hubRow: r3, avs: [c] });
+  assert.equal(av(c), undefined);
+  assert.equal(line(c), "emoji");
+  assert.equal(face(r3), undefined);
+});
+
+test("the Hub's byline when the pictures are missing: the hub's icon, as the row", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  const asked = images([false, false, false]);
+  later(30000, () => f.probe(() => {}, [5, 5], 100000));
+  assert.equal(f.loaded(), false);
+  try {
+    const a = avOf("Hub", { clean: "hub" }), r = row("Hub");
+    await scene({ sessions: [{ name: "hub", kind: "hub" }], rows: [r], hubRow: r, avs: [a] });
+    assert.equal(av(a), undefined);
+    assert.equal(a.closest(".byline").dataset.cleanHub, "mark");
+    assert.equal(r.dataset.cleanFace, "1", "the row draws the hub's icon too");
+    assert.ok(asked.length >= 1);
+  } finally {
+    const ok = images([true]);
+    f.probe(() => {}, [5, 5], 100000);
+    await new Promise((res) => setTimeout(res, 10));
+    assert.ok(f.loaded() && ok.length === 1);
+  }
+});
+
+test("an executor of a specialist wears its raiser's head: its icon is a copy of the raiser's, not a pick of its own", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  f.setTags(TAGS);
+  try {
+    const head = (name) => `${f.DIR}${name}.png`;
+    const dev = { name: "hub-dev", role: "agent", icon: "\u{1F916}", about: "Hub Developer" };
+    const exec = { name: "hub-dev-fix", role: "executor", raised_by: "hub-dev", icon: "\u{1F916}" };
+    const by = new Map([dev, exec].map((s) => [s.name, s]));
+    assert.equal(f.characterOf(dev, by), head("clay-sky-cap"), "the specialist: the head of its role");
+    assert.equal(f.characterOf(exec, by), head("clay-sky-cap"), "its executor: the same, not the head of the 🤖 emoji");
+    assert.notEqual(f.faceOf("\u{1F916}"), head("clay-sky-cap"));
+    assert.equal(f.characterOf({ ...exec, own_icon: "\u{1F98A}" }, by), f.faceOf("\u{1F98A}"), "…unless the owner picked an icon for it");
+    assert.equal(f.characterOf({ ...exec, own_icon: "\u{1F3A8}" }, by), f.faceOf("\u{1F3A8}"), "a copied pick is a pick");
+    const orphan = { ...exec, raised_by: "gone" };
+    assert.equal(f.characterOf(orphan, by), f.faceOf("\u{1F916}"), "the raiser is not in the snapshot: its own icon stands");
+    // in the list and in the feed alike
+    const r = row("fix", { fork: true }), a = avOf("hub-dev-fix");
+    await scene({ sessions: [dev, exec], rows: [r], avs: [a] });
+    assert.equal(face(r), `url("${head("clay-sky-cap")}")`);
+    assert.equal(av(a), head("clay-sky-cap"));
+  } finally { f.setTags([]); }
+});
+
+test("a byline over the core's picture: the picture comes back when the author has no character any more", async () => {
+  const f = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
+  const kit = avOf("writer", { cls: ["emoji", "kit-img"] });
+  kit.style.backgroundImage = 'url("/core/kit.png")';
+  await scene({ sessions: SESSIONS, rows: [], avs: [kit] });
+  assert.equal(kit.style.backgroundImage, `url("${f.faceOf("\u{1F3A8}")}")`, "the row's character is over the core's picture");
+  // the author took an emoji of their own that has no character
+  kit.closest(".byline").querySelector(":scope > b").textContent = "fox";
+  await scene({ sessions: [{ name: "fox", icon: "\u{1F98A}" }], rows: [], avs: [kit] });
+  assert.equal(kit.style.backgroundImage, 'url("/core/kit.png")', "the core's picture, not the old character");
+  // and again a character, and the core's picture is still the one that is kept
+  kit.closest(".byline").querySelector(":scope > b").textContent = "writer";
+  await scene({ sessions: SESSIONS, rows: [], avs: [kit] });
+  kit.closest(".byline").querySelector(":scope > b").textContent = "fox";
+  await scene({ sessions: [{ name: "fox", icon: "\u{1F98A}" }], rows: [], avs: [kit] });
+  assert.equal(kit.style.backgroundImage, 'url("/core/kit.png")');
 });

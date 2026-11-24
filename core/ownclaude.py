@@ -16,6 +16,7 @@ updated or read.
   previous release, which a rollback takes), plus the newest unfinished download and whatever a process still runs.
 - ENV — Claude Code's own updates off in every process of the hub: a copy run from this folder could otherwise put a
   newer one into the person's ~/.local/bin (its "native" install method is in the shared ~/.claude.json)."""
+import errno
 import os
 import re
 import shutil
@@ -28,6 +29,7 @@ ENV = {"DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1"}
 ACTIVE = ".active"   # its mtime: when the hub last started on this version, switched spawns to it, or fetched it
 PART = ".part-"
 LOCK = ".lock"
+LOCK_TAKEN = (errno.EAGAIN, errno.EACCES, errno.EDEADLK)   # flock / msvcrt.locking: another process holds it
 PART_DAYS = 7        # an unfinished download stays longer than the update's retry of a failed one (a day)
 KEEP_OTHERS = 2      # besides the running version: the prepared one and the previous release
 SPARE = 500 * 10**6  # bytes left free after a download: a chosen margin for the journal and the sessions, not a measure
@@ -268,8 +270,13 @@ def fetch(state, ver, force=False, installer=None, run=None, free=None, **kw):
     with open(os.path.join(root, LOCK), "a+") as lock:
         try:
             platforms.current.try_lock(lock)
-        except OSError:
-            raise inst.fail("busy", i18n.t("cli.claude_setup.busy")) from None
+        except OSError as e:
+            text = i18n.t("cli.claude_setup.busy")
+            if e.errno not in LOCK_TAKEN:   # the lock itself failed (no locks on this disk): a failure, the log says so
+                inst.log(f"the lock {os.path.join(root, LOCK)}: {e!r}")
+                raise inst.fail("busy", text) from None
+            inst.log(f"waiting for the other install: {text}")   # not a failure (the update pass and «Setup» meet here)
+            raise claudeinstall.Failed("busy", text) from None
         gc(state, release(), fetching=ver)
         data = inst.manifest(ver)
         name, sha, size = inst.entry(data, ver, plat)

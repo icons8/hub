@@ -13,6 +13,143 @@ attaches to each session's next message only what it has not seen yet; the page 
   conversation found in any project folder is resumed as before; with no `projects` folder at all (another config
   folder, a stand-in claude) nothing counts as lost. Nothing to do: it arrives with the update, a running hub needs
   `hub restart` to apply it — thanks: @kalimullin
+- A message you type in the page's field is in the feed the moment you press Enter, as a row of your own with "sending"
+  over its head line (shown only if the core takes longer than a blink), and the core's row takes its place when the
+  session has it. Before, your words showed only after the core had recorded them and the page had caught up: a
+  second or three, longer under load, and the field looked as if nothing had happened. The row you see on Enter is
+  drawn as the one that replaces it: the same place and size, with the quote, the picked cards and the pictures, in
+  Classic and Clean; a picture keeps its image and does not blink. It is shown only where the core really takes the
+  message at once: not for a command ("/name"), files without words, a busy, starting, sleeping, parked or compacting
+  session, or one with an open card — those show their own lines ("Running", "In the queue") as before. A message the
+  core refuses goes back into the field with its words. A voice message that is still being recognized keeps its
+  own head line. Nothing to do: static files only, a page reload (⌘R / Ctrl+R) picks it up, no `hub restart`
+  — thanks: @kalimullin
+- Clean: three fixes to the heads. An executor raised by a specialist now wears the head of that specialist (the head of
+  its role), not the head of the emoji its profile declares; an executor you gave an icon of its own keeps that icon. The
+  Hub's name on a feed message shows what the Hub's row in the list shows: the head of the icon you picked for it, your
+  own emoji, or the hub's icon when there are no pictures, instead of always the Hub's own head. And a message whose
+  author the core had drawn with the theme's picture gets that picture back when the author no longer has a head
+  (an emoji of your own), instead of keeping the old head. Nothing to do: static files only, a page reload (⌘R / Ctrl+R)
+  picks it up, no `hub restart` — thanks: @kalimullin
+- `hub send <session> … --fyi` (and `hub wait`) no longer say "it gets it with its next turn" / "waiting for a reply"
+  after the core has refused the command: you see only the refusal and its reason, and the exit code is 1, as for an
+  ordinary send. Nothing to do.
+- A message from a session to an executor it raised itself that has since been removed is now refused with the
+  reason ("devops has left (removed), and you raised it"). Before, it was "routed to whoever raised it", that is back
+  to the sender, and the executor got nothing; the sleeping case has been refused this way already. Messages from the
+  owner and from other sessions to a removed executor still go to whoever raised it, with its last result. Nothing to
+  do: it arrives with the update, a running hub needs `hub restart` to apply it — thanks: @kalimullin
+- That refusal now also says what to do next: `hub session revive <name>` brings the same executor back (the session
+  that raised it may), `hub task run …` raises a new one. Before, it only said why. Nothing to do: it arrives with the
+  update, a running hub needs `hub restart` to apply it — thanks: @kalimullin
+- A session raised while a core module with `launch.env` was not answering (restarting with `hub restart mod:<name>`
+  and slow to come up, paused, stopped, or its call failed) no longer goes without the module's variables silently.
+  Before, its claude started without them and stayed so for hours, and nothing said it. Now the spawn fact names the
+  modules (`"without"`), `hub status` shows "came up without the environment of module …" under the session (with
+  `hub session reload <name>` to restart it at once), and after the module's next start a free session restarts with
+  its environment (one with no task is parked and gets it on its next message; a busy one, or one with background
+  work, waits until it is free). The short wait before a spawn stays as it was. Nothing to do: it arrives with the
+  update, a running hub needs `hub restart` to apply it — thanks: @GreatMedivack
+- A direction's document can take its text from a file or from stdin: `hub direction <d> doc create "<title>"
+  --content-file <path>`, `… doc update <id> --content-file <path>`, or `--content -` with the text piped in. Before, the
+  text went only as an argument, and a long document on Windows failed with "Argument list too long" (the command line
+  there holds about 32K characters). An empty file or stdin is refused like an empty `--content`, and nothing is
+  written. Nothing to do: it arrives with the update — thanks: @Eugenius-S
+- The app: after the restart onto an update installed in the background, the page no longer says "Restarting for
+  <version>…" (and offers "Restart" again) on a hub that already runs that version. Before, the line stayed until the
+  update's next look at the server, which comes after the migration and the network, so the hub looked stuck and a
+  second press restarted it again. Now the core, as it starts on the installed version, ends the wait at once; a
+  restart of the core alone, still on the old version, keeps it. Nothing to do: it applies from the restart onto the
+  version that carries it.
+- One agent can have a CLAUDE.md size cap of its own: `"agents": {"profile_max_kb_for": {"<agent>": 400}}` in
+  hub.json, `0` for no cap for that agent. Before, the cap (`agents.profile_max_kb`) was one for the whole hub: an agent
+  whose pinned part is large kept asking to fold what it cannot fold, so the whole hub had to stay on a high cap and
+  every other agent's file could grow with it. Now the shared cap stays as it is for everyone else, and an agent not in
+  the list (or with a value that is not a number of 0 and up) gets the shared one. Nothing to do: add the key to hub.json
+  if you need it; the core reads it at the next check, but a running hub
+  needs `hub restart` to apply the update — thanks: @Eugenius-S
+- An executor that asks another session something in the middle of its task (`hub send`) and ends the turn waiting now
+  finishes that task on the answer: the turn that reads the answer continues the task, so its final report reaches
+  whoever set it. Before, that turn belonged to no task, and the report went nowhere. This is common, not a rare case:
+  on a week of one busy hub's journal it moved 115 turns of 48 executors to their tasks, and 87 reports reached whoever
+  set them. The answer is the first letter from the asked session, however it arrives (its own message, its turn result
+  the core passes on, an FYI); the next one is its own matter again, unless the executor says it still waits for that
+  session (`hub waiting` naming it) after an "accepted, will send". When a session whose letter the turn took (the
+  turn's own or one that came mid-turn) itself waits on the executor (`hub waiting`), the turn answers that session, as
+  before, and the answers it read wait for the next letters. A question ends unanswered after a day, when its task
+  closes, or when the executor leaves. Only executors: a specialist's letters are unchanged. Nothing to do: it arrives
+  with the update, a running hub needs `hub restart` to apply it — thanks: @kalimullin
+- Hub bus: a session that got another hub's question and passed it on to another session (`hub send <session> "…"` in
+  its turn on those words) no longer leaves that session unable to answer in the thread. Before, the other session's
+  `hub send liaison --to <hub> --thread <T>` was refused with `thread_closed` (only the session that leads the thread
+  may write in it), and its answer went in a new thread, apart from the question. Now the core marks such a message: the
+  session it went to may answer with `--thread <T>`, its answer makes it the thread's lead, and the other hub's reply
+  comes back to it. The session that passed the question on keeps the thread until then, and may still write there
+  after: the reply goes to whichever of them named the thread last. Without `--thread` the core never moves a thread
+  another session leads (a session often writes to that hub about another matter); it continues only a thread nobody
+  leads yet. A word to another session outside a turn on that hub's words, an FYI or a command passes nothing on. A
+  `--thread` refusal now names the session that leads the thread ("pass your words to it"), and the words of another hub
+  passed to a session show it the thread only if it may answer there. Nothing to do: it arrives with the update, a
+  running hub needs `hub restart` to apply it.
+- External hubs: what goes to the other hub is what you saw and wrote on the liaison's card. Before, when you answered
+  its "Send to …?" card in words, the other hub could get the old draft: your words went with the core's head "Answer to
+  question qN («…the old text…»)" (or "This is the user's answer … passed on by the hub" and the Telegram note when the
+  Hub passed them on), or the liaison sent the session's first words as they were. And its message on your correction
+  went as a new conversation, so the other hub's answer came to the liaison instead of the session that asked, and that
+  session was told half an hour later that its request was not handled. Now your words by reference go without the
+  core's lines (the same words the page shows you as your answer); after you answer the card in words (a correction, or
+  "yes" typed), or close it and write within half an hour, the session's old words are refused (`owner_changed`) and the liaison sends the
+  text as you approved it; and that message continues the session's conversation with the other hub, the answer comes
+  to the session. A press of "Send" with no words of yours about that message works as before. Nothing to do: it
+  arrives with the update, a running hub needs `hub restart` to apply it.
+- External hubs: the liaison's own message on a session's words continues that session's conversation with the other
+  hub also when the session wrote to it without naming the hub (`hub send liaison "…"`): the conversation it was in
+  when it wrote, else the latest one that hub's words came to it in; a conversation the session named still wins, and
+  words of two sessions in one turn still start a new one. Before, such a message started a new conversation, and the
+  other hub's answer came to the liaison instead of the session. The liaison can no longer decline an answer in a
+  conversation this hub started: the other hub used to get "Hub … declined the request" about our own words; now the
+  liaison is told to close it or answer in it (`decline_ours`). And a conversation named by its first characters, or by
+  the mark around the other hub's words, is refused with its full id named when exactly one fits. Nothing to do: it
+  arrives with the update, a running hub needs `hub restart` to apply it.
+- A download of an update (the code layer, the app, an environment, Claude Code, the parts the hub fetches) no longer
+  ends with "0.0 MB are kept" on a link where something on the way (a scanner, a proxy that inspects downloads) holds
+  the answer back until it has all of it, and the whole file takes longer than a minute: an attempt that sat silent
+  and brought not one byte now asks for a quarter of the bytes it asked for (4 MB at most, 128 KB at least), and what
+  comes is kept; a bigger window again only after one came whole. A failed update also says in its report what each
+  attempt met: whether the server answered, how late, and where the silence was. The update to 1.10 itself is still
+  downloaded by the old code of a 1.9.x hub, so this holds from the update after it. Nothing to do: it arrives with
+  the update, a running hub needs `hub restart` to apply it.
+- A session whose conversation was lost from disk right after Opus's safety filter moved it to another model no longer
+  keeps the "back on the asked model" mark. Before, the new conversation (same session id) still carried it: the page
+  showed the filter's row and the session was told that its stopped turn was cut from "the same conversation", though
+  the whole conversation was gone. Now the mark goes with the lost conversation. Nothing to do: it arrives with the
+  update, a running hub needs `hub restart` to apply it — thanks: @kalimullin.
+- A bare `file:///abs/path` in a message, also one written in inline code, is a link into Files, the same as
+  `[plan](file:///abs/path)` has been. Before, it stayed plain text: sessions often write the address as it is ("Saved:
+  file:///…/plan.md"), and only the Markdown form was a link. The text stays as the message wrote it; a sentence dot, comma
+  or colon after the address is not part of it, and `:12` after it is the line. An address that leads nowhere stays text,
+  and the page still opens nothing on the computer itself. Nothing to do: static files only, a page reload
+  (⌘R / Ctrl+R) picks it up, no `hub restart` — thanks: @kalimullin
+- "Sign in to Claude" now finishes on a hub whose machine has no screen (a Linux server, a container) opened through
+  `ssh -L 8787:127.0.0.1:8787 …`, as the README tells a server owner. Before, the band took Claude Code's `localhost` link,
+  which after the sign-in leads to a port on the computer you opened the page on, not on the server, and it hid the field
+  for the code: the sign-in never ended. Now such a hub shows the link Anthropic answers with a code and the field to paste
+  it into. A Mac, Windows, and a Linux desktop (also a hub that runs as a `systemd --user` service without `DISPLAY`: the
+  user's graphical login counts) keep the one-click sign-in. Nothing to do: it arrives with the update, `hub restart web`
+  applies the server's half — thanks: @kalimullin
+- A queued message above the field that is not the owner's own words now begins with who it is from: "Core: The hub was
+  restarted (asked by: …)", "maps: …" for a session, "Module telegram: …", a Telegram member's name. Before, the core's
+  restart note stood in the queue next to the owner's task in the same form and read as typed by the owner; the owner's
+  own rows look as they did. Nothing to do: static files only, a page reload (⌘R / Ctrl+R) picks it up, no
+  `hub restart` — thanks: @kalimullin
+- The install on a Linux machine with no screen (a server, `install.sh --server`) no longer says that the shortcut is "in
+  the applications menu" right above "This machine has no screen": there is no menu to look in. The shortcut file is still
+  written, and a machine with a screen (and macOS, Windows) tells about it as before. Nothing to do: it shows at the next
+  install — thanks: @kalimullin
+- When the update and «Setup» download Claude Code at the same time, the second one now writes "waiting for the other
+  install" to `logs/setup.log` instead of "FAILED busy": it is no failure, the first one finishes the job, and the line
+  no longer sends support looking for a fault that is not there. A lock that fails for another reason is still logged as
+  a failure. Nothing to do: it arrives with the update, the outcome of the install does not change — thanks: @kalimullin
 
 ## 2026-11-23
 - A file that a session's schedule job sends (`hub send-file` in the job's command) is now also a row of the hub feed,

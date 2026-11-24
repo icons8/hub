@@ -28,6 +28,9 @@ class Stub:
         # by default — the prompt points (prompt.parts, prompt.input): the host calls launch.env and the others too
         return [n for n in self.answers if point in getattr(self.answers[n], "points", ("prompt.parts", "prompt.input"))]
 
+    def declared(self, point, cap=None):   # every stub module answers: those declaring the point are the answering ones
+        return self.answering(point)
+
     def call(self, name, point, payload, ctx=None):
         self.calls.append((name, point, json.loads(json.dumps(payload))))
         return self.answers[name](point, payload)

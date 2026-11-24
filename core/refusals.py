@@ -142,6 +142,16 @@ def spawned(sess, data):
         ref["cut"] = bool(data.get("cut"))
 
 
+def lost(sess):
+    """host.done of a raise that found no conversation on disk and started a new one (`conversation: lost`): the
+    stopped turn is gone with the rest and the fallback is not latched in a new conversation - nothing to cut, nothing
+    to bring back, and no note that the same conversation went on. A mark already returned (`done`) stays: the window of
+    a repeat holds, the filter again within it is shown and not returned by itself."""
+    ref = sess.get("refused")
+    if ref and not ref.get("done"):
+        sess.pop("refused")
+
+
 def spawn(sess, action):
     """The raise that applies the cut: `resume_at` (the host checks the entry is in the conversation) and `back_model` -
     the asked model, the host passes it when it cannot cut and the session has no model of its own (a plain --resume

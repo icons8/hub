@@ -135,6 +135,29 @@ def append(msg, tail):
         msg["l10n"] = (msg.get("l10n") or []) + [[a + at, n, k, args] for a, n, k, args in more]
 
 
+def said(msg):
+    """The author's own words of a message: its text without what the core put around them — the head of the owner's
+    answer to a card (answer_body, what the page shows him as his answer), the head and the tail of words the hub passed
+    on for him (said, set where the core adds them), the frame of a task around the setter's words (brief: where they
+    lie in the text, moved with a head). A message with none of them (nothing put around, or one of an earlier
+    version): its text."""
+    for key in ("said", "answer_body"):
+        if isinstance(msg.get(key), str):
+            return msg[key]
+    span = brief_span(msg)
+    return msg["text"][span[0]:span[1]] if span else msg.get("text")
+
+
+def brief_span(msg):
+    """Where the setter's words lie in a task message's text, [start, end) in characters (`brief`, moved by prepend);
+    None when the core did not mark them or the text no longer holds them."""
+    span, text = msg.get("brief"), msg.get("text")
+    if not (isinstance(span, list) and len(span) == 2 and isinstance(text, str)) \
+            or not all(isinstance(x, int) and not isinstance(x, bool) for x in span) or not 0 <= span[0] < span[1] <= len(text):
+        return None
+    return span
+
+
 def prepend(msg, head):
     """Put head before a message's text: its marks move with the text (a mark that no longer fits shows English)."""
     msg["text"] = str(head) + str(msg["text"])

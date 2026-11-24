@@ -1043,8 +1043,8 @@ def _feed_label(msg, data=None):
         button = (data or {}).get("button")
         shown = button.strip() if isinstance(button, str) and 0 < len(button.strip()) <= BUTTON_MAX else msg["text"]
         return i18n.t("core.views.feed_pressed", text=shown)
-    if msg.get("answers_question") and msg.get("answer_body"):
-        return i18n.t("core.views.feed_answer", text=msg["answer_body"])
+    if msg.get("answers_question") and msg.get("answer_body"):   # his words without the head (as the bus sends them)
+        return i18n.t("core.views.feed_answer", text=coretext.said(msg))
     return None
 
 
@@ -1664,7 +1664,7 @@ def entry(state_dir, ref, reader=None, tz=None, now=None):
             out += ["", i18n.t("cli.show.answer", when=_clock(got["ts"], tz, year=True), text=said)]
         elif words:   # the owner's words to the session closed it: no form answer in the journal
             out += ["", i18n.t("cli.show.answer", when=_clock(words["created"], tz, year=True),
-                               text=str(words.get("answer_body") or words.get("text") or "").strip())]
+                               text=str(coretext.said(words) or "").strip())]
         else:
             out += ["", out[1]]
         return out

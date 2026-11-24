@@ -10,7 +10,7 @@ import { inBubble } from "./outgoing.js";
 import { t, CLOSED } from "./i18n.js";
 import { needsOwner } from "./sidebar.js";
 import { isFolded, foldable, foldToggle, openAsks } from "./askfold.js";
-import { memberOf } from "./who.js";
+import { memberOf, whoOf, whoOfMember } from "./who.js";
 
 const FAILED_FOR = 6 * 3600;   // undelivered older than six hours does not belong in the strip: it is history, not a task
 const UNDO_FOR = 6000;         // "Remove" delays the cancel: this long you can change your mind
@@ -83,6 +83,15 @@ function line(kind, label, text, title, ...actions) {
 // and cancel go by the text
 const textOf = (it) => String(it.label || it.text || "");
 
+// a queued row that is not the owner's own words begins with who it is from ("Core", "Hub", a session, a module, a Telegram
+// member): the core's restart note and a session's message stood next to the owner's message in the same form and read as
+// typed by the owner. The owner's own rows (no sender; ":owner" is the core retelling his word) stay as they were
+function fromTag(it) {
+  const member = memberOf(it);
+  if (member === null && (!it.sender || it.sender === ":owner")) return null;
+  return el("span", "strip-from", (member !== null ? whoOfMember(member) : whoOf(it.sender)).label);
+}
+
 // ——— queue: "Remove" is deferred, the real cancel goes out only after 6 seconds have passed and you did not change your mind ———
 function startCancel(s, it) {
   const e = { session: s.name, text: it.text, failed: false, done: false, timer: null };
@@ -123,7 +132,8 @@ function queueRow(s, it, first, total) {
     acts.push(btn(t("web.strip.send_now"), () => post("/api/inject", { session: s.name, id: it.id })));
   }
   if (m.state === "queued" && m.removable !== false) acts.push(btn(t("web.strip.remove"), () => startCancel(s, it), "quiet"));
-  const r = line("queue", label, clip(textOf(it), 90), t("web.strip.queue_hint"), ...acts);
+  const from = fromTag(it);
+  const r = line("queue", label, from ? [from, ": ", clip(textOf(it), 90)] : clip(textOf(it), 90), t("web.strip.queue_hint"), ...acts);
   if (s.state === "busy" && m.urgency != null) {
     const u = el("span", "strip-urg", t("web.strip.urgency", { percent: Math.round(m.urgency * 100) }));
     u.dataset.level = m.urgency >= 0.6 ? "high" : m.urgency >= 0.35 ? "mid" : "low";
@@ -140,6 +150,8 @@ function fyiRow(it, label) {
   const r = line("queue", label, "", "");
   // a real button: Enter and Space belong to it, not to voice input (which catches Space on the document and skips buttons)
   const t = el("button", "t", textOf(it).trim());
+  const from = fromTag(it);
+  if (from) t.prepend(from, ": ");
   t.type = "button";
   t.title = FYI_HINT;
   t.dataset.id = it.id;

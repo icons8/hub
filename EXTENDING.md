@@ -1454,7 +1454,7 @@ theme's group. To check: `hub.capabilities.themeOptions === 1`. A core before 1.
 to "Look" with its `title` (none — an error under Plugins), and a plugin keeps only its last group there, so on such a
 core declare one group with a `title`, or none. The core's Clean declares its ticks this way.
 
-**Commands via "/" (1.13, not yet released)**: `hub.addCommand({ name, args?, hint?, by?, run(args, ctx) })`: the owner types
+**Commands via "/" (1.13)**: `hub.addCommand({ name, args?, hint?, by?, run(args, ctx) })`: the owner types
 `/` in a session's input field and a command window appears above the field: first the core's commands (`/compact`,
 `/reload`, `/model`, `/effort`, `/stop`, `/away`, `/back`, `/restart`), then the plugins' commands. `/name arguments` plus
 Enter makes the page call `run` itself, without the model and without the session; `ctx` is `{ name, session }` of the open

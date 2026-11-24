@@ -1,0 +1,194 @@
+{
+ "id": "bus-owner-edit",
+ "title": "The owner corrects the liaison's form in words: it sends the corrected text in its own words (--text), not the session's old words by reference; a press of Send keeps --text-from",
+ "note": "The messages as the core delivers them to the liaison (reducer ANSWER_HEAD, _ask_answer_text, question.dismissed). Before — the profile without the line about the owner's words on its form, after — with it. Checks by the command only. A typed yes goes by reference before and after the profile line (0/5 both, 24.11): the core's refusal is the net — the turns after it check that its text leads to --text.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands",
+    "says"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "says": {
+     "type": "string"
+    }
+   }
+  },
+  "format": {
+   "lang": "en"
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   },
+   {
+    "file": "core/liaison.py",
+    "name": "PROFILE",
+    "optional": true
+   }
+  ]
+ },
+ "turns": [
+  {
+   "id": "typed-correction",
+   "input": "[hub:m42] Answer to question q37 («Send to bee: «Deploy is at 10:00»?»): No — change it: deploy is at 11:00\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*11:00"
+    },
+    {
+     "id": "not_old_words",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ]
+  },
+  {
+   "id": "correction-after-close",
+   "input": "[hub:m41] The owner closed your question q37 (\"Send to bee: «Deploy is at 10:00»?\") without answering: no answer will come, do not wait for it. If you cannot go on without the owner's decision — say so in the result; if you can — go on your own way.\n[hub:m42] Change it: deploy is at 11:00, then send\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*11:00"
+    },
+    {
+     "id": "not_old_words",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ]
+  },
+  {
+   "id": "yes-with-a-change",
+   "input": "[hub:m42] Answer to question q37 («Send to bee: «Deploy is at 10:00»?»): Send, but 11:00\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*11:00"
+    },
+    {
+     "id": "not_old_words",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ]
+  },
+  {
+   "id": "typed-yes-after-the-refusal",
+   "input": "[hub:m42] Answer to question q37 («Send to bee: «Deploy is at 10:00»?»): yes, send it\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn; in this turn you already ran hub bus send bee --text-from m35 and the core answered: refused: ⟦REFUSAL⟧)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*10:00"
+    },
+    {
+     "id": "not_again",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ],
+   "consts": {
+    "REFUSAL": {
+     "file": "core/busstate.py",
+     "name": "OWNER_CHANGED",
+     "optional": true,
+     "format": {
+      "qid": "q37",
+      "basis": "m35",
+      "id": "m42",
+      "contact": "bee"
+     }
+    }
+   }
+  },
+  {
+   "id": "after-the-refusal",
+   "input": "[hub:m42] Answer to question q37 («Send to bee: «Deploy is at 10:00»?»): ok but make it 11:00\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn; in this turn you already ran hub bus send bee --text-from m35 and the core answered: refused: ⟦REFUSAL⟧)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "consts": {
+    "REFUSAL": {
+     "file": "core/busstate.py",
+     "name": "OWNER_CHANGED",
+     "optional": true,
+     "format": {
+      "qid": "q37",
+      "basis": "m35",
+      "id": "m42",
+      "contact": "bee"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*11:00"
+    },
+    {
+     "id": "not_again",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ]
+  },
+  {
+   "id": "press-after-the-correction",
+   "input": "[hub:m44] The user's answer to question q43:\n— Send to bee: «Deploy is at 11:00»?: Send\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn; the owner answered it in words «No — change it: deploy is at 11:00», and you asked again by the form q43 «Send to bee: «Deploy is at 11:00»?»)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "own_words",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text[ =]['\"].*11:00"
+    },
+    {
+     "id": "not_old_words",
+     "type": "field",
+     "name": "commands",
+     "not_re": "--text-from m35"
+    }
+   ]
+  },
+  {
+   "id": "control-press-send",
+   "input": "[hub:m42] The user's answer to question q37:\n— Send to bee: «Deploy is at 10:00»?: Send\n\n(bench: you are the liaison. Earlier in this conversation: “[hub:m35 from api] Tell them: deploy is at 10:00” with the core's note “A request of api to pass to the hub bee (Hub B; a hub not bound to the contacts book (a new person)): this is not a question to you — send its words by reference: hub bus send bee --text-from m35”; you asked the owner by the form q37 «Send to bee: «Deploy is at 10:00»?» with the options Send and Don't send, and ended the turn)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+   "checks": [
+    {
+     "id": "by_reference",
+     "type": "field",
+     "name": "commands",
+     "re": "hub bus send bee\\b.*--text-from m35"
+    }
+   ]
+  }
+ ]
+}

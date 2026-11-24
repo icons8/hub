@@ -255,8 +255,8 @@ export function linkSessions(root, names) {
 // common link handling on top of markdown — files (path and code), Jira, sessions — a single source of truth for the
 // feed (feed.js: mdIn) and for question/option cards (cards.js:rich), so they do not drift apart across functions
 export function linkAll(node, cwd, known, session, jira, sessionNames) {
-  return linkSessions(linkJira(linkTextPaths(linkPaths(linkHrefPaths(node, cwd, session), cwd, known, session), cwd, session),
-    jira), sessionNames);
+  return linkSessions(linkJira(linkTextPaths(linkFileUrls(linkPaths(linkHrefPaths(node, cwd, session), cwd, known, session), cwd, session),
+    cwd, session), jira), sessionNames);
 }
 
 // [plan](/Users/me/docs/plan.md): the browser resolves a host-less URL against the hub page (:8787/Users/… — "no such
@@ -274,6 +274,49 @@ export function linkHrefPaths(root, cwd, session = null) {
     const ref = pathRef(path, cwd, line, session, null, true);
     if (ref) ref.append(...a.childNodes);
     a.replaceWith(ref || document.createTextNode(a.textContent));
+  }
+  return root;
+}
+
+// A bare file:///abs/path in a message ("Saved: file:///…/plan.md"): marked autolinks only http(s), and the hook at the
+// top sees only Markdown links, so it stayed plain text. It is the same absolute path as [plan](file:///…): a link into
+// Files with the text as written; an address that leads nowhere stays text. Sentence punctuation after it is not part of it
+const FILE_URL = /file:\/\/(\/[^\s<>"'`)\]]+)/g;
+function fileUrlPath(raw) {
+  raw = raw.replace(/[.,:;!?]+$/, "");
+  let path = raw;
+  try { path = decodeURI(raw); } catch { /* not a URL — the check below filters it out */ }
+  const line = (path.match(/:(\d+)(?::\d+)?$/) || [])[1];
+  path = path.replace(/:\d+(?::\d+)?$/, "");
+  return HREF_PATH.test(path) ? { path, line, text: `file://${raw}` } : null;
+}
+export function linkFileUrls(root, cwd, session = null) {
+  if (!root.textContent.includes("file://")) return root;   // linkAll runs on every redraw of every message: most have none
+  for (const code of root.querySelectorAll("code")) {   // `file:///…` — a link around the code, as for a path
+    if (code.closest("pre, a")) continue;
+    const m = code.textContent.match(/^file:\/\/(\/\S+)$/), f = m && fileUrlPath(m[1]);
+    const a = f && pathRef(f.path, cwd, f.line, session, null, true);
+    if (!a) continue;
+    code.replaceWith(a);
+    a.append(code);
+  }
+  const texts = [], walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement?.closest("a, code, pre") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  while (walk.nextNode()) texts.push(walk.currentNode);
+  for (const t of texts) {
+    const s = t.nodeValue, parts = [];
+    let last = 0;
+    for (const m of s.matchAll(FILE_URL)) {
+      if (m.index && /[\w.+-]/.test(s[m.index - 1])) continue;   // `profile:///…`, `x-file:///…`: another scheme, not ours
+      const f = fileUrlPath(m[1]);
+      const a = f && pathRef(f.path, cwd, f.line, session, null, true);
+      if (!a) continue;   // leads nowhere — stays text
+      parts.push(document.createTextNode(s.slice(last, m.index)));
+      a.textContent = f.text;   // not the short name: the address is what the message says (setDisplay leaves it: no `orig` at the start)
+      parts.push(a);
+      last = m.index + f.text.length;
+    }
+    if (parts.length) t.replaceWith(...parts, document.createTextNode(s.slice(last)));
   }
   return root;
 }

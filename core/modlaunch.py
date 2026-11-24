@@ -13,6 +13,8 @@ its own key (AUTH_ENV) is a schema failure, its addition is not applied at all (
 a key). Two modules redirect claude by different names — the later one is rejected. The session network (proxy, CA,
 TLS) and the provider choice are closed to modules entirely (modules.env_denied).
 """
+import sys
+
 from core import i18n, modrun, modules
 
 BASE_URL = "ANTHROPIC_BASE_URL"
@@ -37,6 +39,22 @@ def adds(mods, payload):
         if got is not None:
             out.append((name, got))
     return out
+
+
+def missing(mods, added):
+    """Modules with launch.env this launch of a session goes without, in load order: coming up after a hub or module
+    restart past the spawn's wait (one that never answered hello is known by its launch.env right), paused, stopped, or
+    the call failed. added is what modules answered, before the login rule: a module it refuses is not here — its
+    module.error says why, every session goes without it alike, and a relaunch would be refused the same way. hubd puts
+    them into the spawn fact (host.done without); the core relaunches the free session once such a module answers hello
+    again (reducer: env_stale)."""
+    got = {name for name, _ in added}
+    try:
+        declared = mods.declared("launch.env", cap="launch.env")
+    except Exception as e:  # noqa: BLE001 — the trace must not hold the launch itself (records unreadable)
+        print(f"modlaunch: which modules the session goes without — {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return []
+    return [name for name in declared if name not in got]
 
 
 def apply(env, add):

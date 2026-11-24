@@ -3,6 +3,8 @@ wake it" hint and its previous result. The hint is a service note from the core 
 words: the message text (feed, quote, edit, reply to it) keeps the sender's words as they are; the recipient sees the
 note in the delivered input as a separate block, "Service note from the core"."""
 import tests  # noqa: F401 — hide the machine's settings
+import json
+import pathlib
 import unittest
 
 from core import forms, reducer, views
@@ -169,6 +171,48 @@ class RoutingNote(unittest.TestCase):
     def test_the_owner_and_other_sessions_still_reach_the_raiser(self):
         self.assertIsNone(self.ev("message.received", None, to="devops", text="x", **OWNER))
         self.assertEqual(self.st["messages"][f"m{self.seq}"]["session"], "maps")
+        self.assertIsNone(self.ev("message.received", None, to="devops", text="y", channel="session", owner=False,
+                                  sender="hub"))
+        self.assertEqual(self.st["messages"][f"m{self.seq}"]["session"], "maps")
+
+    def test_the_raiser_writing_to_its_removed_executor_is_refused_not_sent_back_to_itself(self):
+        # "a message to a departed executor goes to whoever raised it": from the raiser that is its own queue, and the
+        # executor gets nothing. As with the sleeper (SEND_OWN_SLEEPER), the sender is told why
+        self.st["sessions"]["devops"]["state"] = "removed"
+        for extra in ({}, {"fyi": True}):
+            with self.subTest(extra=extra):
+                before = len(self.st["messages"])
+                why = self.ev("message.received", None, to="devops", text="also check the phone", **MAPS, **extra)
+                self.assertIn("devops has left (removed)", why or "")
+                self.assertEqual(len(self.st["messages"]), before)
+
+    def test_the_refusal_names_the_next_step_in_every_language(self):
+        # the raiser is told what to do instead: bring the same executor back, or raise a new one. The commands are
+        # not translated, so the check does not depend on the language of the output
+        self.st["sessions"]["devops"]["state"] = "removed"
+        why = self.ev("message.received", None, to="devops", text="x", **MAPS)
+        self.assertIn("hub session revive devops", why or "")
+        self.assertIn("hub task run", why or "")
+        for path in sorted(pathlib.Path(__file__).resolve().parents[1].glob("i18n/*.json")):
+            if path.name in ("sync.json", "pending.json", "stage.json", "glossary.json"):
+                continue
+            text = json.loads(path.read_text(encoding="utf-8")).get("core.reducer.send_self_gone")
+            if text is not None:
+                with self.subTest(language=path.stem):
+                    self.assertIn("hub session revive {name}", text)
+                    self.assertIn("hub task run", text)
+
+    def test_the_hub_that_raised_the_removed_executor_is_refused_as_well(self):
+        self.st["sessions"]["devops"].update(state="removed", raised_by="hub")
+        why = self.ev("message.received", None, to="devops", text="x", channel="session", owner=False, sender="hub")
+        self.assertIn("you raised it", why or "")
+
+    def test_the_owner_and_other_sessions_still_reach_the_raiser_of_a_removed_executor(self):
+        self.st["sessions"]["devops"]["state"] = "removed"
+        self.assertIsNone(self.ev("message.received", None, to="devops", text="x", **OWNER))
+        m = self.st["messages"][f"m{self.seq}"]
+        self.assertEqual(m["session"], "maps")
+        self.assertIn("it has already left", m.get("routing_note") or "")
         self.assertIsNone(self.ev("message.received", None, to="devops", text="y", channel="session", owner=False,
                                   sender="hub"))
         self.assertEqual(self.st["messages"][f"m{self.seq}"]["session"], "maps")

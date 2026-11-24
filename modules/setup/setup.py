@@ -72,12 +72,19 @@ class Setup:
     """state_dir, config() — hub.json as the page reads it; claude — the command (core/daemon.claude_command);
     spawn(argv, env) starts a step's process (tests: in-process or recorded)."""
 
-    def __init__(self, state_dir, config, claude=None, clock=time.time, spawn=None, repo=REPO, app=None):
+    def __init__(self, state_dir, config, claude=None, clock=time.time, spawn=None, repo=REPO, app=None, screen=None):
         self.state_dir, self.config, self.clock, self.repo = state_dir, config, clock, repo
+        # does this machine show a browser to a person (a server has none): tests give their own answer
+        self.screen = screen or self._screen
         self.app = is_app(repo) if app is None else bool(app)   # an app: no wizard, its steps run by themselves (auto.py)
         self._claude = claude
         self.spawn = spawn or self._spawn
         self.cache, self.lock = {}, threading.Lock()
+
+    @staticmethod
+    def _screen():
+        import platforms
+        return platforms.current.has_screen(os.environ)
 
     # --- probes -----------------------------------------------------------------------------------------------------
     def claude(self):
@@ -437,7 +444,12 @@ class Setup:
         # never tried here; a working hub whose `claude --version` stumbled once is never reinstalled behind its back
         auto = ["claude"] if not codex and not self.app and c["state"] == "todo" and not c["job"] and not working \
             and not c["version"] and not self.claude_found() else []
-        out = {"ready": not blocking, "blocking": blocking, "local": bool(local), "items": items, "auto": auto}
+        # local: the request came from this machine; screen: it has a screen. A server opened through an SSH tunnel
+        # is local without a screen: the browser is on the person's computer, the sign-in goes by Anthropic's code
+        # only a local request needs it, and a service asks systemd and loginctl for it: once a minute, not every poll
+        screen = bool(self._cached("screen", 60, self.screen)) if local else None
+        out = {"ready": not blocking, "blocking": blocking, "local": bool(local), "screen": screen, "items": items,
+               "auto": auto}
         if self.app:
             alive, waits = self.auto_state()
             out.update(app=True, update=self.layer_progress(), waits=waits, steps_running=alive,

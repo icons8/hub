@@ -646,6 +646,7 @@ class StreamHost(Trees):
         self.conversation_lost = set()   # sessions whose --resume found no conversation: started anew (hubd: in host.done)
         self.tool_flags = lambda **_: []  # hubd plugs in the catalog: the session's set -> --plugin-dir / --mcp-config
         self.refusal_cut = {}  # name -> the last raise after Opus's filter cut the conversation (True) or not: host.done
+        self.env_missing = {}  # name -> modules with launch.env its last launch went without (modlaunch.missing): host.done
         self.mcp_servers = lambda **_: {}  # and the MCP servers of a set, nothing written (catalog.session_servers)
         self.session_env = lambda: {}     # and claude's variables from the hub settings (catalog.session_env)
         self.providers = lambda: {}       # and the sessions' required sign-in modules (hub.json session_providers)
@@ -1176,6 +1177,7 @@ class StreamHost(Trees):
         profile token (the gateway substitutes the real one); a module that pointed claude at its own address, and a cloud provider, bypass the gateway."""
         from core import modlaunch
         added = modlaunch.adds(self.modules, {"session": name, **(info or {})}) if self.modules else []
+        without = modlaunch.missing(self.modules, added) if self.modules else []   # before the login rule (missing)
         token = self.own_profiles().token(account, session=name) if account else None   # the profile's sign-in: one question
         while True:
             env = self._launch_env(name, account, agent_file, added, token)
@@ -1193,6 +1195,7 @@ class StreamHost(Trees):
             if not isinstance(required, str) or not required or modlaunch.owners(env, added) != [required]:
                 raise RuntimeError(f"the required sign-in module {required!r} (session_providers) gave the session no "
                                    "address and key of its own — not starting it")
+        self.note_missing(name, without)
         if args is not None:
             for _, add in added:
                 args.extend(add.get("args") or [])
@@ -1204,6 +1207,15 @@ class StreamHost(Trees):
             elif (token or {}).get("gateway"):
                 self._module_gateway_env(env, gateway, token)
         return env
+
+    def note_missing(self, name, without):
+        """The modules with launch.env this launch of the session goes without (hubd takes it into host.done)."""
+        if without:
+            self.env_missing[name] = without
+            print(f"streamjson: {name} starts without the launch.env of {', '.join(without)} — the core relaunches it "
+                  "after their next start, once it is free", file=sys.stderr, flush=True)
+        else:
+            self.env_missing.pop(name, None)
 
     def signed_in(self, env, cwd):
         """Whether claude with this environment in this folder has a sign-in. Yes without asking: a sign-in key in the

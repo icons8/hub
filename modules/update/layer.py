@@ -193,6 +193,7 @@ class LayerUpdater(base.Updater):
         self.reporter = reporter or report.Reporter(state_dir, cfg, now=now)
         self.caught = None   # the exception behind a failed step of this pass: its traceback goes with the report
         self.stage = None    # where an install of this pass is: download | verify | switch (an error's step)
+        self.attempts = []   # what each attempt of the pass's downloads met (fetch.download's log): in the report of a failure
 
     # --- what is where
 
@@ -242,6 +243,7 @@ class LayerUpdater(base.Updater):
         for the hub's restart itself (the owner's install, the first start); otherwise (a background install) the person
         is asked to restart (_stage). By default — when the owner asks (manual)."""
         self.info, self.apply, self.manual, self.caught, self.stage = {}, apply, manual, None, None
+        self.attempts = []
         self.claude_tried = False
         self.restart = manual if restart is None else restart
         passing = False
@@ -272,7 +274,8 @@ class LayerUpdater(base.Updater):
             if step and not passing:
                 to = self.info.get("version") if step != "check" else None
                 to = to or self.running()[1].get("version") or ""   # a build of edits: no report (report.py)
-                self.reporter.failed(step, to, self, result, self.info.get("error") or "", self.caught)
+                self.reporter.failed(step, to, self, result, self.info.get("error") or "", self.caught,
+                                     {"attempts": self.attempts[-24:]} if self.attempts else None)
             self._restored_report()
         except Exception as e:  # noqa: BLE001
             print(f"update: the report failed: {e!r}", flush=True)
@@ -500,7 +503,8 @@ class LayerUpdater(base.Updater):
             self.stage = "download"
             try:
                 self.download(url, archive, lay["sha256"], lay["size"], f"code {entry['version']}", "hub update",
-                              private=self._auth(src), progress=shown.download, **self._allow(src))
+                              private=self._auth(src), progress=shown.download, log=self.attempts.append,
+                              **self._allow(src))
             except self.fetch_failed as e:
                 self.info["error"] = str(e)[:300]
                 self.caught = e
@@ -808,7 +812,7 @@ class LayerUpdater(base.Updater):
                 os.unlink(dest)
             try:
                 self.download(url, dest, offer["sha256"], offer["size"], f"the app {offer['name']}", "hub update",
-                              private=self._auth(src), **self._allow(src))
+                              private=self._auth(src), log=self.attempts.append, **self._allow(src))
             except self.fetch_failed as e:
                 self.info["error"] = str(e)[:300]
                 return "bad-archive" if e.why == "checksum" else "broken"
@@ -904,7 +908,7 @@ class LayerUpdater(base.Updater):
                     os.unlink(archive)
                 try:
                     self.download(url, archive, offer["sha256"], offer["size"], f"the environment {offer['name']}",
-                                  "hub update", private=self._auth(src), **self._allow(src))
+                                  "hub update", private=self._auth(src), log=self.attempts.append, **self._allow(src))
                 except self.fetch_failed as e:
                     shellnext.write(self.state_dir, {**base_rec, "status": "failed", "why": str(e)[:300], "reported": True})
                     self.info["error"] = str(e)[:300]

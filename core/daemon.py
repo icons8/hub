@@ -562,6 +562,7 @@ class Hub:
         except Exception as e:  # the host crashed — that is a fact, not a core failure
             if do == "spawn":
                 self.take_conversation_lost(name)   # the mark of a launch that failed is not the next launch's
+                self.take_env_missing(name)
             if do == "spawn" and getattr(e, "no_login", False):
                 return self.no_login(action)   # Claude Code has no sign-in for it (hosts/streamjson NoLogin): it waits
             # the address after a sign-in carries a one-time code: only the kind of the failure goes to the journal
@@ -578,6 +579,8 @@ class Hub:
         # which agent profile went to the executor (core/execprofile): a digest, with addenda or full, and stale — recompress
         profile = used.pop(name, None) if do == "spawn" and isinstance(used, dict) else None
         lost = do == "spawn" and self.take_conversation_lost(name)
+        # modules with launch.env the launch went without (modlaunch.missing): the session carries it until a relaunch
+        without = self.take_env_missing(name) if do == "spawn" else None
         # a raise after Opus's filter: whether the host cut the stopped turn out of the conversation (core/refusals.py)
         cuts = getattr(self.host, "refusal_cut", None)
         cut = cuts.pop(name, None) if do == "spawn" and isinstance(cuts, dict) else None
@@ -588,6 +591,7 @@ class Hub:
                                         **({"server": action["server"]} if action.get("server") else {}),
                                         **({"profile": profile} if profile else {}),
                                         **({"conversation": "lost"} if lost else {}),
+                                        **({"without": without} if without else {}),
                                         **({"cut": cut} if cut is not None else {})})
 
     def take_conversation_lost(self, name):
@@ -598,6 +602,12 @@ class Hub:
             return False
         marks.discard(name)
         return True
+
+    def take_env_missing(self, name):
+        """The modules with launch.env the host's last spawn of the session went without, or None; taken whatever the
+        launch's outcome, so the mark never outlives it."""
+        marks = getattr(self.host, "env_missing", None)
+        return marks.pop(name, None) if isinstance(marks, dict) else None
 
     def profile_busy(self, name, profile):
         """The agent or one of its executors (they carry its profile) is in a turn: an eviction waits."""
@@ -657,7 +667,7 @@ class Hub:
 
     def profile_check(self, name, prof, folder):
         sess = self.state["sessions"][name]
-        got = profcap.check(folder, profcap.cap_kb(self.config), self.clock(), marked=bool(sess.get("profile_marked")),
+        got = profcap.check(folder, profcap.cap_kb(self.config, name), self.clock(), marked=bool(sess.get("profile_marked")),
                             busy=self.profile_busy(name, prof))
         if not got:
             return
@@ -1141,9 +1151,7 @@ class Hub:
             # the last snapshot with the new code and see what the core never did — a core snapshot for them. A rotation at
             # this start has written it already: the "rotate" snapshot is the state folded by this code
             self.snapshot("start")
-        # i18n: the core knows languages — the fold sets the interface language of a new hub with no history (core/i18n.py human)
-        self.record("core.started", data={"pid": os.getpid(), "down_since": down, "spooled": spooled, "i18n": 1,
-                                          "host": getattr(self.host, "kind", "stream")})
+        self.record("core.started", data={**self.started_data(), "down_since": down, "spooled": spooled})
         self.load_news()
         self.load_catalog()
         self.bus_start()
@@ -1860,13 +1868,31 @@ class Hub:
             self.load_catalog()
         self.config_mtime = mtime
 
+    def started_data(self):
+        """core.started's own fields; i18n: the core knows languages — the fold sets the interface language of a new hub
+        with no history (core/i18n.py human); release: the version of the app's code layer this core runs (release_base:
+        the release under a build of edits) — the fold ends an update's "waits for the restart" of that version (no wait
+        for the update's first pass, which comes after the migration and the server)."""
+        rel = self.app_release()
+        return {"pid": os.getpid(), "i18n": 1, "host": getattr(self.host, "kind", "stream"),
+                **({"release": rel[0]} if rel else {}), **({"release_base": rel[1]} if rel and rel[1] != rel[0] else {})}
+
+    def app_release(self):
+        """(version, release under a build of edits) of the app's code layer the core runs from, None for a hub from git or
+        an older package."""
+        self.find_app_layer()
+        return appwatch.release(self.app_layer) if self.app_layer else None
+
+    def find_app_layer(self):
+        if self.app_layer is None:   # looked up once
+            from core import packaged
+            self.app_layer = (packaged.is_app(packaged.info()) and appwatch.layer(packaged.REPO)) or False
+
     def watch_app(self):
         """The app's code layer (core/appwatch.py): at the first tick — the core is up (the launcher's start record), then
         the full check at once and every FULL_EVERY, and a restore the launcher left; a fact only when what the state says
         changes. A hub from git or an older package — nothing, ever (looked up once)."""
-        if self.app_layer is None:
-            from core import packaged
-            self.app_layer = (packaged.is_app(packaged.info()) and appwatch.layer(packaged.REPO)) or False
+        self.find_app_layer()
         if not self.app_layer:
             return
         name, now = os.path.basename(self.app_layer), self.clock()

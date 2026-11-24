@@ -793,7 +793,7 @@ def file_manager(env=None, platform=sys.platform, which=shutil.which, run=subpro
     env = os.environ if env is None else env
     if not which("xdg-open"):
         return None
-    if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")) and not _graphical_login(env, which, run):
+    if not has_screen(env, platform, which, run):
         return None
     try:
         out = run(["xdg-mime", "query", "default", "inode/directory"], capture_output=True, text=True, timeout=5).stdout
@@ -998,6 +998,16 @@ def has_browser(env, plat=None):
     or WAYLAND_DISPLAY); a server without a display, no (2026-10-11: MCP sign-in goes as a link, core/mcplogin.py)."""
     plat = plat or sys.platform
     return plat == "darwin" or bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
+
+
+def has_screen(env=None, platform=sys.platform, which=shutil.which, run=subprocess.run):
+    """Whether this machine shows a window to a person at it: macOS yes; Linux — a display in the service's environment or,
+    for a systemd --user service that was not given one (the installer's), a graphical login of the user. A server, a
+    container, a desktop reached only by ssh: no (a localhost link would land in a browser on another computer)."""
+    if platform == "darwin":
+        return True
+    env = os.environ if env is None else env
+    return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")) or _graphical_login(env, which, run)
 
 
 GRAPHICS = 0x2   # kIOPMSystemCapabilityGraphics (IOKit IOPMPrivate.h): a full wake has it, a dark wake does not

@@ -41,10 +41,10 @@ irm https://icons8.github.io/hub/install.ps1 | iex             # Windows 10/11, 
 
 A team's own build has its own line, with the team's build key in it: take that whole line from your team's chat.
 
-Nothing has to be installed first and no administrator rights are needed: the line puts the hub's own environment
-(Python, Node, gh, ffmpeg; git too on macOS and Windows; on Linux a missing git is installed through the
-system's package manager, with `sudo`), the hub's code, its service and the `hub` command into your
-user folder, then opens the page. The hub installs Claude Code and a browser for agents itself; what is left for you is
+Nothing has to be installed first and no administrator rights are needed, except on Linux without git: there the line
+installs it through the system's package manager with `sudo`, so use an account that has `sudo` or install git first.
+The line puts the hub's own environment (Python, Node, gh, ffmpeg; git too on macOS and Windows), the hub's code, its
+service and the `hub` command into your user folder, then opens the page. The hub installs Claude Code and a browser for agents itself; what is left for you is
 "Sign in to Claude" on the band above the page. To work on Codex instead, choose "Sign in to Codex" there: the hub
 restarts on Codex and installs its CLI by itself ([Codex](#codex)). See [One path](#one-path) for updates and your own edits.
 
@@ -429,12 +429,12 @@ With the pull requests, bug reports and ideas of (most first; the whole list wit
 [CONTRIBUTORS.md](CONTRIBUTORS.md)):
 
 - [@visualpharm](https://github.com/visualpharm): 184 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 64 pull requests, 4 reports and ideas
+- [@kalimullin](https://github.com/kalimullin): 75 pull requests, 4 reports and ideas
+- [@Eugenius-S](https://github.com/Eugenius-S): 63 pull requests
 - [@ManyLattice](https://github.com/ManyLattice): 58 pull requests, 5 reports and ideas
-- [@Eugenius-S](https://github.com/Eugenius-S): 61 pull requests
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas
 - [@eniwito](https://github.com/eniwito): 34 pull requests, 1 report or idea
-- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 16 reports and ideas
+- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 17 reports and ideas
 - [@tolaysha](https://github.com/tolaysha): 18 pull requests
 - [@Scremliss](https://github.com/Scremliss): 16 pull requests
 - [@Enwimo](https://github.com/Enwimo): 14 pull requests, 1 report or idea

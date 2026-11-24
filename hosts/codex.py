@@ -407,6 +407,7 @@ class CodexHost(StreamHost):
         A Claude sign-in module (account, session_providers) has nothing to give Codex — not asked."""
         from core import modlaunch
         added = modlaunch.adds(self.modules, {"session": name, **info}) if self.modules else []
+        self.note_missing(name, modlaunch.missing(self.modules, added) if self.modules else [])
         env = self._launch_env(name, None, agent_file, added)
         return {**codex_env(env), "CODEX_HOME": home or self.home, **ON_CODEX_ENV}
 
@@ -864,6 +865,8 @@ class MuxHost:
         object.__setattr__(self, "codex", codex)
         object.__setattr__(self, "where", {})   # session name -> "stream" | "codex"
         object.__setattr__(self, "held", [])    # Codex lines read after the poll moment (stamped): to the next poll
+        if isinstance(getattr(stream, "env_missing", None), dict):   # one record for hubd (host.done without),
+            codex.env_missing = stream.env_missing                    # whichever half launched it
 
     def __getattr__(self, attr):
         return getattr(self.stream, attr)

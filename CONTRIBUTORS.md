@@ -6,12 +6,12 @@ With the pull requests, bug reports and ideas of, most first (a pull request cou
 changes thank it):
 
 - [@visualpharm](https://github.com/visualpharm): 184 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 64 pull requests, 4 reports and ideas
+- [@kalimullin](https://github.com/kalimullin): 75 pull requests, 4 reports and ideas
+- [@Eugenius-S](https://github.com/Eugenius-S): 63 pull requests
 - [@ManyLattice](https://github.com/ManyLattice): 58 pull requests, 5 reports and ideas
-- [@Eugenius-S](https://github.com/Eugenius-S): 61 pull requests
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas
 - [@eniwito](https://github.com/eniwito): 34 pull requests, 1 report or idea
-- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 16 reports and ideas
+- [@GreatMedivack](https://github.com/GreatMedivack): 4 pull requests, 17 reports and ideas
 - [@tolaysha](https://github.com/tolaysha): 18 pull requests
 - [@Scremliss](https://github.com/Scremliss): 16 pull requests
 - [@Enwimo](https://github.com/Enwimo): 14 pull requests, 1 report or idea

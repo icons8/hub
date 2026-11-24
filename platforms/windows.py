@@ -1330,6 +1330,11 @@ def has_browser(env, plat=None):
     return True
 
 
+def has_screen(env=None, platform=sys.platform, which=shutil.which, run=subprocess.run):
+    """Whether this machine shows a window to a person at it: on Windows yes (the desktop)."""
+    return True
+
+
 def dark_wake(plat=None, run=None):
     """Whether the machine is awake without the person (the Mac's DarkWake): Windows has no such check, so no."""
     return False

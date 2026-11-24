@@ -560,9 +560,9 @@ hub profile evicted [<agent>] [--grep T] [-n N]
 hub profile restore <id> [<agent>]
 hub profile pin <agent> --from FILE [--evicted FILE] [--check]
 : items the core moved out of an agent's CLAUDE.md over its size cap
-  Over the cap (Settings: agents.profile_max_kb) the core moves an agent's oldest unpinned items, whole, out of its
-  CLAUDE.md into CLAUDE.evicted.md next to it; a 📌 at the start of an item's first line, or in a section heading,
-  keeps it. Nothing is moved before the agent's pinning is confirmed with pin. Without <agent> — your own (an executor:
+  Over the cap (Settings: agents.profile_max_kb; one agent's own: agents.profile_max_kb_for {"<agent>": KB} in
+  hub.json, 0 — none) the core moves an agent's oldest unpinned items, whole, out of its CLAUDE.md into
+  CLAUDE.evicted.md next to it; a 📌 at the start of an item's first line, or in a section heading, keeps it. Nothing is moved before the agent's pinning is confirmed with pin. Without <agent> — your own (an executor:
   its raiser's). The file wins where it and an evicted item differ.
   pin: a list in Markdown — a section heading as it stands in the file, under it the start of each item's first line
   to pin; a line "*" pins the whole section (a code block is pinned only so). Any line that matches no item or two —

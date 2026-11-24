@@ -13,7 +13,7 @@ import { boxes } from "./boxes.js";
 import { resolve, run as runCommand, suggest } from "./commands.js";
 import { t } from "./i18n.js";
 import { composerLayout } from "./composer-layout.js";
-import { claim, sent, settled } from "./outgoing.js";
+import { claim, sent, settled, typed } from "./outgoing.js";
 import { busLinkIn, pasteIntoHubs } from "./hubs.js";
 
 // a link of the hub bus typed or pasted into a session's field (spec hubbus/ux §3.3 p. 5): it is a secret — a session's
@@ -414,6 +414,9 @@ export function buildComposer(props) {
     const was = held ? null : unsent.get(key);
     body.client_id = held?.cid || (was && was.sig === sendSig(body) ? was.client_id : newClientId());
     claim(body.client_id, body.text);   // the feed's bubble of a voice message (outgoing.js) now waits for this very send
+    // a typed message to a session is in its feed at once, "sending", until the core's row takes its place (outgoing.js:
+    // only where that row will say the same words); a plugin's own transport (a card answer, another hub) has no feed row
+    if (!held && !way.send) typed(body.client_id, body, files);
     // A late receipt owns only the retry record seen when this send began.
     // Another in-flight send may since have restored its own uncertain outcome.
     const clearUnsent = () => { if (!held && unsent.get(key) === was) unsent.delete(key); };

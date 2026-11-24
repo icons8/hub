@@ -164,6 +164,13 @@ class Catalogs(unittest.TestCase):
         self.assertEqual(sorted(k for k in used if k not in en), [])
         self.assertEqual(sorted(k for k in used if k not in ru), [])
 
+    def test_the_page_word_for_a_delivered_message_is_the_cores_word(self):
+        # the bubble of a typed message (feed.js KINDS.outgoing) has the head its core row will have, unseen: only its
+        # width counts, so the page's key must say the core's word in every language (the page gets web.* keys only)
+        for lang in i18n.ready():
+            cat = i18n.catalog(lang)
+            self.assertEqual(cat.get("web.feed.outgoing_delivered"), cat.get("core.views.message.delivered"), lang)
+
     def test_page_keys_are_all_used(self):
         # page keys (web.*, files.*) are only those the code asks for: dead ones do not pile up in the catalogs of all languages
         used = tool.used_keys() | tool.DYNAMIC

@@ -1,0 +1,185 @@
+{
+ "id": "send-self-gone",
+ "title": "A refusal of a message to an executor you raised that has been removed (SEND_SELF_GONE) says what to do next: the session brings the same executor back for its own work, raises a new one for new work, and does nothing when nothing is needed",
+ "note": "The refusal is the constant of each version (⟦GONE⟧ = core/reducer.SEND_SELF_GONE with the name filled in), printed as `hub send` prints a rejected fact. `before` (main) says only why; `after` also names `hub session revive <name>` and `hub task run <name> \"<task>\"`. Turns: the same work (a bug in maps-3's own code, its conversation matters) — revive; unrelated new work — task run; a courtesy line with nothing to do — neither; control — no refusal at all. Names and paths are made up. Run: --before main --after HEAD --trials 5, then once more with --before/--after swapped. The system prompt is what the version's core gives the agent maps itself (hosts/streamjson.command): an executor cannot raise executors, so the sender of this refusal is an agent or the hub.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "core/reducer.py",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands and tool calls you make right now, in this turn, one per item; none — an empty list. The stand has no tools of its own: this field is how it records what you do (you do not run anything, and do not say that you cannot); a command you would run goes here, not into the reply"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result, which goes to whoever wrote to you)"
+    }
+   }
+  }
+ },
+ "system": "Bench: you are a hub session in the middle of its work. The stand has no tools: what you would run now goes into actions_now. Today is 2026-11-17.",
+ "executor": {
+  "agent": "maps",
+  "files": {
+   "CLAUDE.md": "# Agent maps: Backend Developer of the maps service\n\nThis is your own CLAUDE.md — the core gives it to you at every start. Keep it short, facts only.\n\n## Profile\nBackend Developer of the maps service: tiles, export, geocoder; repo maps-backend.\n\n## Knowledge\n- The tile export lives in `src/export/`; tests: `python3 -m unittest tests.test_export`.\n"
+  },
+  "command": {
+   "lang": "en"
+  },
+  "executor": false
+ },
+ "turns": [
+  {
+   "id": "same-work-revive",
+   "input": "You are the agent maps (folder /home/x/agents/maps, a git repo). Earlier you raised the executor maps-3 (`hub task run maps-3 …`, task d310: write the migration db/migrate/0042_tiles.py and run tests/test_migrate.py); it handed in, you read its result (\"Migration written, 6 tests green\"), and the hub removed it afterwards.\nYou have just run the migration on a copy of the database: it fails on a table with more than a million rows (a timeout in step 3 of 0042_tiles.py). That is maps-3's code and maps-3's own conversation knows why it chose that step.\nYou ran: hub send maps-3 \"0042_tiles.py times out on a big table: step 3 needs batches. Please fix it and rerun tests/test_migrate.py\"\nOutput:\nrejected: send to maps-3 — ⟦GONE⟧\n\nWhat do you do in this turn?",
+   "consts": {
+    "GONE": {
+     "file": "core/reducer.py",
+     "name": "SEND_SELF_GONE",
+     "format": {
+      "name": "maps-3"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "brings_it_back",
+     "type": "field",
+     "name": "actions_now",
+     "item_re": "hub session revive maps-3",
+     "text": "brings the same executor back to continue its own work"
+    },
+    {
+     "id": "not_a_new_one",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub task run",
+     "text": "does not raise a new executor for work that is maps-3's own"
+    }
+   ]
+  },
+  {
+   "id": "new-work-task-run",
+   "input": "You are the agent maps (folder /home/x/agents/maps, a git repo). Earlier you raised the executor maps-3 (`hub task run maps-3 …`, task d310: write the migration db/migrate/0042_tiles.py and run tests/test_migrate.py); it handed in, you read its result (\"Migration written, 6 tests green\"), and the hub removed it afterwards.\nThe migration is merged. Now a different job comes up, which has nothing to do with maps-3's work: the tile cache needs a nightly cleanup script (scripts/clean_tile_cache.py) and a test for it. You first tried to hand it to maps-3, since it was free:\nYou ran: hub send maps-3 \"new job: write scripts/clean_tile_cache.py (delete cache tiles older than 30 days) and a test for it\"\nOutput:\nrejected: send to maps-3 — ⟦GONE⟧\n\nWhat do you do in this turn?",
+   "consts": {
+    "GONE": {
+     "file": "core/reducer.py",
+     "name": "SEND_SELF_GONE",
+     "format": {
+      "name": "maps-3"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "raises_new",
+     "type": "field",
+     "name": "actions_now",
+     "item_re": "^hub task run [a-z][\\w-]* ",
+     "text": "raises a new executor, with a real name, for the new work"
+    },
+    {
+     "id": "not_revive",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub session revive",
+     "text": "does not bring back an executor whose conversation the new work does not need"
+    },
+    {
+     "id": "no_repeat_send",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "^hub send maps-3",
+     "text": "does not repeat the refused send"
+    },
+    {
+     "id": "fresh_name",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub task run (maps-3|<)",
+     "text": "does not reuse the removed name or copy the placeholder"
+    },
+    {
+     "id": "no_pipe_in_work",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub task run .*--work\\s+\\w*\\s*\\|",
+     "text": "does not copy `normal|risky` as a shell pipe: --work takes one value"
+    },
+    {
+     "id": "work_value",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "--work\\s+(normal\\s*\\|\\s*risky|<)",
+     "text": "--work gets one real value or none"
+    }
+   ]
+  },
+  {
+   "id": "nothing-needed",
+   "input": "You are the agent maps (folder /home/x/agents/maps, a git repo). Earlier you raised the executor maps-3 (`hub task run maps-3 …`, task d310: write the migration db/migrate/0042_tiles.py and run tests/test_migrate.py); it handed in, you read its result (\"Migration written, 6 tests green\"), and the hub removed it afterwards.\nThe migration is merged and the owner has accepted it; there is nothing left to do on d310 or around it. Out of habit you sent maps-3 a courtesy line that needs no reply:\nYou ran: hub send maps-3 \"thanks, the migration is merged — nothing more needed from you\"\nOutput:\nrejected: send to maps-3 — ⟦GONE⟧\n\nWhat do you do in this turn?",
+   "consts": {
+    "GONE": {
+     "file": "core/reducer.py",
+     "name": "SEND_SELF_GONE",
+     "format": {
+      "name": "maps-3"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "no_revive",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub session revive",
+     "text": "does not bring a removed executor back for a courtesy line"
+    },
+    {
+     "id": "no_task_run",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub task run",
+     "text": "does not raise an executor with nothing to do"
+    },
+    {
+     "id": "no_repeat_send",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "^hub send maps-3",
+     "text": "does not repeat the refused send"
+    }
+   ]
+  },
+  {
+   "id": "control-other-executor",
+   "input": "You are the agent maps (folder /home/x/agents/maps, a git repo). Earlier you raised the executor maps-3 (`hub task run maps-3 …`, task d310: write the migration db/migrate/0042_tiles.py and run tests/test_migrate.py); it handed in, you read its result (\"Migration written, 6 tests green\"), and the hub removed it afterwards.\nThe owner asks you for a status of the maps work: what is merged and what is left. You have nothing outstanding with maps-3; the migration is merged.\n[hub:m500 from maps] Status of the migration d310, one line?\n\nWhat do you do in this turn?",
+   "checks": [
+    {
+     "id": "answers",
+     "type": "field",
+     "name": "says",
+     "re": "(?i)(merged|0042|migrat)",
+     "text": "answers the status"
+    },
+    {
+     "id": "no_revive",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "hub session revive|hub task run",
+     "text": "does not touch executors"
+    }
+   ]
+  }
+ ]
+}

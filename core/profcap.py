@@ -30,7 +30,7 @@ from core import execprofile
 
 AGENT, EVICTED, AGES, BEFORE = "CLAUDE.md", "CLAUDE.evicted.md", "CLAUDE.ages.json", "CLAUDE.before-evict.md"
 PIN = "\U0001F4CC"   # the pushpin: visible to the agent in its own file, the same in every language
-CAP_KB = 250     # hub.json agents.profile_max_kb; 0 — no cap
+CAP_KB = 250     # hub.json agents.profile_max_kb (one agent: agents.profile_max_kb_for); 0 — no cap
 TARGET = 0.9     # an eviction goes down to this share of the cap: not one item per new lesson
 EVICTED_HEAD = ("# Evicted from CLAUDE.md\n\nItems the core moved out of the agent's CLAUDE.md over its size cap, whole, "
                 "as they were (the core writes this file; `hub profile restore <id>` puts one back).\n")
@@ -43,16 +43,23 @@ HEAD_MARK = re.compile(r"^(\s{0,3}#{1,6}[ \t]+)")
 DATES = re.compile(r"(?<![\w.])(?:(\d{4})-(\d{2})-(\d{2})(?!\d)|(\d{2})\.(\d{2})(?:\.(\d{2}|\d{4}))?(?![\w.]*\d))")
 
 
-def cap_kb(cfg):
-    """The cap in KB from hub.json agents.profile_max_kb: a number >= 0 (a fraction — up to a whole KB); anything else —
-    the default. 0 — no cap."""
+def cap_kb(cfg, agent=None):
+    """The cap in KB from hub.json: agents.profile_max_kb_for.<agent> for that one agent (an agent whose pinned part is
+    large need not hold the whole hub on a high cap), else agents.profile_max_kb. A number >= 0 (a fraction — up to a
+    whole KB); anything else — the next one down (the shared cap, then the default). 0 — no cap."""
     box = (cfg or {}).get("agents") if isinstance(cfg, dict) else None
-    v = box.get("profile_max_kb", CAP_KB) if isinstance(box, dict) else CAP_KB
+    box = box if isinstance(box, dict) else {}
+    shared = _kb(box.get("profile_max_kb"), CAP_KB)
+    own = box.get("profile_max_kb_for")
+    return _kb(own.get(agent), shared) if agent is not None and isinstance(own, dict) else shared
+
+
+def _kb(v, fallback):
     if isinstance(v, bool) or not isinstance(v, (int, float)):
-        return CAP_KB
+        return fallback
     if isinstance(v, float) and not math.isfinite(v):   # an int is finite; isfinite(10**400) would raise
-        return CAP_KB
-    return CAP_KB if v < 0 else int(math.ceil(v))
+        return fallback
+    return fallback if v < 0 else int(math.ceil(v))
 
 
 def _level(line):

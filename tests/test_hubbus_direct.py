@@ -34,8 +34,10 @@ def session_put(hub, session, rejected):
 
 
 def send(a, text, session="api", thread=None):
-    """`hub send liaison --to bee "<text>"` from a session of A: (exit code, what it printed, refusals)."""
-    a.up(session)
+    """`hub send liaison --to bee "<text>"` from a session of A: (exit code, what it printed, refusals). A session
+    already up is left as it is: it may be in a turn."""
+    if session not in a.st["sessions"]:
+        a.up(session)
     with a.env():
         busd.write_view(a.h)
     rejected, out = {}, io.StringIO()
@@ -84,6 +86,41 @@ class Direct(unittest.TestCase):
         self.assertEqual(len(got), 1)
         thread = b.bus["inbox"][bid]["thread"]
         self.assertIn(f"hub send liaison --to bee --thread {thread}", got[0]["text"].split("<<<")[0])   # it can answer there
+
+    def test_the_session_the_question_was_passed_to_answers_in_the_thread_and_gets_the_reply(self):
+        for t in ("named", None):                                         # with --thread; by itself — never a led thread
+            with self.subTest(thread=t):
+                a, b, wire = base.acquainted()
+                own(a)
+                send(a, "Which port does the gateway take?")
+                wire.settle()
+                (bid,) = list(b.bus["inbox"])
+                thread = b.bus["inbox"][bid]["thread"]
+                name_at_b = next(iter(b.bus["contacts"]))
+
+                def bee_says(text):
+                    _, why = b.as_liaison("bus.send_requested", {"contact": name_at_b, "thread": thread, "text": text})
+                    self.assertIsNone(why)
+                    for card in b.cards():
+                        b.answer(card, "send")
+                    wire.settle()
+                bee_says("staging or prod?")
+                (got,) = [m for m in a.st["messages"].values() if m.get("session") == "api" and "staging" in m["text"]]
+                a.rec("turn.started", {"marker": got["id"]}, entity="api")
+                a.up("docs")
+                mid, why = a.say("api", "please answer bee: prod", to="docs")   # api passes the question on
+                self.assertIsNone(why)
+                a.rec("turn.started", {"marker": mid}, entity="docs")
+                self.assertEqual(a.bus["threads"][thread]["source"], "api")
+                code, said, rejected = send(a, "prod: 8443", session="docs", thread=thread if t else None)
+                self.assertEqual((code, rejected), (0, {}), said)
+                wire.settle()
+                (theirs,) = [x for x in b.bus["inbox"].values() if x["text"] == "prod: 8443"]
+                self.assertEqual(theirs["thread"] == thread, bool(t))
+                self.assertEqual(a.bus["threads"][thread]["source"], "docs" if t else "api")
+                bee_says("thanks, works")
+                (item,) = [x for x in a.bus["inbox"].values() if x["text"] == "thanks, works"]
+                self.assertEqual(item["passed_to"], ["docs" if t else "api"])   # the reply comes back to who leads
 
     def test_a_hub_not_bound_to_a_person_or_with_a_rule_goes_through_the_liaison(self):
         a, _, _ = base.acquainted()

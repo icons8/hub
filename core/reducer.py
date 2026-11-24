@@ -9,7 +9,7 @@ import os
 import re
 import traceback
 
-from core import (appwatch, askexpired, backbone, board, budget, busstate, catalog, chain, chats, codeedits, configwatch, coretext, corewrite, delegations, deputies, deputyroute, executors, gitaccess, guards, hubrun, identity, journal, layout,
+from core import (appcode, appwatch, askexpired, backbone, board, budget, busstate, catalog, chain, chats, codeedits, configwatch, coretext, corewrite, delegations, deputies, deputyroute, executors, gitaccess, guards, hubrun, identity, journal, layout,
                   langdata, i18n, lessons, liaison, forms, limitresume, mcpwatch, minihub, modelrule, modprompt, modrun, modstate, news, owner, parking, profcap, redact, refusals, restart, schedule, specmode, system,
                   tools)
 from core.coretext import T
@@ -40,6 +40,29 @@ EDIT_KINDS = ("M", "A", "D", "T", "U", "?")
 
 def _whole(n):
     return isinstance(n, int) and not isinstance(n, bool) and n >= 0
+
+
+def restart_taken(st, start=False):
+    """The app's code layer: the update check against what the core runs (st["app_release"] {version, base}, from
+    core.started). The version the update installed and waited for the restart of runs — the restart is done: the check
+    is current (no "Restarting for X…", no "Restart"), "Return" names what ran before it, and its fields of that layer
+    (a build of edits, below the minimum) wait for the update's next pass, which comes after the migration and the
+    network. A pass of the previous code left in the mailbox over the restart and taken after the start is ended the
+    same way. start — the core's start: the running version is the check's in any case (a return by the watchdog after
+    the new core came up)."""
+    check, rel = st.get("update_check") or {}, st.get("app_release") or {}
+    if check.get("layer") is not True or not isinstance(rel.get("version"), str):
+        return
+    base = rel["base"]   # have_version is the release under a build of edits, as the update writes it
+    if check.get("result") in ("applied", "restarting") and check.get("version") == rel["version"]:
+        was = check.get("have_version")
+        low = check.get("min") or {}
+        check = {k: v for k, v in check.items() if k not in ("ask_restart", "own", "previous")
+                 and (k != "min" or appcode.version_key(base) < appcode.version_key(low.get("version") or ""))}
+        check.update(result="current", **({"previous": was} if isinstance(was, str) and was else {}))
+    elif not start:
+        return
+    st["update_check"] = {**check, "have_version": base}
 
 
 def app_shell_shape(got):
@@ -1077,6 +1100,10 @@ def _apply(st, ev, actions):
         seen[ev["entity"]] = max(seen.get(ev["entity"], 0), int(data.get("seq") or 0))
         return
     if kind == "turn.result":
+        if ev.get("entity") in st["sessions"]:
+            # before anything reads the turn's task; a hook's refusal is a failed turn (is_error below)
+            delegations.asked_back(st, st["sessions"][ev["entity"]],
+                                   {**data, "is_error": True} if hook_refused(data) else data)
         _handoff_result(st, ev, data, actions, ctx)
         if isinstance(data.get("context"), int) and ev.get("entity") in st["sessions"]:
             # conversation length is the context of the last model call: the core compacts a long conversation by it (compact_idle)
@@ -1348,6 +1375,7 @@ def _apply(st, ev, actions):
         if not text:
             raise Rejected(T("core.reducer.waiting_text", "waiting for: a text is needed — whom or what"))
         sess["waiting"] = {"text": text[:200], "ts": ev["ts"]}
+        delegations.still_waiting(sess, ev["ts"], text)
         return
     if kind == "session.gist":
         # a session's gist in one line is its own fact (`hub gist`: write the essence itself and fit in 160
@@ -1676,6 +1704,7 @@ def _apply(st, ev, actions):
                               **({"min": low} if (low := minimum_shape(data.get("min"))) else {}),
                               **({"report": {"on": data["report"]["on"]}} if isinstance(data.get("report"), dict)
                                  and isinstance(data["report"].get("on"), bool) else {})}
+        restart_taken(st)   # a pass of the previous code left in the mailbox over the restart and taken after the start
         return
     if kind == "update.modules":
         # private modules installed, or why not (modules/update/private.py): "About" and the statistics report
@@ -1852,7 +1881,10 @@ def _apply(st, ev, actions):
     if kind == "module.forget":   # the owner clears a warning about a module with core.write (core/corewrite.py)
         return corewrite.forget(st, data)
     if kind.startswith("module."):  # core modules (core/modrun.py): failure, readiness, clearing a stop
-        return modrun.apply(st, ev, data, actions)
+        got = modrun.apply(st, ev, data, actions)
+        if kind == "module.ready":   # sessions that went without its launch.env relaunch when free
+            _env_back(st, data["module"], "launch.env" in (data.get("points") or ()))
+        return got
     if kind.startswith("mod."):  # a core module's own state (core/modstate.py): mods.<name>, only its own branch
         return modstate.apply(st, ev, data)
     if kind.startswith("net."):  # the Hubnet network was removed from the hub (02.10); its events in old journals are skipped
@@ -1888,6 +1920,14 @@ def _apply(st, ev, actions):
             history = st["sessions"] or st["messages"] or st["delegations"] or not data.get("i18n")
             st["ui_lang_default"] = "ru" if history else ""
         st["host"] = data.get("host") or "stream"   # tmux sends no turn results, so the eyes/thumbs badges have nothing to decide by
+        # the release of the app's code layer this core runs (core/daemon.started_data); none — a hub from git
+        if isinstance(data.get("release"), str) and data["release"]:
+            base = data.get("release_base")
+            st["app_release"] = {"version": data["release"][:64],
+                                 "base": (base if isinstance(base, str) and base else data["release"])[:64]}
+        else:
+            st.pop("app_release", None)
+        restart_taken(st, start=True)
         modrun.started(st)   # modules that failed to come up last time try again
         for name in restart.wake(st):   # sessions that asked the hub to restart the hub mid-task
             sess = st["sessions"].get(name)
@@ -1950,8 +1990,23 @@ def _apply(st, ev, actions):
         for sess in st["sessions"].values():   # the module was switched off: pending reactions to lines are not sent to sessions
             for line in sess.pop("reacts", None) or {}:
                 _badge(st, line, None, own=True)   # and they are not in the feed: the session did not receive them
+    if kind == "host.done" and data.get("do") == "spawn" and data.get("conversation") == "lost" \
+            and ev.get("entity") in st["sessions"]:
+        refusals.lost(st["sessions"][ev["entity"]])   # a new conversation: nothing to cut, no fallback latched in it
     if kind == "host.done" and data.get("do") == "spawn" and "cut" in data and ev.get("entity") in st["sessions"]:
         refusals.spawned(st["sessions"][ev["entity"]], data)   # whether the host cut the stopped turn (core/refusals.py)
+    if kind == "host.done" and data.get("do") == "spawn" and data.get("result") in ("spawned", GATEWAY_BYPASSED) \
+            and ev.get("entity") in st["sessions"]:
+        # modules with launch.env this process went without (core/modlaunch.missing): hub status shows them, their
+        # module.ready relaunches the session when free (_env_back); a launch with all of them clears it
+        sess = st["sessions"][ev["entity"]]
+        # the one place the relaunch mark ends: this process has what is ready now (a module ready while it waited too)
+        sess.pop("env_stale", None)
+        without = data.get("without")
+        if isinstance(without, list) and without and sess["state"] in LIVE:
+            sess["env_missing"] = [str(m)[:40] for m in without][:16]
+        else:
+            sess.pop("env_missing", None)
     if kind == "host.done" and data.get("do") == "spawn" and data.get("result") == GATEWAY_BYPASSED \
             and ev.get("entity") in st["sessions"]:
         st["sessions"][ev["entity"]].pop("gateway", None)   # a core module pointed claude at its own address: not on the gateway
@@ -2961,6 +3016,8 @@ def _session_event(st, ev, data, actions):
         schedule.hand_waits(st, name, up if up and st["sessions"][up]["state"] not in ("removed", "closed", "failed")
                             else None, ts)
     sess["state"] = to
+    if to in ("retired", "closed", "failed", "removed"):
+        delegations.forget(sess)   # it left: its questions to neighbours wait for no answer (questions)
     if to in ("closed", "failed", "removed") or (current in chain.BUSY and to in (*SLEEP, "held")):
         _gone(st, sess)
     if (current in LIVE and to not in LIVE) or (current == "held" and to != "held") or kind == "session.ended" \
@@ -2974,6 +3031,8 @@ def _session_event(st, ev, data, actions):
         # no process (parked, asleep, crashed, with the owner): the next launch is with the new plugin version anyway;
         # the "will restart with them" mark in hub status is not needed for a sleeping session
         sess.pop("plugins_stale", None)
+        sess.pop("env_missing", None)   # and the modules its process went without: the next launch says anew
+        sess.pop("env_stale", None)
         mcpwatch.login_gone(st, ev, sess["name"])   # and a sign-in through its process
         if sess.get("background"):
             _bg_gone(sess, sess["background"], ts)
@@ -3376,10 +3435,11 @@ def _late_note(st, ev, up, name, text):
 
 # --- the size cap of an agent's own CLAUDE.md (core/profcap.py; owner decisions 2026-11-08) --------------------------
 PROFILE_FOLD = T("core.msg.profile_fold",
-                 "Core: your CLAUDE.md is {kb} KB, over the {cap} KB cap (hub settings: agents.profile_max_kb). Fold it "
-                 "below the cap in this turn: merge repeats, fold closed rollouts and chronicle down to the fact; do not "
-                 "touch prohibitions, gates and the owner's corrections. The core moves nothing out of it until its "
-                 "pinning is confirmed (`hub profile pin`). End the turn with one line: its size now.")
+                 "Core: your CLAUDE.md is {kb} KB, over the {cap} KB cap (hub settings: agents.profile_max_kb; one "
+                 "agent: agents.profile_max_kb_for). Fold it below the cap in this turn: merge repeats, fold closed "
+                 "rollouts and chronicle down to the fact; do not touch prohibitions, gates and the owner's corrections. "
+                 "The core moves nothing out of it until its pinning is confirmed (`hub profile pin`). End the turn with "
+                 "one line: its size now.")
 PROFILE_EVICTED = T("core.msg.profile_evicted",
                     "Core: your CLAUDE.md was {before} KB, over the {cap} KB cap: it moved {n} of the oldest unpinned "
                     "items out of it, it is {after} KB now. They are kept whole: `hub profile evicted --grep <topic>`; "
@@ -3390,8 +3450,8 @@ PROFILE_FIXED = T("core.msg.profile_fixed",
                   "of it. Fold the pinned items, or unpin what may go.")
 PROFILE_FIXED_DEV = T("core.msg.profile_fixed_dev",
                       "Core: the pinned part of {agent}'s CLAUDE.md is {fixed} KB, over the {cap} KB cap (hub settings: "
-                      "agents.profile_max_kb): the core moves nothing out of it. Look at it with {agent}: what can be "
-                      "unpinned or folded, or the cap.")
+                      "agents.profile_max_kb; one agent: agents.profile_max_kb_for): the core moves nothing out of "
+                      "it. Look at it with {agent}: what can be unpinned or folded, or the cap.")
 EVICT_ID = re.compile(r"e[0-9a-f]{12}(?:-\d+)?")
 PROFILE_NO_AGENT = T("core.reducer.profile_no_agent", "no such agent")
 PROFILE_RESTORE_WHO = T("core.reducer.profile_restore_who",
@@ -4642,6 +4702,10 @@ SEND_NO_SESSION = T("core.reducer.send_no_session", "no session {name}: who is t
 SEND_GONE = T("core.reducer.send_gone",
               "session {name} {what} on {when}: the message cannot be delivered. To bring it back with its conversation — "
               "hub session revive {name} (the hub/the owner); who is there — hub status")
+SEND_SELF_GONE = T("core.reducer.send_self_gone",
+                   "{name} has left (removed), and you raised it: the message would come back to you. To bring it back "
+                   "with its conversation — hub session revive {name}; for new work — hub task run <name> \"<task>\" "
+                   "--work normal|risky")
 SEND_OWN_SLEEPER = T("core.reducer.send_own_sleeper",
                      "executor {name} has handed in and is asleep: a message does not wake it, and from you it would only "
                      "come back to you. To give it work — hub session wake {name} --about {task} \"<what to do>\"")
@@ -4739,6 +4803,9 @@ def _received(st, ev, data, actions=None, queued=None):
     addressed = None   # the owner wrote to a session that is gone or never was, the words went elsewhere: its name (the feed row)
     was = st["sessions"].get(to) if to else None
     if was and was.get("role") == "executor" and was["state"] == "removed" and name and name != to:
+        if data.get("channel") == "session" and name == data.get("sender"):
+            # the sender raised it: "to whoever raised it" is the sender itself, the executor would get nothing
+            raise Rejected(SEND_SELF_GONE.format(name=to))
         # a message to a departed executor goes to whoever raised it, with its last result (spec, case 8)
         last = next((d.get("reply") for d in sorted(st["delegations"].values(), key=delegations.born, reverse=True)
                      if d["session"] == to and d.get("reply")), None)
@@ -4916,6 +4983,10 @@ def _received(st, ev, data, actions=None, queued=None):
         chars = me.setdefault("sent_chars", {})
         for x in {data.get("to"), name} - {None}:
             chars[x] = max(chars.get(x, 0), len((data.get("text") or "").strip()))
+        if me.get("role") == "executor" and me.get("delegation") and name and name != me.get("name") and not fyi \
+                and delegations.asks(st, me, name):
+            # it asked a neighbour mid-task: the turn on its answer continues that task (delegations.on_turn)
+            me.setdefault("questions", {})[name] = {"task": me["delegation"], "ts": ev["ts"]}
     if msg.get("from_owner"):
         st["owner"]["greeted"] = True
     if name is None:
@@ -5086,12 +5157,14 @@ def _relayed_answer(st, msg, word, ev, card=None):
     modules/telegram); his words answer the card named by the hub (card, `--card qN`); if none is named, this is not an
     answer to a card but a new request (10.10: the only open card was closed by any owner words relayed to the session)."""
     msg["re"] = word["id"]
+    words = str(msg["text"])   # the hub's words as written: what goes on by reference (coretext.said), not the core's
     # where the result will go is told to the session, as in a task (delegations.task_text): otherwise it sends the
     # same result to the hub (`hub send hub`), and the hub retells the owner what he already got (analysis 13.10). A
     # result by re is delivered only by Telegram; from the page the answer goes through the hub; for a command the
     # tail would become its argument (07.10: /effort)
     if word.get("channel") == "telegram" and not msg.get("command"):
         coretext.append(msg, "\n\n" + RELAYED_TAIL)
+        msg["said"] = words
     if word.get("action") or not card:
         return   # a page button retold by the hub is not an answer to a card; neither is anything without --card
     sess = st["sessions"][msg["session"]]
@@ -5110,6 +5183,7 @@ def _relayed_answer(st, msg, word, ev, card=None):
                       TRAIL_ANSWER_VIA_HUB.format(id=ask["id"], text=word["text"][:200]))
     coretext.prepend(msg, coretext.join(YOUR_ANSWER_HEAD.format(id=ask["id"], question=owner.question_head(ask)),
                                         PASSED_BY_HUB, ":\n"))
+    msg["said"] = words
 
 
 def _owner_answers_form(st, ev, sess, msg, actions, text=None, after=None):
@@ -7254,7 +7328,7 @@ def _pump_quiet(sess):
     every event and the state holds hundreds of sessions (25.10: 389): a full pass over each on every event costs about
     a quarter of the CPU while the page reads the journal for the first time (a copy, 20k events: 6.8 -> 5.1 s)."""
     return not ("respawn_minihub" in sess or "compact" in sess or sess.get("rename_to") or sess.get("plugins_stale")
-                or sess.get("dirty") or sess.get("limit_cut"))
+                or sess.get("env_stale") or sess.get("dirty") or sess.get("limit_cut"))
 
 
 def queue_key(m):
@@ -7352,17 +7426,19 @@ def _pump(st, ev, actions):
             # there is nothing to continue on the old one
             _tools_apply(st, sess, ev, actions, account=_engine(st, sess))
             continue
-        if sess.get("plugins_stale") and not any(m["state"] == "typing" for m in active.get(name, [])) \
-                and not restart.working(sess, ts):
-            # an updated plugin (12.10): when free and no background work runs (a service such as a dev server does not
-            # hold it, as with a hub restart): with no task, park it and the new version comes with the first message;
-            # with a task, restart now. They are not all raised at once, which is what parking is for (core/parking.py)
-            sess.pop("plugins_stale")
+        if (sess.get("plugins_stale") or sess.get("env_stale")) \
+                and not any(m["state"] == "typing" for m in active.get(name, [])) and not restart.working(sess, ts):
+            # an updated plugin (12.10), or a module whose launch.env the process went without is ready (_env_back):
+            # when free and no background work runs (a service such as a dev server does not hold it, as with a hub
+            # restart): with no task, park it and the new version comes with the first message; with a task, restart
+            # now. They are not all raised at once, which is what parking is for (core/parking.py)
+            why = "plugins" if sess.pop("plugins_stale", None) else "modules"
+            sess.pop("env_stale", None)
             if parking.parkable(st, sess, now=ts):
                 # the same parking as in reconcile and idleness (hubd writes session.parked): a SESSION machine
                 # transition, the assignment board, cancelling the handover, release
                 _session_event(st, {"type": "session.parked", "entity": name, "ts": ts, "seq": ev["seq"]},
-                               {"channel": "core", "why": "plugins"}, actions)
+                               {"channel": "core", "why": why}, actions)
             else:
                 _tools_apply(st, sess, ev, actions)
             continue
@@ -7424,6 +7500,22 @@ def _plugins_updated(st, old):
         hit = sorted(changed & set(ids))
         if hit:
             sess["plugins_stale"] = sorted(set(sess.get("plugins_stale") or []) | set(hit))
+
+
+def _env_back(st, module, gives):
+    """A module answered hello (module.ready): live sessions whose process went without its launch.env (env_missing,
+    host.done without) relaunch when free (_pump, as after a plugin update): a session that came up while the module
+    restarted had lived 13 h without its variables, and nothing said so. A hello without the point (gives False: known
+    by its right before its first hello, or a version that dropped it): nothing was missing — it leaves the list."""
+    for sess in st["sessions"].values():
+        if module not in (sess.get("env_missing") or ()) or sess["state"] not in LIVE:
+            continue
+        if gives:
+            sess["env_stale"] = True
+            continue
+        sess["env_missing"] = [m for m in sess["env_missing"] if m != module]
+        if not sess["env_missing"]:
+            sess.pop("env_missing")
 
 
 def _relaunch_waits(sess, mine, ts):
