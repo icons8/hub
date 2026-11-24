@@ -1,0 +1,57 @@
+{
+ "channels": {
+  "stable": {
+   "version": "1.10.1",
+   "commit": "95c269e57627d405ac25fb6e10f7ae779fb8e826",
+   "runtime_min": 1,
+   "notes": "",
+   "published_at": "2026-11-24T20:32:02Z",
+   "layer": {
+    "url": "/v1/layer/code-1.10.1-open.tar.gz",
+    "sha256": "92755904f6a4cb1cd2bc0be461203c9d6d6c69ef29cf31b4e0e2a1d21c25b427",
+    "size": 15920997
+   }
+  }
+ },
+ "runtime": {
+  "current": 2,
+  "shells": {
+   "linux-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-linux-arm64.tar.gz",
+    "sha256": "b55f18cfd61522f5f4161ea27cb76061d44b4e3f0b4439ad27d8755574e7b99e",
+    "size": 193745546,
+    "runtime": 2
+   },
+   "linux-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-linux-x64.tar.gz",
+    "sha256": "d6cc685a2428b15540b0c4622df1c82497a6bf5b47ecb48d7a68a4b32f24ca57",
+    "size": 209370729,
+    "runtime": 2
+   },
+   "mac-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-mac-arm64.tar.gz",
+    "sha256": "e2c020d9f23f76c78ddcb31b559b1db25213be80cb9378aa5d7fe77eda375fd7",
+    "size": 199718308,
+    "runtime": 2
+   },
+   "mac-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-mac-x64.tar.gz",
+    "sha256": "5be5c63b74de382e1dae128e1c89ea06a0b17a51674aef3e35bdd55198ca372f",
+    "size": 211508751,
+    "runtime": 2
+   },
+   "windows-arm64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-windows-arm64.tar.gz",
+    "sha256": "be97f2b86a762f98c924705f75ad90b7a9f68f732d075f2cfe1243f1c7685a96",
+    "size": 288571856,
+    "runtime": 2
+   },
+   "windows-x64": {
+    "url": "https://github.com/icons8/hub/releases/download/v1.10.1/agents-hub-v1.10.1-open-windows-x64.tar.gz",
+    "sha256": "78073b5ea3e738add16fa645738e18906f8a0d654776987ee934725942d682c9",
+    "size": 273182103,
+    "runtime": 2
+   }
+  }
+ }
+}
