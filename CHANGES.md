@@ -5,6 +5,123 @@ An item from someone else's PR ends with thanks: "— thanks: @login".
 The "### For sessions" subsection under a date is what changed for the sessions themselves (commands, rules): the core
 attaches to each session's next message only what it has not seen yet; the page does not show it.
 
+## 2026-11-25
+- A backup of the whole hub, and a move to another machine: `hub export` puts the hub into one archive — the agents with
+  their profiles, directions with their boards, the schedule, tasks, deputies, contacts, the settings without keys, the
+  agents' Claude memory — while the hub keeps running (our hub: 126 MB in 26 s). Take the archive off the hub's disk (an
+  external disk, your own cloud, or ask the hub to send it to the page and download it): only there it is a backup. At
+  the end it says what was left out and what this disk alone holds: repositories without a remote, unpushed commits,
+  executors' copies with work. `hub export --secrets` adds the vault with its key, the Claude accounts, the Telegram bot
+  and the bus keys, sealed with a password you type twice in a terminal; `--full` adds attachments, the agents' big
+  files and their conversations. On the new machine, right after installing the hub: `hub import <archive>` — it stops
+  the fresh hub, puts what it had aside, brings in the archive, moves the paths to this machine (another home folder,
+  macOS, Linux or Windows), clones the agents' repositories and starts the hub; executors whose copy did not come along
+  are stopped, their tasks go back to whoever raised them. It refuses with the reason and changes nothing when the
+  archive is damaged, made by a newer hub, the password is wrong or this hub already has its own work (`--replace`);
+  `hub import --undo` brings back what was there. Every night, a week round:
+  `hub schedule add … --command 'hub export /Volumes/Backup/hub-$(date +%a).tar.gz'`. Nothing to do to update
+- Waking an executor whose copy was removed (`hub session revive`) now works on a repository of a few gigabytes. Putting
+  the copy back had 30 seconds: git was killed in the middle of the checkout, the wake said the copy did not come back,
+  and the next wake started the executor in that half copy with most files missing. Now it gets the same minutes as
+  making a copy, a copy cut short is removed (its branch and commits stay), and a half copy left from before is made
+  again. A copy git checked out to the end but did not mark finished is kept with the work in it; before, a new executor
+  under the same name removed it with uncommitted changes. Nothing to do: the wake gets it with the update, a new
+  executor after `hub restart` — thanks: @kalimullin
+- New setting `tree.keep` in `hub.json`: a list of names of shared daemons (for example `["limactl", ".colima"]` for
+  Colima) that the cleanup of a finished session's process tree spares. Before, an executor that started Colima from
+  its tree took the VM and Docker down for every session the moment it handed in its task. A name matches the
+  executable of a process or a folder on its path (Lima's ssh master shows itself as `ssh: …/.colima/_lima/…/ssh.sock`);
+  a prefix or a near name does not match. What a spared daemon started from the session's tree is spared with it: with
+  QEMU (always on Linux) the VM is a child of `limactl`. Each spared process is recorded once while the hub runs as a
+  `tree.kept` fact (whose tree, pid, the entry that spared it); `hub stop` spares them too. Off by default: an empty or
+  missing list changes nothing. The core reads it with the settings, no `hub restart` needed (macOS and Linux; on
+  Windows the job takes the whole tree, there is nothing to spare) — thanks: @kalimullin
+- The journal watchdog no longer takes the sleep of the computer for a hang of a session. It counted a session's silence
+  on the wall clock: a session in a call when a Mac slept 17 minutes, 60 seconds after the wake and while the call was
+  still answering, was asked about as "silent mid-turn, last event 19 min ago" and the hub got a "went silent" or "hung"
+  alarm for a session that was only frozen with the machine. Now a silence, the length of the turn in the text the model
+  reads (also in the line of what the session works on) and the check of what the model said count awake time only:
+  the sleeps and dark wakes the core already records are left out, as they were for "not delivered" and "stalled". A
+  session that really stands still still gets its alarm — the time before the sleep and after it adds up. Without sleeps
+  nothing changes (Linux, Windows, a Mac that does not sleep). Nothing to do: the watchdog gets it with the update and
+  the restart that goes with it — thanks: @elenalo91
+- A schedule command job on a Mac that slept through several slots now runs once when the Mac wakes. A slot that came in
+  a short "dark" wake waits for the full wake, and if the next slot arrived before it, both were started two seconds
+  apart: the command ran for the older one, and its result was refused as unexpected. Now only the last slot runs. Needs
+  `hub restart scheduler` (the update does it itself); nothing else to do
+- `hub task run --repo <path>` where the path is already a working copy (made by an earlier task) no longer puts the new
+  copy inside it. Before, the copy landed in `<copy>/.claude/worktrees/<name>`: a test runner without an exclude picked
+  up the tests of the inner copy and pre-commit hooks walked into it. Now it lands beside the main clone, in its
+  `.claude/worktrees`, and a subfolder of the monorepo is kept. The new branch still starts from that copy's HEAD and
+  merges into its branch, as before. Submodules and bare repositories behave as they did. Takes effect after
+  `hub restart` — thanks: @bogfront
+- A card a session sent to the owner's deputy (`hub question route`) could still be answered by the owner himself, and the
+  session then recorded his answer as the deputy's ("the deputy allowed it"). The line the route command prints now says
+  which answer is whose: the deputy's comes as "Reply on qN from <name>", the one headed "The user's answer to question
+  qN" is the owner. Nothing to do
+- A finished working copy of a handed-in executor can now be removed after a while, so copies stop filling the disk
+  (a few of them are gigabytes). Off by default: set `"executors": {"drop_copy_after_hours": 24}` in `hub.json` and a
+  copy goes once its executor has been asleep that many hours; 0 or missing — never. The session, its conversation and
+  its branch stay, and `hub session wake` brings the copy back from the branch before Claude Code starts. A copy that
+  holds anything unsaved is never removed: a change in a tracked file, an untracked or ignored file that is not build
+  junk (`node_modules`, `__pycache__` and the like; `build` and `dist` only when ignored), a commit that is in no remote
+  and not in its base branch, a program that works in the folder, or a git that could not tell. When the free space
+  falls below `executors.drop_copy_below_gb` (15 by default, 0 — off; it acts only with the term set), finished copies
+  go at once instead of waiting for the term, and the owner gets one line: how many and how much is free now. At most five
+  copies go per pass; the removal is a `session.worktree_dropped` fact, the return a `session.worktree_restored` fact.
+  One change without the setting too: an executor whose copy folder was deleted by hand (a disk cleaner) is woken in
+  its copy brought back from the branch; before, it started in the repository's own folder and edited the main
+  checkout. A copy that cannot come back is not started, the owner gets the reason. Nothing to do: the core reads the
+  setting with the others — thanks: @kalimullin
+- A session's words to another hub now say which thread they went into. The rule is as it was: without `--thread` the core
+  continues the thread of that hub's words the session's turn is on, else the latest one that hub's words came to the
+  session in. But a session that led no thread with a hub and had got its words in an old one, writing about another
+  matter, saw its words go into that old thread with nothing said. Now the id and the start of the thread's first line
+  are in the note to the liaison, in the line `hub bus send` prints (`in the thread …, which the core chose`, or `in a
+  new thread`), in the line of words sent straight to your own hub, and on the hub's page under the message — "Went into
+  the thread «…» — the core chose it". The session a question of a thread is passed to (`hub send <session> "…"` in a
+  turn on that hub's words) is told the thread's id, which `--thread` takes, in the core's note to it. The refusal of a
+  thread another session leads no longer promises "a new thread" without `--thread`: the core chooses the thread itself.
+  Nothing to do; needs `hub restart` (the update does it)
+- A question card whose options carry previews is easier to look at and answer. Each preview (a sketch or a picture)
+  is a small thumbnail on its option's row, under the text on a phone; a tap opens it large: ‹ › or the arrow keys page
+  through the options, "Choose this" picks the shown one, Esc closes, on a phone the big view fills the screen. A path
+  to an html report, a pdf or a folder is a thumbnail too (the report as a live frame) and a click opens the file in a
+  new tab. In such a card a tap on an option only chooses it and "Choose" answers (a card without previews
+  still answers on the tap). The answer field takes files like the chat field does (the paperclip, paste, drop, the
+  chips): their paths go into the answer under "Attached files:", the chosen option stays the answer, so "Need more
+  context" with a screenshot is still that standard answer, and a press on the liaison's card with a file is still a
+  press. Nothing to do: the page gets it with the update, the core with the restart that goes with it — thanks:
+  @kalimullin
+- A card that came back from a deputy no longer goes to another deputy. One card goes to one deputy: when it comes back
+  ("not mine", the owner changed their area, the message did not go), it waits for you, or goes to the same deputy again
+  once you name them anew. The core told the session "do not send it again" but took a route to a second deputy all the
+  same: a mailing launch came back from the deputy for mailings and was sent on to the deputy for the backend. Now
+  `hub question route` refuses it with the reason, and the hub, given such a card, is not offered the deputies. When you
+  name the deputy anew or change their area, the session hears it may send the card to them again, where before it
+  heard "do not send it again". In your next away the card may go to another deputy. Nothing to do; needs `hub
+  restart` (the update does it)
+- Deputy set on your answer to a card: when one answer says both the area and what the deputy does not decide ("…
+  mailings; except merging into the core"), the hub may now give the two parts as the area and as `--not`. Before, the
+  core took only a whole answer as a quote and refused each half, so the exception ended up in the area text. The two
+  parts must come in the answer's order and carry all of it, bar the signs between them; a piece of an answer on its own,
+  a `--not` the answer never said and one from another card are refused as before. Nothing to do; needs `hub restart`
+  (the update does it)
+- Telegram: a session's reply can go as one rich message (`sendRichMessage`): real tables (bold and links in cells)
+  instead of the monospace block, and with `telegram.fold_long` a long reply as its first line with the rest folded
+  under "More". Off by default; enable with `telegram.rich_results: true` in `hub.json` (no restart). The reply keeps its
+  lines, the links to files, sessions and Jira tasks, and a reply to it quotes its text as before. Cards with buttons,
+  system notices, anything over the Bot API limits (20 table columns, 500 blocks, 32768 characters) and anything Telegram
+  refuses are sent as before. Nothing to do on update — thanks: @GreatMedivack
+- The README and the repository's social preview show the new Hub mark, and the pictures in them are shot again in the
+  Clean look with the characters' heads. The Hub's own avatar in Clean is the new mark too (reload the page to see it) —
+  thanks: @kalimullin
+
+### For sessions
+- Words to another hub without `--thread` go into the thread the core chooses (the one of that hub's words your turn is on,
+  else the latest it came to you in), not always a new one; the line `hub bus send` prints and the core's note name it. A
+  question of a thread handed to you comes with the thread's id in the core's note: answer in it with `--thread`
+
 ## 2026-11-24
 - A session whose conversation file is gone from disk (a cleanup of old transcripts in `~/.claude/projects`, a disk
   cleaner) no longer crashes in a loop. Before, the core raised it with `--resume`, Claude Code failed at once with "No

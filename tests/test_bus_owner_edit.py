@@ -255,6 +255,20 @@ class TheOwnersCorrectionGoesOut(unittest.TestCase):
         _, why = self.send(text_from=self.m1)
         self.assertIsNone(why)
 
+    def test_a_press_with_files_attached_on_the_page_is_not_words(self):
+        # the page puts the paths of files attached to an answer under it (cards.js withFiles): still a press, so the
+        # session's words go as they were, and the paths of his disk do not go to the other hub as his words
+        mo = self.press("Send\n\nAttached files:\n- /home/x/uploads/shot.png ([Image #1])")
+        self.liaison_turn(mo)
+        _, why = self.send(text_from=self.m1)
+        self.assertIsNone(why)
+
+    def test_his_own_words_with_files_are_still_his_words(self):
+        mo = self.press("Change it: deploy is at 11:00\n\nAttached files:\n- /home/x/uploads/plan.pdf")
+        self.liaison_turn(mo)
+        _, why = self.send(text_from=self.m1)
+        self.assertTrue(str(why).startswith("owner_changed:"), why)
+
     def test_the_cores_note_of_his_press_is_not_words_to_send(self):
         mo = self.press("Send")
         self.liaison_turn(mo)
@@ -327,6 +341,27 @@ class TheAuthorsWords(unittest.TestCase):
         coretext.prepend(task, "This is the user's answer to your question q1 («x»), passed on by the hub.\n")
         self.assertEqual(coretext.said(task), "Deploy is at 11:00")           # a task's frame and head are the core's
         self.assertEqual(coretext.said({"text": "short", "brief": [0, 99]}), "short")   # a span past the text: its text
+
+
+class APressWithFilesOnTheBusCard(unittest.TestCase):
+    def test_send_with_a_file_attached_on_the_page_is_still_send(self):
+        # the page puts the paths of files attached to a card's answer under the label (cards.js withFiles): a card of
+        # the bus (held words, an offer, an introduction) takes that as the press it is — not as a refusal that hands
+        # the paths back as his words
+        from tests.test_liaison_echo import LiaisonEcho
+        h = LiaisonEcho("setUp")
+        h.setUp()
+        h.turn(liaison.NAME, (m := h.letter()))
+        oid = h.send(m)
+        q = "Send to maps-hub: «Are the tiles ready?»"
+        h.ev("core.bus_send_held", None, src="core", out=oid, finding="key", card={
+            "input": {"questions": [{"question": q, "options": [{"label": "Send"}, {"label": "Don't send"}]}]},
+            "labels": {"send": "Send", "no": "Don't send"}})
+        (card,) = [x for x in h.st["sessions"][liaison.NAME]["asks"] if x.get("hubbus")]
+        h.ev("permission.answered", liaison.NAME, request_id=card["request_id"], behavior="allow", channel="web",
+             owner=True, answers={q: "Send\n\nAttached files:\n- /home/x/uploads/shot.png ([Image #1])"})
+        out = h.st["bus"]["out"][oid]
+        self.assertEqual((out.get("approved"), out.get("status")), ("owner", "held"), out)
 
 
 if __name__ == "__main__":

@@ -46,35 +46,75 @@
 .other-row .btn { flex: none; }
 .opt:hover { background: var(--accent); }
 .opt small { display: block; color: var(--muted-foreground); }
-/* an option's preview (cards.js previewEl): an ASCII sketch as written, scrolling sideways inside the option; or a picture.
-   Not the theme's monospace: box-drawing characters and Cyrillic fall back to another font there and the columns drift */
-.opt.has-preview > span { flex: 1 1 auto; min-width: 0; }
-.opt-preview { margin: var(--space-2) 0 0; padding: var(--space-2); max-height: 50vh; overflow: auto; white-space: pre;
-  font: var(--text-xs)/1.2 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-variant-ligatures: none; tab-size: 4; color: var(--foreground); background: var(--background);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: text; }
-.opt-preview:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
-.opt-shot { margin-top: var(--space-2); }
-.opt-img { display: block; max-width: 100%; max-height: 50vh; width: auto; height: auto; object-fit: contain;
-  border-radius: var(--radius-sm); outline: 1px solid var(--border); background: var(--muted); }
-.opt-missing { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
-/* a path to a file that is not a picture (cards.js fileEl): its icon and name, a link to a new tab; an html report also
-   shows itself above the name, laid out wide and scaled down to the option, inert (the click goes to the link) */
-.opt-file { margin-top: var(--space-2); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.opt-file-link { display: flex; flex-direction: column; gap: var(--space-1); max-width: 100%; color: inherit; text-decoration: none; }
-.opt-file-link[href] { cursor: pointer; }
-.opt-file-link:has(.opt-file-shot) { width: 100%; }
-.opt-file-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--radius-sm); }
-.opt-file-shot { display: block; width: 100%; aspect-ratio: 16 / 10; max-height: 50vh; overflow: hidden; border-radius: var(--radius-sm);
-  outline: 1px solid var(--border); background: #fff; }
-.opt-file-shot iframe { display: block; width: 1280px; height: 800px; border: 0; transform-origin: 0 0; pointer-events: none; }
-.opt-file-face { display: flex; align-items: center; gap: var(--space-1); min-width: 0; max-width: 100%; }
-.opt-file-face .icon { flex: none; width: 16px; height: 16px; fill: currentColor; color: var(--muted-foreground); }
-.opt-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); }
-.opt-file-link[href] .opt-file-name { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
-.opt-file-miss { font-size: var(--text-xs); color: var(--muted-foreground); }
+/* an option's preview (cards.js previewThumb): a thumbnail button at the end of the option's row; a click opens it large
+   (askbox.js). On a phone it drops under the text, full width. The sketch thumbnail is the first lines in a tiny monospace */
+.opt.has-preview { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-2); }
+.opt.has-preview > span { min-width: 0; }
+.opt small { overflow-wrap: anywhere; }
+.opt.has-preview small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.opt-thumb { position: relative; display: flex; align-items: flex-start; text-align: start; flex: none; width: 112px; height: 72px; padding: 0; overflow: hidden; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--background); color: var(--muted-foreground); cursor: zoom-in; align-self: start; }
+.opt-thumb-mark { position: absolute; inset-inline-end: 4px; bottom: 4px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 6px;
+  background: color-mix(in srgb, var(--background) 85%, transparent); color: var(--foreground); pointer-events: none; }
+.opt-thumb-mark .icon { width: 12px; height: 12px; fill: currentColor; }
+.opt-thumb:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.opt-thumb-img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+.opt-thumb-pre { margin: 0; padding: 6px; font: calc(6px * var(--ui-scale, 1))/calc(8px * var(--ui-scale, 1)) ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-variant-ligatures: none;
+  white-space: pre; overflow: hidden; text-align: start; color: var(--foreground); pointer-events: none; }
+.opt-thumb.missing { cursor: default; display: grid; place-items: center; }
+.opt-thumb-miss { padding: 4px; font-size: var(--text-xs); line-height: 1.2; text-align: center; }
+/* a path to a file that is not a picture (cards.js fileThumb): an html report is its live frame, laid out wide and scaled
+   down, inert (the click goes to the link around it: a new tab), its mark "open" rather than "expand"; a pdf or a folder
+   is its icon and name */
+.opt-file { cursor: default; }
+.opt-file > a { display: flex; width: 100%; height: 100%; color: inherit; text-decoration: none; overflow: hidden; border-radius: inherit; }
+.opt-file > a[href] { cursor: pointer; }
+.opt-file > a:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.opt-file-frame { flex: none; width: 1280px; height: 823px; border: 0; transform-origin: 0 0; pointer-events: none; background: #fff; }
+.opt-file-face { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 100%; padding: 6px; box-sizing: border-box; min-width: 0; }
+.opt-file-face .icon { width: 24px; height: 24px; fill: currentColor; color: var(--muted-foreground); flex: none; }
+.opt-file-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); line-height: 16px; color: var(--foreground); }
+.opt-file > a[href] .opt-file-name { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
+@media (max-width: 520px) {
+  .opt.has-preview { grid-template-columns: auto minmax(0, 1fr); }
+  .opt-thumb { grid-column: 2; width: 100%; height: 120px; margin-top: var(--space-2); }
+}
+/* the big view of a preview (askbox.js): a modal on top of the page; on a phone it takes the whole screen, inside the safe areas */
+.askbox { box-sizing: border-box; width: min(960px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: var(--space-3); border: 0; border-radius: var(--radius);
+  background: var(--background); color: var(--foreground); box-shadow: 0 12px 48px rgb(0 0 0 / 0.35); }
+.askbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--space-3); }
+.askbox::backdrop { background: rgb(0 0 0 / 0.55); }
+.askbox-head, .askbox-foot { display: flex; gap: var(--space-2); align-items: center; }
+.askbox-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.askbox-count { color: var(--muted-foreground); font-size: var(--text-xs); white-space: nowrap; }
+/* a picture sits in the middle of a tall phone screen (auto margins of a flex item: a taller one is never cut at the top) */
+.askbox-body { min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.askbox-img { display: block; max-width: 100%; height: auto; margin: auto; border-radius: var(--radius-sm); outline: 1px solid var(--border); }
+.askbox-pre { margin: 0; padding: var(--space-3); width: max-content; min-width: 100%; box-sizing: border-box; white-space: pre; tab-size: 4; font-variant-ligatures: none;
+  font: var(--text-sm)/1.3 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; background: var(--muted); border-radius: var(--radius-sm); }
+.askbox-pre:focus-visible, .askbox-btn:focus-visible, .askbox-pick:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.askbox-missing { margin: 0; padding: var(--space-4); text-align: center; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.askbox-file { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-4); }
+.askbox-file:has(> .askbox-frame) { padding: 0; height: 100%; }
+.askbox-file .opt-file-face .icon { width: 48px; height: 48px; }
+.askbox-file .opt-file-name { white-space: normal; overflow-wrap: anywhere; font-size: inherit; line-height: inherit; }
+.askbox-frame { display: block; width: 100%; height: min(70dvh, 720px); border: 0; border-radius: var(--radius-sm); outline: 1px solid var(--border); background: #fff; }
+.askbox-open { display: inline-flex; align-items: center; text-decoration: none; }
+.askbox-open[hidden] { display: none; }
+.askbox-btn, .askbox-pick { min-width: 36px; min-height: 36px; padding: 0 var(--space-3); border: 0; border-radius: var(--radius); background: var(--muted); color: var(--foreground);
+  font: inherit; cursor: pointer; touch-action: manipulation; }
+.askbox-btn.prev, .askbox-btn.next { font-size: 1.4em; padding: 0; width: 36px; }
+.askbox-pick { background: var(--foreground); color: var(--background); font-weight: 500; }
+.askbox-pick.on { background: var(--muted); color: var(--foreground); }
+.askbox-foot .close { margin-inline-start: auto; }
+@media (max-width: 520px) {
+  .askbox-frame { height: 100%; }
+  .askbox { width: 100vw; max-width: none; height: 100dvh; max-height: none; border-radius: 0;
+    padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left)); }
+}
 @media (hover: hover) and (pointer: fine) {
-  .opt-file-link[href]:hover .opt-file-name { text-decoration-color: currentColor; }
-  .opt-file-link[href]:hover .opt-file-shot { outline-color: var(--primary); }
+  .askbox-btn:hover { background: var(--accent); }
+  .opt-file > a[href]:hover .opt-file-name { text-decoration-color: currentColor; }
 }
 .card .code { font: var(--text-xs) var(--font-mono); background: var(--card); border-radius: var(--radius-sm); padding: var(--space-2); white-space: pre-wrap; max-height: 140px; overflow: auto; }
 .btns { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }

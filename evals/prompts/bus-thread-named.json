@@ -1,0 +1,154 @@
+{
+ "id": "bus-thread-named",
+ "title": "The thread of a session's words to another hub is named: the session that is passed a question of a thread answers in it with --thread; one that wrote about a new matter and was told the core continued an old thread does not resend or drag the old thread in; one refused a led thread does not name it again",
+ "note": "Spec d2423478 (the owner's rule stays: the core continues the thread, no --re/--new). before — what main tells: the hand-off message with no service note, the direct line with no thread, THREAD_LED promising a new thread; after — the version's THREAD_HANDED, the line `in <THREAD_AUTO>`, the new THREAD_LED (all read from core/busstate.py). Names made up (maps, docs, atlas-hub). Checks by commands, not by words: handed — the answer carries --thread with the id (the real delta: before the id was nowhere); new-matter and led-refused — controls: no resend, the old thread is not named.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "commands",
+    "says"
+   ],
+   "properties": {
+    "commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "all the shell commands you run in this turn, in order, exactly as you would type them"
+    },
+    "says": {
+     "type": "string",
+     "description": "one line: what you say at the end of the turn"
+    }
+   }
+  },
+  "format": {
+   "lang": "en"
+  },
+  "append": [
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE"
+   },
+   {
+    "file": "hosts/streamjson.py",
+    "name": "LANGUAGE_KNOWN"
+   }
+  ]
+ },
+ "system": "You are docs, a session of the hub maps-hub (a hub of a person's own: sessions maps and docs). The hub's commands are `hub` in the shell: `hub send <session> \"…\"` writes to a session, `hub send liaison --to <contact> [--thread T] \"…\"` writes to another hub through the core; the contact atlas-hub is the owner's own other hub. Today is 2026-11-25, 12:00.",
+ "turns": [
+  {
+   "id": "handed",
+   "input": {
+    "before": "[hub:m61 from maps] docs, atlas-hub asked which port the gateway takes and I am busy — answer them: prod runs on 8443.\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+    "after": "[hub:m61 from maps] docs, atlas-hub asked which port the gateway takes and I am busy — answer them: prod runs on 8443.\n\nThe core's service note:\n⟦HANDED⟧\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says)."
+   },
+   "consts": {
+    "HANDED": {
+     "file": "core/busstate.py",
+     "name": "THREAD_HANDED",
+     "optional": true,
+     "format": {
+      "sender": "maps",
+      "thread": "7c3e91a0b5d24f68a1e0c9d37b52f814 («Which port does the gateway take»)",
+      "name": "atlas-hub",
+      "id": "7c3e91a0b5d24f68a1e0c9d37b52f814"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "answers_in_the_thread",
+     "type": "field",
+     "name": "commands",
+     "item_re": "^hub send liaison\\b(?=.*--to atlas-hub)(?=.*--thread 7c3e91a0b5d24f68a1e0c9d37b52f814)",
+     "text": "answers atlas-hub in the thread it was handed, naming it with --thread"
+    }
+   ]
+  },
+  {
+   "id": "new-matter",
+   "input": {
+    "before": "[hub:m70 from core] The output of your command `hub send liaison --to atlas-hub \"Does the staging gateway take 8443?\"` — a question of yours on a new matter:\nsent to atlas-hub by the core (#42): your own hub needs no liaison; the answer in the thread and a refusal come to you\n\n(bench: earlier in this conversation, your own words to atlas-hub — «Does the staging gateway take 8443?» — went out; the thread 7c3e91a0b5d24f68a1e0c9d37b52f814 is a day old, about Which port does the gateway take, and maps leads it.)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+    "after": "[hub:m70 from core] The output of your command `hub send liaison --to atlas-hub \"Does the staging gateway take 8443?\"` — a question of yours on a new matter:\nsent to atlas-hub by the core (#42): your own hub needs no liaison; the answer in the thread and a refusal come to you\nin ⟦AUTO⟧\n\n(bench: earlier in this conversation, your own words to atlas-hub — «Does the staging gateway take 8443?» — went out; the thread 7c3e91a0b5d24f68a1e0c9d37b52f814 is a day old, about Which port does the gateway take, and maps leads it.)\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says)."
+   },
+   "consts": {
+    "AUTO": {
+     "file": "core/busstate.py",
+     "name": "THREAD_AUTO",
+     "optional": true,
+     "format": {
+      "thread": "7c3e91a0b5d24f68a1e0c9d37b52f814 («Which port does the gateway take»)",
+      "name": "atlas-hub",
+      "session": "docs"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "no_resend",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "^hub send liaison",
+     "text": "does not send the question again"
+    },
+    {
+     "id": "old_thread_not_named",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "^hub send\\b.*7c3e91a0",
+     "text": "does not send anything into the old thread by naming it"
+    }
+   ]
+  },
+  {
+   "id": "led-refused",
+   "input": {
+    "before": "[hub:m71 from core] Your command `hub send liaison --to atlas-hub --thread 7c3e91a0b5d24f68a1e0c9d37b52f814 \"Does the staging gateway take 8443?\"` was refused:\n⟦LED⟧\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says).",
+    "after": "[hub:m71 from core] Your command `hub send liaison --to atlas-hub --thread 7c3e91a0b5d24f68a1e0c9d37b52f814 \"Does the staging gateway take 8443?\"` was refused:\n⟦LED⟧\n\nBench task. List the commands you will run (the commands field — the exact command lines, in order), and in one line — what you will say at the end of the turn (says)."
+   },
+   "consts": {
+    "LED": {
+     "file": "core/busstate.py",
+     "name": "THREAD_LED",
+     "format": {
+      "thread": "7c3e91a0b5d24f68a1e0c9d37b52f814",
+      "name": "atlas-hub",
+      "session": "maps"
+     }
+    }
+   },
+   "checks": [
+    {
+     "id": "led_not_named_again",
+     "type": "field",
+     "name": "commands",
+     "item_not_re": "--thread 7c3e91a0b5d24f68a1e0c9d37b52f814",
+     "text": "does not name the led thread again"
+    },
+    {
+     "id": "acts",
+     "type": "any_of",
+     "checks": [
+      {
+       "type": "field",
+       "name": "commands",
+       "item_re": "^hub send maps"
+      },
+      {
+       "type": "field",
+       "name": "commands",
+       "item_re": "^hub send liaison --to atlas-hub(?!.*--thread)"
+      }
+     ],
+     "text": "passes the words to maps or sends them without --thread"
+    }
+   ]
+  }
+ ]
+}

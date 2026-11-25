@@ -438,6 +438,62 @@ class Watchdog(unittest.TestCase):
         self.assertEqual(self.step(202 + watch.WINDOW_SECONDS + 60), [])
         self.assertEqual(asked, [])
 
+    def frozen(self, kind):
+        """A session in a call when the Mac slept 17 min, the full wake, then no step for 2 min (2026-11-23: "silent",
+        "Last event 17 min 22 s ago" 10 s after the wake; the call answered a few seconds later). The model reads the
+        wall clock and says `kind`."""
+        asked = []
+        self.w.ask = lambda t: asked.append(t) or {"trouble": True, "kind": kind}
+        self.j.append("turn.started", "a", {"marker": None, "prompt_head": "check the page"}, ts=200)
+        self.j.append("turn.tool", "a", {"id": "t1", "name": "Bash", "input": {"command": "curl -s https://x"}}, ts=210)
+        self.assertEqual(self.step(215), [])
+        self.j.append("core.slept", data={"seconds": 17 * 60}, ts=220 + 17 * 60)
+        return asked
+
+    def test_a_turn_frozen_by_a_sleep_is_not_hung(self):
+        asked = self.frozen("hung")
+        woke = 220 + 17 * 60
+        self.assertEqual(self.step(woke + watch.HUNG_MIN), [])
+        self.assertNotIn("silent mid-turn", "".join(asked))
+        self.assertIn("Last event 2 min 10 s ago", "".join(asked))      # the awake silence, not 19 min
+        self.assertEqual(self.step(woke + watch.SILENT), ["hung"])       # awake that long without a step: it is
+
+    def test_a_turn_frozen_by_a_sleep_is_not_silent(self):
+        asked = self.frozen("silent")
+        woke = 220 + 17 * 60
+        self.assertEqual(self.step(woke + watch.HUNG_MIN), [])
+        self.assertEqual(self.step(woke + watch.SILENT - 20), [])        # the 10 min term is awake time too
+        self.assertEqual(self.step(woke + watch.SILENT), ["silent"])
+
+    def test_the_silence_before_a_sleep_and_after_it_adds_up(self):
+        self.w.ask = lambda t: {"trouble": True, "kind": "hung"}
+        self.j.append("turn.started", "a", {"marker": None, "prompt_head": "check the page"}, ts=200)
+        self.j.append("turn.tool", "a", {"id": "t1", "name": "Bash", "input": {"command": "curl -s https://x"}}, ts=210)
+        self.j.append("core.slept", data={"seconds": 690}, ts=1000)      # the sleep is 310..1000: 100 s of silence before it, 600 s of it in all by 1500
+        self.assertEqual(self.step(1020), [])                             # 100 s + 20 s awake: not a hang (the wall: 810 s)
+        self.assertEqual(self.step(1499), [])
+        self.assertEqual(self.step(1500), ["hung"])                       # 600 s of its own time without a step: as it was
+
+    def test_a_recap_and_the_turn_length_after_a_sleep_are_awake_time_too(self):
+        asked = []
+        self.w.recap = lambda text: asked.append(text) or "checks the page"
+        self.j.append("turn.started", "a", {"marker": None, "prompt_head": "check the page"}, ts=200)
+        self.assertEqual(self.step(205), [])                              # the line at the start of the turn
+        for k in range(watch.RECAP_STEPS):
+            self.j.append("turn.tool", "a", {"id": f"t{k}", "name": "Bash", "input": {"command": "curl -s https://x"}}, ts=210 + k)
+        self.j.append("core.slept", data={"seconds": 17 * 60}, ts=230 + 17 * 60)
+        self.assertEqual(self.step(250 + 17 * 60 + 80), [])
+        self.assertEqual(len(asked), 2)
+        self.assertNotIn("silent mid-turn", asked[-1])
+        self.assertIn("turn running 2 min", asked[-1])                    # 19 on the wall
+        self.assertIn("Last event 1 min 57 s ago", asked[-1])
+
+    def test_awake_quiet_leaves_out_an_open_dark_wake_and_knows_no_state(self):
+        st = {"pauses": [[300, 400]], "dark": 900}
+        self.assertEqual(watch.awake_quiet(st, 200, 1000), 800 - 100 - 100)   # the sleep and the dark wake still open
+        self.assertEqual(watch.awake_quiet(None, 200, 1000), 800)
+        self.assertEqual(watch.awake_quiet({}, 200, 1000), 800)
+
 
 if __name__ == "__main__":
     unittest.main()

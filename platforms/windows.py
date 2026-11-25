@@ -472,8 +472,9 @@ def end_tree(tree):
         tree.close()
 
 
-def end_tagged(match, grace=3.0):
-    """Session processes by the tree marker (POSIX): here the session's job took them when claude left (end_tree)."""
+def end_tagged(match, grace=3.0, keep=(), kept=None):
+    """Session processes by the tree marker (POSIX): here the session's job took them when claude left (end_tree). keep
+    (hub.json -> tree.keep) has nothing to spare here: a shared daemon started from a session went with its job."""
     return 0
 
 
@@ -1652,10 +1653,11 @@ def secret_key_file(folder, platform=sys.platform):
     return os.path.join(folder, SECRET_KEY_FILE)
 
 
-def secret_key(account, folder, create=False, platform=sys.platform, run=None):
+def secret_key(account, folder, create=False, platform=sys.platform, run=None, value=None):
     """The vault key: 32 bytes, or None when there is none (and `create` is false). The file holds the key sealed by
     CryptProtectData (the current user's scope, no UI); another content is OSError — the vault says the key is lost
-    rather than making a new one over it."""
+    rather than making a new one over it. value — the key a new one is made with (`hub import` brings the vault's key
+    from another machine) instead of a random one; never written over another key that is there."""
     path = secret_key_file(folder)
     try:
         with open(path, "rb") as f:
@@ -1666,7 +1668,9 @@ def secret_key(account, folder, create=False, platform=sys.platform, run=None):
     except FileNotFoundError:
         if not create:
             return None
-    key = os.urandom(32)
+    if value is not None and (not isinstance(value, bytes) or len(value) != 32):
+        raise ValueError("a vault key is 32 bytes")
+    key = os.urandom(32) if value is None else value
     makedirs_private(folder)
     import tempfile
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=SECRET_KEY_FILE + ".", suffix=".tmp")
@@ -1688,6 +1692,15 @@ def secret_key(account, folder, create=False, platform=sys.platform, run=None):
             pass
         raise
     return key
+
+
+def drop_secret_key(account, folder, platform=sys.platform, run=None):
+    """The vault key removed (`hub import` puts a hub's own key aside and back): the key file. -> whether there was one."""
+    try:
+        os.unlink(secret_key_file(folder))
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def _dpapi(data, seal):

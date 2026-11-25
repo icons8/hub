@@ -1,39 +1,39 @@
 <!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="common.css">
 <style>
-* { box-sizing: border-box; }
-html, body { background: #0e1621; }
-body { font: 18px/1.36 "Liberation Sans", Arial, sans-serif; color: #fff; width: 760px; height: 760px; overflow: hidden; display: flex; flex-direction: column; }
-.top { display: flex; align-items: center; gap: 14px; padding: 14px 24px; background: #17212b; border-bottom: 1px solid #0b121a; }
-.av { width: 46px; height: 46px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-weight: 700; }
-.nm { font-weight: 700; } .st { font-size: 15px; color: #6c7f90; }
-.chat { flex: 1; padding: 16px 26px 12px; display: flex; flex-direction: column; gap: 8px; justify-content: flex-end; }
-.m { max-width: 80%; padding: 10px 15px 8px; border-radius: 14px; white-space: pre-wrap; }
-.me { align-self: flex-end; background: #2b5278; border-bottom-right-radius: 4px; }
-.bot { align-self: flex-start; background: #182533; border-bottom-left-radius: 4px; }
-.t { font-size: 13px; color: #7d92a6; text-align: right; margin-top: 3px; }
-.btns { align-self: flex-start; width: 80%; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: -2px; }
-.btns div { background: #1f3042; color: #5eb5f7; text-align: center; padding: 10px 6px; border-radius: 10px; font-size: 17px; }
-.btns .wide { grid-column: 1 / -1; }
-.in { display: flex; gap: 12px; padding: 12px 24px; background: #17212b; }
-.in div { flex: 1; background: #0e1621; border-radius: 20px; padding: 10px 16px; color: #6c7f90; }
-.note { position: absolute; right: 18px; top: 22px; font-size: 13px; color: #6c7f90; }
-b { font-weight: 700; } .dim { color: #9fb6cc; }
-</style></head><body>
-<div class="top"><div class="av">H8</div><div><div class="nm">Hub by Icons8</div><div class="st">bot</div></div><div class="note">illustration</div></div>
+.stage { width: 1280px; height: 800px; }
+.phone { left: 472px; top: 36px; width: 336px; height: 728px; font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Arial, sans-serif; }
+.phone .bar { height: 52px; } .phone .bar b { top: 20px; }
+.top { position: absolute; left: 0; right: 0; top: 52px; height: 64px; background: #f7f7f8; border-bottom: 1px solid #e3e3e6; text-align: center; }
+.top .back { position: absolute; left: 12px; top: 22px; font-size: 15px; color: #2a8be6; }
+.top .nm { padding-top: 13px; font-weight: 600; font-size: 15px; color: #111; line-height: 1.2; }
+.top .st { font-size: 12px; color: #8a8a90; }
+.top img { position: absolute; right: 12px; top: 11px; width: 40px; height: 40px; border-radius: 50%; }
+.chat { position: absolute; left: 0; right: 0; top: 116px; bottom: 74px; background: #cddae5; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 4px; justify-content: flex-end; overflow: hidden; }
+.m { max-width: 82%; padding: 6px 10px 4px; border-radius: 15px; font-size: 13px; line-height: 1.27; color: #111; white-space: pre-line; }
+.m b { font-weight: 600; } .t { display: block; text-align: right; font-size: 10px; color: #8b9aa6; margin-top: 1px; }
+.bot { align-self: flex-start; background: #fff; border-bottom-left-radius: 5px; }
+.me { align-self: flex-end; background: #e1ffc7; border-bottom-right-radius: 5px; } .me .t { color: #6fb35b; }
+.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
+.btns div { background: #86a0b3; color: #fff; text-align: center; padding: 6px 4px; border-radius: 9px; font-size: 13px; font-weight: 500; } .btns .w { grid-column: 1 / -1; }
+.in { position: absolute; left: 0; right: 0; bottom: 0; height: 74px; background: #f7f7f8; }
+.in div { position: absolute; left: 34px; right: 34px; top: 12px; height: 34px; border-radius: 17px; background: #fff; color: #8a97a3; font-size: 14px; line-height: 34px; padding-left: 14px; box-sizing: border-box; }
+.phone .home { bottom: 8px; }
+</style></head><body><div class="stage"><div class="phone">
+<div class="bar"><b>9:41</b><i></i>
+<svg width="64" height="14" viewBox="0 0 64 14"><g fill="#121216"><rect x="0" y="9" width="3" height="4" rx="1"/><rect x="5" y="6" width="3" height="7" rx="1"/><rect x="10" y="3" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="13" rx="1"/><path d="M26 4a9 9 0 0 1 13 0l-1.6 1.7a6.7 6.7 0 0 0-9.8 0zM29 7.4a5 5 0 0 1 7 0L32.5 11z"/><rect x="45" y="1" width="17" height="11" rx="3.4" stroke="#121216" stroke-opacity=".4" fill="none"/><rect x="46.6" y="2.6" width="13.8" height="7.8" rx="2"/></g></svg></div>
+<div class="top"><span class="back">‹ 12</span><div class="nm">Hub by Icons8</div><div class="st">bot</div><img src="logo.png" alt=""></div>
 <div class="chat">
-<div class="m bot"><b>api</b> asks:
-Run the index migration on production now?
-<div class="t">10:41</div></div>
-<div class="btns"><div>Yes, now</div><div>Tonight at 03:00</div><div>No, staging first</div><div>Need more context</div></div>
-<div class="m me">Yes, now<div class="t">10:41</div></div>
-<div class="m bot"><b>api</b>: the migration ran in 1.8 s. <span class="dim">GET /cart/shipping</span> went from 640 ms to 41 ms.
-<div class="t">10:42</div></div>
-<div class="m me">/status<div class="t">10:43</div></div>
-<div class="m bot"><b>Working:</b> 2
-• web — fixing re-renders on the checkout page
-• infra — rotating staging certificates
-<b>Waiting for you:</b> 0
-<b>In the message queue:</b> 0<div class="t">10:43</div></div>
+<div class="m bot"><b>web</b> asks:
+The hero subtitle is ready on a branch and qa checked it on phones. Put it on the live page?<span class="t">10:41</span></div>
+<div class="btns"><div>Yes, publish</div><div>Not now</div><div class="w">Show me first</div><div class="w">Need more context</div></div>
+<div class="m me">Show me first<span class="t">10:41 ✓✓</span></div>
+<div class="m bot"><b>web</b>: here is the page with the new subtitle, on the branch. Nothing is live yet, publishing waits for your word.<span class="t">10:43</span></div>
+<div class="m me">/status<span class="t">10:44 ✓✓</span></div>
+<div class="m bot"><b>Working:</b> 3
+• designer: Product Hunt badge
+• release: changelog 0.9.2
+• support: GitHub issues
+<b>Waiting for you:</b> 1
+<b>In the message queue:</b> 0<span class="t">10:44</span></div>
 </div>
-<div class="in"><div>Message</div></div>
-</body></html>
+<div class="in"><div>Message</div></div><div class="home"></div></div></div></body></html>

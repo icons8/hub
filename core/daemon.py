@@ -65,6 +65,14 @@ UNCOMMITTED_WAIT = 5  # seconds for git status before a mini-hub spawn: the tick
 MODS_STEP = 0.5       # seconds between checks whether the modules a session spawn waits for are ready (wait_modules)
 RELEASE_STEP = 0.2    # and whether the released process of the same session has exited (wait_release)
 RELEASE_LATE = 60     # no fact of its exit by then (the host kills it after 20 s): one host.error, the spawn keeps waiting
+LOW_DISK_NOTICE = "copies-disk-low"   # the owner's notice about copies dropped early for a low disk (tell_low_disk)
+LOW_DISK_SPELL = 3600   # s of the awake clock: drops this close together count in one notice
+LOW_DISK_DROPPED = coretext.T("core.daemon.low_disk_dropped", {
+    "one": "Little room on the disk: {count} finished copy of a handed-in task removed early, {size} GB freed, {free} GB "
+           "free now. Branches stay",
+    "other": "Little room on the disk: {count} finished copies of handed-in tasks removed early, {size} GB freed, {free} GB "
+             "free now. Branches stay"})
+COPY_STEP = 1   # s; a spawn whose dropped copy is coming back (wait_copy) looks again in this long
 CODEX_FOLDER_STEP = 0.5   # and whether a Codex pool account's folder is prepared (wait_codex_folder),
 CODEX_FOLDER_WAIT = 120   # at most that long from the first deferral: then the hub folder as its row (CodexHost.folder)
 CLAUDE_STEP = 2       # seconds between checks whether Claude Code is installed, while spawns wait for it (wait_claude)
@@ -165,6 +173,7 @@ class Hub:
         self.config = self.read_config()
         self.settings_known = self.config is not None
         self.config = self.config or catalog.defaults()
+        self.tree_keep()
         self.delayed = []  # (when, action): spawning a crashed hub after a pause
         self.runner = runjobs.Runner(state_dir, self.record, clock=clock)   # `hub run` (core/runjobs.py)
         self.claude_latest = {}   # session -> the token of its newest spawn waiting for Claude Code (wait_claude, wait_login)
@@ -178,6 +187,8 @@ class Hub:
         self.inputs = {}
         # background cleanup of working copies (clean_worktrees): the thread, its results, what it is cleaning now (name -> copy)
         self.cleaner, self.cleaned, self.cleaned_lock, self.cleaning = None, [], threading.Lock(), {}
+        self.low_disk_spell = None   # copies dropped early for a low disk lately (tell_low_disk): in memory only
+        self.restoring = {}   # name -> a dropped copy coming back before its spawn (wait_copy)
         self.clean_retry = {}   # copy path -> (tries so far, when to try next by self.mono): in memory only, a restart starts over
         # the merge check in the background — the thread, its results;
         # executor -> (seq of the result, when to retry after a git error or None — checked)
@@ -533,7 +544,7 @@ class Hub:
                 return
         if do == "spawn":
             action = self.fresh_account(action)   # at every pass of every wait: the pool may have changed since the decision
-        if do == "spawn" and (self.wait_release(action) or self.wait_modules(action) or self.wait_private(action)
+        if do == "spawn" and (self.wait_copy(action) or self.wait_release(action) or self.wait_modules(action) or self.wait_private(action)
                               or self.wait_gateway(action) or self.wait_codex_folder(action) or self.wait_codex_login(action)
                               or self.wait_login(action) or self.wait_forward(action)):
             return   # the spawn waits as a delayed action (one delayed queue): Claude Code itself, the previous process,
@@ -830,6 +841,65 @@ class Hub:
             return False
         self.delayed.append((now + CODEX_FOLDER_STEP, {**action, "folder_since": since}))
         return True
+
+    def wait_copy(self, action):
+        """A handed-in executor whose finished copy was dropped while it slept (drop_copies) or deleted by hand is woken: before its spawn
+        the copy comes back from its branch, in the background (hosts/worktree.bring_back) — otherwise Claude Code would
+        start in the repo's root (hosts/common.existing_cwd). A copy the background is dropping now waits for its fact
+        (cleaning). Not brought back — the fact with the reason and no spawn (host.error): an executor in the repo's
+        root would edit the main checkout. True — the spawn is deferred or refused."""
+        name = action["session"]
+        sess = self.state["sessions"].get(name) or {}
+        wt = sess.get("worktree") or {}
+        job = self.restoring.get(name)
+        if job is None and name in self.cleaning:
+            self.delayed.append((self.clock() + COPY_STEP, action))
+            return True
+        own = os.path.join(self.state_dir, "workspaces", name)
+        if not wt.get("path") and (sess.get("copy_drop") or {}).get("ok") and sess.get("cwd") \
+                and os.path.realpath(sess["cwd"]) == os.path.realpath(own) and not os.path.isdir(own):
+            workspace.path(self.state_dir, name)   # an own folder dropped empty: back empty, as it was made
+            return False
+        if job is None:
+            # dropped by the core, or the folder deleted by hand (a disk cleanup): the same way back; a removed
+            # session's copy comes back by revive (bin/hub), not here
+            path, repo = wt.get("path"), wt.get("repo")
+            # a drop git cut short (kept: a program stood in the folder, a timeout) took the link to the repo: git
+            # in that folder would answer for the main checkout
+            cut = sess.get("copy_drop") and os.path.isdir(path or "") and not os.path.lexists(os.path.join(path, ".git"))
+            if not path or not (wt.get("dropped") or cut or not wt.get("cleaned") and repo and os.path.isdir(repo)
+                                and not os.path.exists(path)):
+                return False
+            job = self.restoring[name] = {"done": threading.Event(), "result": None}
+            machine = self.machine_hubs()
+            threading.Thread(target=self._bring_back, args=(job, dict(wt), machine), name=f"copy-back-{name}",
+                             daemon=True).start()
+        if not job["done"].is_set():
+            self.delayed.append((self.clock() + COPY_STEP, action))
+            return True
+        del self.restoring[name]
+        ok, why = job["result"]
+        if ok is None:   # another hub's git held the repo: again
+            self.delayed.append((self.clock() + COPY_STEP, action))
+            return True
+        self.record("session.worktree_restored", name, coretext.put({"ok": bool(ok), "path": wt.get("path")}, "why", why))
+        if ok:
+            return False
+        self.record("host.error", name, {"do": "spawn", "message": action.get("message"), "error": str(why)[:300]})
+        return True
+
+    def _bring_back(self, job, info, machine):
+        """The background of wait_copy: git only, under the repo's lock across the hubs of the machine."""
+        owner = machine.get("owner")
+        foreign = (lambda path: self.foreign_in(machine, path)) if owner else None
+        try:
+            with worktree.repo_lock(worktree.lock_target(info.get("repo"), owner), worktree.COPY_TIMEOUT):
+                job["result"] = worktree.bring_back(info, owner=owner, foreign=foreign)
+        except TimeoutError:
+            job["result"] = (None, None)
+        except Exception as e:   # noqa: BLE001 — the background does not fail silently: the reason goes into the fact
+            job["result"] = (False, f"{type(e).__name__}: {e}"[:300])
+        job["done"].set()
 
     def wait_dark(self, action):
         """A spawn in a dark wake (reducer _dark: the Mac between sleeps, the network often silent) waits as a delayed
@@ -1152,6 +1222,7 @@ class Hub:
             # this start has written it already: the "rotate" snapshot is the state folded by this code
             self.snapshot("start")
         self.record("core.started", data={**self.started_data(), "down_since": down, "spooled": spooled})
+        self.take_import()   # before reconcile: the sessions come up in this machine's folders
         self.load_news()
         self.load_catalog()
         self.bus_start()
@@ -1168,6 +1239,31 @@ class Hub:
         finally:
             self.after_crash = False
 
+    def take_import(self):
+        """`hub import` left its mark (core/hubexport.MARK, a one-time file, not a field: a rollback does not rewrite it):
+        core.imported moves the state's paths to this machine; an executor whose copy did not come along is stopped (its
+        task goes back to whoever raised it as cut off, it sleeps as retired) — it would otherwise wake in the
+        repository's own folder (hosts/common.existing_cwd) and go on with its task there. The mark goes once the facts are written."""
+        from core import hubexport
+        path = os.path.join(self.state_dir, hubexport.MARK)
+        try:
+            with open(path, encoding="utf-8") as f:
+                mark = json.load(f)
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as e:
+            print(f"hubd: {hubexport.MARK} unreadable ({e!r}) — left for a look", flush=True)
+            return
+        if not isinstance(mark, dict):
+            return
+        self.record("core.imported", data={k: mark.get(k) for k in ("archive", "made", "from_os", "to_os", "release",
+                                                                     "paths", "secrets")})
+        for name in mark.get("missing") or []:
+            sess = self.state["sessions"].get(name) if isinstance(name, str) else None
+            if minihub.runner(sess) and sess.get("state") not in ("removed", "closed", "failed", "retired"):
+                self.record("session.stop_requested", name, {"channel": "core", "imported": True})
+        os.unlink(path)
+
     def reap(self):
         """Session processes from hubd's previous life (it was killed without a chance to stop) — kill them before the same sessions are spawned:
         otherwise two processes run one conversation (09-30 18:08)."""
@@ -1175,6 +1271,25 @@ class Hub:
         for sess in self.state["sessions"].values() if reap else []:
             if sess["state"] in LIVE and reap(sess.get("pid"), sess.get("session_id")):
                 print(f"hubd: stopped a leftover process of session {sess['name']} (pid {sess.get('pid')})", flush=True)
+
+    def tree_keep(self):
+        """hub.json -> tree.keep (a list of names) to the host: shared daemons a session started (Colima, Lima) that the
+        cleanup of its tree spares (platforms/posix.end_tagged). Not a list or empty — nothing is spared, as before."""
+        if hasattr(self.host, "keep"):
+            if getattr(self.host, "tree_kept", None) is None:   # one list for both halves of a MuxHost, before any thread
+                self.host.tree_kept, self.host.kept_told = [], set()
+            tree = self.config.get("tree")
+            keep = tree.get("keep") if isinstance(tree, dict) else None
+            self.host.keep = tuple(k.strip() for k in keep if isinstance(k, str) and k.strip()) \
+                if isinstance(keep, list) else ()
+
+    def record_kept(self):
+        """Processes the tree cleanup spared (hosts/common.Trees, also from the release thread): tree.kept facts, one per
+        process — whose tree, pid, argv[0] and the hub.json entry that spared it."""
+        kept = getattr(self.host, "tree_kept", None)
+        while kept:
+            name, pid, argv0, entry = kept.pop(0)
+            self.record("tree.kept", name, {"pid": pid, "argv0": argv0[:300], "keep": entry})
 
     def read_config(self):
         """hub.json now, or None if it is unreadable (a typo, not JSON): the core keeps the previous settings — a core that crashed on
@@ -1210,6 +1325,7 @@ class Hub:
             if "n:core:config" in (self.state.get("notices") or {}):   # the file is readable again — the notice is cleared
                 self.record("owner.notify_resolved", data={"id": "config", "channel": "core", "owner": False})
         self.config = cfg
+        self.tree_keep()
         known, self.settings_known = self.settings_known, True
         tz = self.config.get("timezone") or "UTC"
         ci = self.config.get("compact_idle") if isinstance(self.config.get("compact_idle"), dict) else {}
@@ -1666,7 +1782,8 @@ class Hub:
                      self.gateway_tick, self.claude_tick, self.login_tick, self.codex_tick, self.ensure_jobs, self.invite_owner, self.check_folders,
                      self.count_checked, self.bus_tick,
                      self.profile_pending,   # an eviction that waited for the agent and its executors to be free
-                     self.publish_folders):   # several hubs on one machine: the folders of the live sessions
+                     self.publish_folders,   # several hubs on one machine: the folders of the live sessions
+                     self.record_kept):
             if self.stopping:
                 return
             self.check_slept()   # before every step: a sleep inside the previous one (git, a module) is known before the next judges a term
@@ -2028,13 +2145,26 @@ class Hub:
         alive = self.cleaner is not None and self.cleaner.is_alive()   # before taking the results: it has already handed over its own
         with self.cleaned_lock:
             done, self.cleaned = self.cleaned, []
-        for name, path, since, ok, why in done:
+        freed = []   # copies dropped early for a low disk in this result: one line to the owner
+        for name, path, since, ok, why, *drop in done:
             sess = self.state["sessions"].get(name) or {}
             wt = sess.get("worktree") or {}
+            if drop:   # a handed-in executor's copy (drop_copies): the fact whatever the session does now — the disk is so
+                mode, size, hours, low = drop
+                if sess and (wt.get("path") if mode == "copy" else sess.get("cwd")) == path:
+                    self.record("session.worktree_dropped", name, coretext.put(
+                        {"ok": bool(ok), "path": path, "since": since, "bytes": size, "after_hours": hours,
+                         **({"space": True} if mode == "space" else {}), **({"low_disk": True} if low else {})},
+                        "why", why))
+                if low and ok:
+                    freed.append((path, size))
+                continue
             if sess.get("state") == "removed" and sess.get("since") == since and wt.get("path") == path \
                     and not wt.get("cleaned"):
                 # why with the marks of its phrases (why_l10n): the note about a kept copy reads in the owner's language
                 self.record("session.worktree_removed", name, coretext.put({"ok": ok}, "why", why))
+        if freed:
+            self.tell_low_disk(freed)
         if alive:
             return
         self.cleaning = {}
@@ -2058,11 +2188,98 @@ class Hub:
                     "core.daemon.copy_in_use", "{who} works in the copy — I keep it").format(who=who)))
             else:
                 todo.append((sess["name"], sess.get("since"), dict(sess["worktree"])))
+        todo += self.drop_copies(todo)
         if todo:
-            self.cleaning = {name: info for name, _, info in todo}
+            self.cleaning = {name: info for name, _, info, *_ in todo}
             self.cleaner = threading.Thread(target=self._clean, args=(todo, self.machine_hubs()),
                                             name="clean-worktrees", daemon=True)
             self.cleaner.start()
+
+    def drop_copies(self, removing):
+        """The finished copies of handed-in executors to drop in this background pass (executors.copies_to_drop; off
+        without hub.json executors.drop_copy_after_hours): at most DROP_BATCH, not while removed sessions' copies go,
+        a folder still on disk, not one a live session works in, the own folder of a session only under
+        <state>/workspaces/<name>. -> [(name, since, info, mode)]"""
+        ex = self.config.get("executors") or {}
+        hours = ex.get("drop_copy_after_hours")
+        if removing or isinstance(hours, bool) or not isinstance(hours, (int, float)) or hours <= 0:
+            return []
+        # a low disk (executors.drop_copy_below_gb, DROP_BELOW_GB by default, 0 — off): a finished copy goes now, not
+        # after the term (a burst of big copies handed in within hours can fill the disk before the term)
+        below = ex.get("drop_copy_below_gb", executors.DROP_BELOW_GB)
+        below = below if isinstance(below, (int, float)) and not isinstance(below, bool) and below > 0 else 0
+        now, out = self.clock(), []
+        for name, since, mode, info in executors.copies_to_drop(self.state, now, hours * 3600, early=bool(below)):
+            path = info["path"]
+            low = now - since < hours * 3600
+            if low and (mode != "copy" or not os.path.isdir(path)):
+                continue
+            if low:   # not read — room enough; 0 bytes free is the most urgent case
+                free = worktree.free_space(path)
+                if free is None or free >= below * worktree.GB:
+                    continue
+            if name in self.preparing or not os.path.isdir(path) or (
+                    mode == "space" and os.path.realpath(path) != os.path.realpath(
+                        os.path.join(self.state_dir, "workspaces", name))):
+                continue
+            if any(n != name and s.get("cwd") and s["state"] not in minihub.GONE and in_tree(s["cwd"], path)
+                   for n, s in self.state["sessions"].items()):
+                continue
+            out.append((name, since, {**info, "after_hours": hours, **({"low_disk": True} if low else {})}, mode))
+            if len(out) >= executors.DROP_BATCH:
+                break
+        return out
+
+    def tell_low_disk(self, freed):
+        """One line to the owner about copies dropped early for a low disk: how many and how much, and what is free
+        now. One notice per spell of a low disk (the same id, its counts go on while the drops follow each other
+        within LOW_DISK_SPELL), not one per background pass."""
+        now, spell = self.mono(), self.low_disk_spell
+        if not spell or now - spell["at"] > LOW_DISK_SPELL:
+            spell = self.low_disk_spell = {"count": 0, "bytes": 0}
+        spell["count"] += len(freed)
+        spell["bytes"] += sum(size for _, size in freed)
+        spell["at"] = now
+        free = worktree.free_space(os.path.dirname(freed[-1][0]))
+        self.record("owner.notify", None, {
+            "id": LOW_DISK_NOTICE, "title": coretext.T("core.daemon.low_disk_title", "Disk"), "source": "core",
+            "channel": "core", "owner": False,
+            "text": LOW_DISK_DROPPED.format(count=spell["count"], size=f"{spell['bytes'] / worktree.GB:.1f}",
+                                            free=f"{(free or 0) / worktree.GB:.0f}")})
+
+    def _drop(self, name, since, info, mode, owner, foreign, cwds, held):
+        """One copy of drop_copies, in the background: checked and removed under the repo's lock (hosts/worktree.drop),
+        an own folder holding nothing but empty folders — erased; the result with the size goes to the next tick. A
+        failure keeps the copy (a fact with the reason)."""
+        path, size = info["path"], 0
+        try:
+            if mode == "space":
+                # nothing but empty folders (an empty .claude) goes; a file anywhere keeps the folder — a note, a command,
+                # Claude Code's settings with the owner's choices for it: a wake makes the folder back empty
+                stuck = []
+                if not worktree.only_folders(path):
+                    ok, why = False, coretext.T("core.daemon.space_kept", "{path} holds files ({names}) — keeping the "
+                                                "folder").format(path=path, names=", ".join(sorted(os.listdir(path))[:3]))
+                elif worktree.erase_empty(path, stuck):
+                    ok, why = True, coretext.T("core.daemon.space_dropped", "the session's empty folder was removed")
+                else:
+                    ok, why = False, worktree.NOT_WIPED.format(path=path, error=stuck[0] if stuck else "rmdir")
+            else:
+                target = worktree.lock_target(info.get("repo"), owner)
+                if target in held:
+                    return
+                try:
+                    with worktree.repo_lock(target, worktree.COPY_TIMEOUT):
+                        ok, why, size = worktree.drop(info, owner=owner, foreign=foreign, cwds=cwds)
+                except TimeoutError:
+                    held.add(target)
+                    return
+        except Exception as e:   # noqa: BLE001 — the background does not fail silently: the copy stays, a fact with the reason
+            ok, why = False, coretext.T("core.daemon.cleanup_failed", "the cleanup did not work: {error}").format(
+                error=f"{type(e).__name__}: {e}")
+        with self.cleaned_lock:
+            self.cleaned.append((name, path, since, bool(ok), why, mode, size, info.get("after_hours"),
+                                 bool(info.get("low_disk"))))
 
     def busy_copy(self, name, run, base):
         """An executor onto a copy the background is cleaning now — wait a tick: under the same name its copy is the same
@@ -2082,9 +2299,15 @@ class Hub:
         owner = machine["owner"]
         foreign = (lambda path: self.foreign_in(machine, path)) if owner else None
         held = set()   # repos whose lock another hub held past the wait: their other copies — next run, no new wait
-        for name, since, info in todo:
+        cwds = False   # the processes' folders (lsof): once per pass, only when there is a copy to drop
+        for name, since, info, *drop in todo:
             if self.stopping:
                 return   # the ones not cleaned — again on the next run (cleaned is not recorded)
+            if drop:
+                if cwds is False:
+                    cwds = worktree.cwd_folders()
+                self._drop(name, since, info, drop[0], owner, foreign, cwds, held)
+                continue
             target = worktree.lock_target(info.get("repo"), owner)
             if target in held:
                 continue

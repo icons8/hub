@@ -91,13 +91,17 @@ class Clock:
         # until the next windows — they wait for the full wake; a slot still comes, its message waits in the queue
         dark = "dark" in st
         for job in list(st.get("schedule", {}).values()):
+            slot = schedule.slot_due(job, now, tz) if job["state"] == "active" else None
+            # a slot held in a dark wake while a newer one is already due: the newer takes the run over (its due is sent
+            # below), a catch-up is one run — starting the held one would run the command for a slot the core drops. One
+            # this machine already ran (its mark) still goes through launch: the outcome is told
+            held = slot is not None and slot > (job.get("run_slot") or 0) and self.launched(job["id"]) != job.get("run_slot")
             if job.get("command") and job.get("run_slot") and job.get("ran_slot") != job["run_slot"] \
                     and job["id"] not in self.running and (job["id"], "ran", job["run_slot"]) not in self.sent \
-                    and not dark:
+                    and not dark and not held:
                 self.launch(job, now)  # the core decided "launch" — execute, no more than once
             if job["state"] != "active":
                 continue
-            slot = schedule.slot_due(job, now, tz)
             if slot is not None and job.get("check"):
                 # pre-check — before the slot: its code and output go in the same schedule.due; one per job at a time
                 if job["id"] not in self.running and (job["id"], slot) not in self.sent and not dark:

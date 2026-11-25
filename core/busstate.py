@@ -308,6 +308,41 @@ def _free(bus, thread, contact, session, now):
     return auto_thread_ok(bus, thread, contact, session, now) and bus["threads"][thread].get("source") in (None, session)
 
 
+HEAD_MAX = 40   # characters of a thread's first line that name it to a session, the liaison and the page
+
+
+def head_of(text):
+    """The start of the first line of a thread's first words, for naming the thread: another hub chooses those words,
+    so only letters, digits, spaces and plain punctuation (it cannot close a quote or add a command line) — as a
+    contact's label (liaison.safe_label); "" for words with none."""
+    line = next((x for x in str(text or "").splitlines() if x.strip()), "")
+    plain = " ".join("".join(c if c.isalnum() or c in " .-_" else " " for c in line).split())
+    return plain[:HEAD_MAX] + ("…" if len(plain) > HEAD_MAX else "")
+
+
+def thread_head(bus, thread, kinds=("out", "inbox")):
+    """How a thread is named: the start of its first words (`head`, kept on the thread when it opens); a thread older
+    than that — the earliest words of it (of `kinds`: the outgoing, the incoming) the state still holds; "" when there
+    are none."""
+    th = (bus.get("threads") or {}).get(thread or "") or {}
+    if th.get("head") is not None:
+        return th["head"]
+    got = [(x.get("ts") or 0, x["text"]) for k in kinds for x in (bus.get(k) or {}).values()
+           if x.get("thread") == thread and x.get("contact") == th.get("contact") and x.get("text")]
+    return head_of(min(got, key=lambda g: g[0])[1]) if got else ""
+
+
+def thread_named(bus, thread):
+    """A thread in words for a note a session or the liaison reads: its id and the start of its first line — of a thread
+    this hub opened; another hub's words are not carried into the core's notes (its first line may be an instruction):
+    such a thread is named by who opened it."""
+    th = (bus.get("threads") or {}).get(thread or "") or {}
+    if th.get("theirs"):
+        return THREAD_THEIRS.format(thread=thread, name=th.get("contact"))
+    head = thread_head(bus, thread, kinds=("out",))   # a thread this hub opened: its first words are ours
+    return f"{thread} («{head}»)" if head else str(thread)
+
+
 def hand_on(st, ev, data, msg):
     """A session writes to another one in its turn on another hub's words: the question of that thread (one per
     contact) is passed on with it, if the thread takes the writer's words — the core marks it on the message and on the
@@ -344,6 +379,10 @@ def hand_on(st, ev, data, msg):
         given[c] = t
     if given:
         msg["bus_handed"] = given
+        # the receiver is told the thread: its id is what `--thread` takes, and the words do not carry it
+        msg["routing_note"] = "\n".join(n for n in (msg.get("routing_note"), *(
+            THREAD_HANDED.format(sender=sender, thread=thread_named(bus, t), name=c, id=t)
+            for c, t in sorted(given.items()))) if n)
 
 
 def owner_turn(st, name):
@@ -533,7 +572,10 @@ def _edited(idx, mid, req):
 
 
 def _pressed(value, labels):
-    """An answer on the card that is its option(s) — the page joins several picks with ", " — not his own text."""
+    """An answer on the card that is its option(s) — the page joins several picks with ", " — not his own text. Files he
+    attached on the page come under it as a list of paths (owner.answer_words): a press with them is still a press."""
+    from core import owner
+    value = owner.answer_words(value) if isinstance(value, str) else value
     return isinstance(value, str) and (value.strip() in labels or all(p.strip() in labels for p in value.split(", ")))
 
 
@@ -709,7 +751,40 @@ DIRECT_THREAD = T("core.busstate.direct_thread",
                   "the owner's own or another session's) — send without --thread")
 THREAD_LED = T("core.busstate.thread_led",
                "thread_closed: thread {thread} with {name} is led by {session}, its answers go there — pass your words "
-               "to {session} (hub send {session} \"…\"), or send without --thread for a new thread")
+               "to {session} (hub send {session} \"…\"), or send without --thread: the core chooses the thread itself — "
+               "the one of {name}'s words your turn is on, else the latest one they came to you in that nobody else "
+               "leads, else a new one")
+THREAD_KEPT = T("core.busstate.thread_kept",
+                "The core has kept these words for the thread {thread} — the one of {name}'s words {session}'s turn is "
+                "on, else the latest one they came to {session} in; it is not a new thread, they go there when sent if it "
+                "still takes them, and its answers come to {session}.")
+THREAD_GIVEN = T("core.busstate.thread_given",
+                 "The core puts these words in the thread {thread}, named by {session}.")
+THREAD_HANDED = T("core.busstate.thread_handed",
+                  "{sender} passed you its question of the thread {thread} with {name}: to answer in it, name it — "
+                  "hub send liaison --to {name} --thread {id} \"…\" — and the hub's reply to it comes to you.")
+THREAD_THEIRS = T("core.busstate.thread_theirs", "{thread} (opened by {name})")
+THREAD_NEW = T("core.busstate.thread_new", "a new thread")
+THREAD_AUTO = T("core.busstate.thread_auto",
+                "the thread {thread}, which the core chose for the words of {session} — not a new thread")
+THREAD_IN = T("core.busstate.thread_in", "the thread {thread}")
+
+
+def core_chose(o):
+    """The core chose the thread of an outgoing message of a session (the session and the liaison named none): a mark
+    written when it did, so a message of an earlier release shows none."""
+    return bool(o.get("thread_chose") and o.get("thread") and o["thread"] != o.get("id"))
+
+
+def thread_line(bus, o):
+    """In which thread an outgoing message of a session went, for the line a command prints: a thread the core chose by
+    itself is said so, with its id and the start of its first line; no thread (or the message's own id) — a new one."""
+    thread = o.get("thread")
+    if not thread or thread == o.get("id"):
+        return THREAD_NEW
+    if core_chose(o):
+        return THREAD_AUTO.format(thread=thread_named(bus, thread), session=whose(o) or o.get("source"))
+    return THREAD_IN.format(thread=thread_named(bus, thread))
 
 
 def _direct(st, ev, data, actions):
@@ -747,7 +822,7 @@ def _direct(st, ev, data, actions):
     bus["out"][oid] = {"kind": "message", "status": "requested", "contact": name, "fp": bus["contacts"][name]["fp"],
                        "source": sender, "basis": None, "via": data.get("via") if data.get("via") in ("local", "person")
                        else "local", "text": text, "agent_to": None, "thread": thread, "ts": ts, "of": ev["seq"],
-                       "direct": True, **({"thread_auto": True} if auto else {}),
+                       "direct": True, **({"thread_auto": True, "thread_chose": True} if auto else {}),
                        **({"root": root, **({"via_schedule": True} if sched else {})} if root else {}),
                        **({"in_owner_turn": True} if asked_in_owner_turn(st, data) else {})}
     actions.append({"do": "bus_send", "session": None, "out": oid, "of": ev["seq"]})
@@ -1989,6 +2064,9 @@ def _send_request(st, ev, data, actions):
                        "source": source, "basis": basis, "via": via, "text": text, "agent_to": agent, "thread": thread,
                        "ts": ts, "of": ev["seq"], **({"asker": asker} if asker else {}),
                        **({"thread_auto": True} if auto else {}),
+                       # the core chose the thread (the session named none; `--thread` on its request is only kept)
+                       **({"thread_chose": True} if auto and not all((bus["requests"].get(k) or {}).get("named")
+                                                                      for k in answers or [basis]) else {}),
                        **({"root": root, **({"via_schedule": True} if sched else {})} if root else {}),
                        **({"in_owner_turn": True} if mine else {}),
                        **({"answers": answers} if answers else {})}
@@ -2131,6 +2209,7 @@ def _out(st, ev, data):
     th = bus["threads"].get(thread)
     if th is None:
         th = bus["threads"][thread] = {"contact": o["contact"], "source": whose(o), "ts": ts, "n": 1,
+                                       **({"head": head} if (head := head_of(o.get("text"))) else {}),
                                        **({"owner": True} if o.get("press") else {}),
                                        # a card's own thread to a deputy (core/deputyroute.py): the answer is on it
                                        **({"route": o["route"]} if o.get("route") else {})}
@@ -2358,7 +2437,8 @@ def _received(st, ev, data):
     source = live.get("source")
     answer = data.get("for") != "owner" and data.get("status") == "ok" and owner_thread(bus, thread, name, ts)
     if th is None and thread:   # opened by the other side: our answer in it needs no card (auto_allowed)
-        bus["threads"][thread] = {"contact": name, "source": None, "ts": ts, "n": 1, "theirs": True}
+        bus["threads"][thread] = {"contact": name, "source": None, "ts": ts, "n": 1, "theirs": True,
+                                  **({"head": head} if (head := head_of(data.get("text"))) else {})}
     elif th is not None and th.get("contact") == name:
         th["n"] = th.get("n", 0) + 1
     elif th is not None:   # another contact's thread id: the item is not in that thread, an answer opens a new one
@@ -2654,7 +2734,7 @@ def card_answered(st, ev, data, sess, actions, behavior=None):
     """permission.answered / question.dismissed / question.withdrawn on a card of the bus: True if it was one (handled
     here, not as a session's form). Only the owner's "Send" sends; "Send and from now on…" also allows the pair
     «source session × contact»; anything else — closing, another answer, words — is not a yes."""
-    from core import guards, reducer
+    from core import guards, owner, reducer
     rid = data.get("request_id")
     ask = next((a for a in sess.get("asks") or [] if a.get("request_id") == rid and a.get("hubbus")), None) \
         if rid else next((a for a in sess.get("asks") or [] if a.get("id") == data.get("id") and a.get("hubbus")), None)
@@ -2669,7 +2749,8 @@ def card_answered(st, ev, data, sess, actions, behavior=None):
     answers = data.get("answers") or {} if kind == "permission.answered" and data.get("behavior") == "allow" else {}
     said = next(iter(answers.values()), None) if answers else None
     labels = ask["hubbus"].get("labels") or {}
-    pick = next((k for k, v in labels.items() if said is not None and v == said), None)
+    # files he attached on the page come under the label as a list of paths (owner.answer_words): still that press
+    pick = next((k for k, v in labels.items() if isinstance(said, str) and v == owner.answer_words(said)), None)
     bus = _bus(st)
     tag = ask["request_id"][len(CARD_TAG):]
     what = ask["hubbus"].get("kind")
@@ -2828,8 +2909,12 @@ def message_taken(st, ev, data, msg):
             msg["routing_note"] += " " + liaison.IN_RULES + " " + "; ".join(rules)
         # the thread the session named (`--thread`, checked in message_refusal), else the one the core keeps for it
         thread = data.get("bus_thread") or reply_thread(st, data["sender"], data["bus_to"], ev["ts"])
+        if thread:   # the liaison sees which thread the words go in, chosen by the core or named by the session
+            msg["routing_note"] += "\n" + (THREAD_GIVEN if data.get("bus_thread") else THREAD_KEPT).format(
+                thread=thread_named(_bus(st), thread), name=data["bus_to"], session=data["sender"])
         _bus(st)["requests"][msg["id"]] = {"session": data["sender"], "contact": data["bus_to"], "via": data["bus_to_via"],
-                                           "ts": ev["ts"], "outcome": None, **({"thread": thread} if thread else {})}
+                                           "ts": ev["ts"], "outcome": None, **({"thread": thread} if thread else {}),
+                                           **({"named": True} if data.get("bus_thread") else {})}
 
 
 # --- views ---------------------------------------------------------------------------------------------------------

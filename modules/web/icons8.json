@@ -81,6 +81,14 @@
       "chevron": {
         "id": "85018",
         "commonName": "expand-arrow"
+      },
+      "expand": {
+        "id": "98028",
+        "commonName": "resize-diagonal"
+      },
+      "open": {
+        "id": "83272",
+        "commonName": "open-in-browser"
       }
     }
   },

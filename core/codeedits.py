@@ -39,7 +39,7 @@ ZONES = (
                   "core/bus.py", "core/busd.py", "core/busrelay.py", "core/cryptolib.py",
                   "core/busstate.py", "core/ghauth.py", "core/mcplogin.py", "core/profiles.py", "core/codexpool.py", "core/codexslot.py",
                   "core/providers.py", "core/accountprobe.py", "core/netprobe.py", "core/cutout.py", "core/embed.py", "hosts/codex_mcp.py",
-                  "core/supportbundle.py", "bin/hub-part", "bin/hub-gateway", "bin/hub-conduit", "bin/hub-stats",
+                  "core/supportbundle.py", "core/hubexport.py", "bin/hub-part", "bin/hub-gateway", "bin/hub-conduit", "bin/hub-stats",
                   "bin/hub-bus-relay")),
     # ^ data that leaves the hub, sign-ins, the hub bus
     ("update", ("tools/test.py", "modules/update/", "bin/hub-update", "core/codeedits.py", "core/codestore.py",
@@ -47,7 +47,7 @@ ZONES = (
                 "core/testlock.py", "core/testsel.py", "core/testtmp.py", "core/ownsrc.py", "modules/testchrome/")),
     # ^ what checks the edits, and the working copy of the core they are made in (a hub from the one-line install)
     ("journal", ("core/journal.py", "core/reducer.py", "core/machines.py", "core/daemon.py", "core/corewrite.py",
-                 "core/scrub.py")),   # the record of facts and the state folded from it
+                 "core/scrub.py", "core/pathmap.py")),   # the record of facts and the state folded from it
     ("prompts", ("plugins/", "hosts/streamjson.py", "core/minihub.py", "core/modprompt.py", "core/execprofile.py",
                  "core/profcap.py", "hub-home/")),   # what every session (or every executor) reads
     ("tests", ("tests/",)),   # a test of the release edited or deleted, or what the tests read (fakes, replays, helpers)

@@ -60,6 +60,9 @@ class Trees:
     stops them with the end_tree action when the session is gone for good (core/reducer._for_good), and with
     shutdown(final=True) on `hub stop`."""
     state_dir = None
+    keep = ()        # hub.json -> tree.keep: names of shared daemons the cleanup spares (hubd sets it with the settings)
+    tree_kept = None  # [(session, pid, argv[0], entry)] spared and not yet in the journal: hubd records tree.kept
+    kept_told = None  # (pid, marker) already put there: once per process
 
     def spec_settings(self):
         """An executor in spec mode: the core's hooks plus its guard on the file edits (hooks/spec_guard.py)."""
@@ -69,12 +72,25 @@ class Trees:
         return f"{name}@{self.state_dir}"
 
     def end_tree(self, name, **_):
-        n = platforms.current.end_tagged(lambda tag: tag == self.tree_tag(name))
-        return f"ended {n}"
+        n, kept = self._end_tagged(lambda tag: tag == self.tree_tag(name))
+        return f"ended {n}" + (f", kept {kept}" if kept else "")
 
     def end_trees(self):
         """All sessions of this hub, parked and sleeping alike: `hub stop`, the hub leaves for good."""
-        return platforms.current.end_tagged(lambda tag: tag.endswith(f"@{self.state_dir}"))
+        return self._end_tagged(lambda tag: tag.endswith(f"@{self.state_dir}"))[0]
+
+    def _end_tagged(self, match):
+        """end_tagged with the shared daemons of hub.json spared; each spared process goes to tree_kept once. -> (stopped,
+        spared)."""
+        kept = []
+        n = platforms.current.end_tagged(match, keep=tuple(self.keep or ()), kept=kept)
+        if self.tree_kept is None:
+            self.tree_kept, self.kept_told = [], set()
+        for pid, argv0, entry, tag in kept:
+            if (pid, tag) not in self.kept_told:
+                self.kept_told.add((pid, tag))
+                self.tree_kept.append((tag.partition("@")[0], pid, argv0, entry))
+        return n, len(kept)
 
 
 def resume_on_disk(name, cwd, session_id, resume):

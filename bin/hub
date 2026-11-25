@@ -1785,6 +1785,46 @@ def service_cmd(cmd, printing=False):
     print(i18n.t("cli.service.turned_on", id=unit['id'], url=url))
 
 
+IMPORT_WAS_UP = []   # `hub import` found the hub running: only then it is started again (one turned off stays off)
+
+
+def import_stop():
+    """`hub import` stops this hub as `hub off` does (its service; without one — the soft stop of hub-up) and waits for
+    its hubd to let go of the state folder. -> True when it is down."""
+    from core import lock, restart
+    if restart.running(STATE):
+        IMPORT_WAS_UP.append(True)
+        try:
+            main(["off"])
+        except SystemExit:
+            pass
+    end = time.time() + 120   # as `hub app move` waits (core/appmove.STOP_WAIT)
+    while restart.running(STATE) and time.time() < end:
+        time.sleep(1)
+    held = lock.acquire(os.path.join(STATE, "hubd.lock"))
+    if held is None:
+        return False
+    held.close()
+    return not restart.running(STATE)
+
+
+def import_start():
+    """The hub up again after `hub import` — through its service; a hub without one is started by hand; one that was
+    off before stays off (the line says how to start it)."""
+    from core import i18n
+    if not IMPORT_WAS_UP:
+        print(i18n.t("cli.import.was_off"))
+        return
+    if not platforms.current.service_unit(STATE):
+        print(i18n.t("cli.import.start_by_hand"))
+        return
+    try:
+        main(["on"])
+    except SystemExit as e:
+        if e.code not in (None, 0):
+            print(e.code, file=sys.stderr)
+
+
 def password_cmd(op):
     """hub password [set|off]: the page's password of this hub (core/pagepass.py) — the owner's, from the terminal: the
     way back when it is forgotten. Never as an argument (every account of the machine reads command lines): `set` asks
@@ -3230,6 +3270,18 @@ def main(argv):
     elif cmd == "setup" and not rest:   # what is left before the hub works (modules/setup, the page's «Setup»)
         from modules.setup import setup
         sys.exit(setup.cli(STATE, claude_command()))
+    elif cmd == "export":   # the hub into one archive, for a backup or another machine (core/hubexport.py)
+        from core import catalog, hubexport
+        # what it takes without --secrets every session reads from the disk anyway; the secrets under a password a
+        # session chose — no
+        if "--secrets" in rest and (ME or OUTSIDER):
+            sys.exit(i18n.t("cli.export.secrets_terminal"))
+        sys.exit(hubexport.main_export(rest, STATE, catalog.config_dir()))
+    elif cmd == "import":   # a hub from its archive onto this machine (core/hubexport.py)
+        from core import catalog, hubexport
+        if ME or OUTSIDER:   # it stops the hub: from a session it would stop itself mid-way
+            sys.exit(i18n.t("cli.import.owner_only"))
+        sys.exit(hubexport.main_import(rest, STATE, catalog.config_dir(), stop=import_stop, start=import_start))
     elif cmd == "support-bundle":   # a zip for support, masked, sent nowhere (core/supportbundle.py)
         from core import i18n, supportbundle
         if ME or OUTSIDER:

@@ -3,11 +3,11 @@
 // parts are built once and then only updated — the same nodes between snapshots, so the action icon does not flicker
 // and focus and the caret are not lost. Attachments and voice ask to redraw the field by draft key via boxes.
 // Voice (actionButton, recStrip) uses ready-made nodes from voice.js: rebuilt only when the mode changes (modeSig).
-import { el, icon, kb, kit, lookSig } from "./dom.js";
+import { el, icon, kit, lookSig } from "./dom.js";
 import { S, render, sessionName } from "./state.js";
 import { awaitDecision, newClientId, sendMessage } from "./api.js";
 import { unsent } from "./drafts.js";
-import { addFiles, droppedFiles, dropMark, longPaste, pasteTile, pickFiles, withoutMark } from "./attachments.js";
+import { addFiles, chipNodes, droppedFiles, longPaste, pasteTile, pickFiles, withoutMark } from "./attachments.js";
 import { actionButton, failedDictation, failedRecording, keptLinks, recording, recStrip, retryDownload, transcribeRecording, voiceMode } from "./voice.js";
 import { boxes } from "./boxes.js";
 import { resolve, run as runCommand, suggest } from "./commands.js";
@@ -24,7 +24,6 @@ const linkHeld = new Set(), asText = new Map();   // field key -> held now; fiel
 const MAC = /mac|iphone|ipad/i.test(navigator.userAgentData?.platform || navigator.platform || "");
 const HOTKEY = MAC ? "⌘I" : "Ctrl I";
 
-const chipTitle = (p) => (p.label ? `[${p.label}]` : p.name);
 // brings parent's children to the kids list without touching nodes already in place: a removed and re-added node loses focus
 function sync(parent, kids) {
   for (const n of [...parent.children]) if (!kids.includes(n)) n.remove();
@@ -269,22 +268,7 @@ export function buildComposer(props) {
     grow(true);
   }
 
-  function drawChips(list) {
-    chips.replaceChildren(...list.map((p) => {
-      const c = el("span", "pchip");
-      if (p.preview) { const img = el("img"); img.src = p.preview; img.alt = ""; c.append(img); }
-      else if (p.text) c.append(el("span", "ptile", p.text));   // a long paste: the start of its text in a small square
-      else c.append(icon("attach"));
-      c.append(el("span", "nm", `${chipTitle(p)} · ${p.meta ? kb(p.size) : t("web.composer.uploading")}`));
-      const x = el("button", "x");
-      x.type = "button";
-      x.append(icon("close"));
-      x.setAttribute("aria-label", t("web.composer.remove_file", { name: chipTitle(p) }));
-      x.addEventListener("click", () => { S.pending[key] = S.pending[key].filter((q) => q !== p); dropMark(key, p); draw(); });
-      c.append(x);
-      return c;
-    }));
-  }
+  function drawChips() { chips.replaceChildren(...chipNodes(key, draw)); }
 
   const session = () => (S.snap?.sessions || []).find((x) => x.name === o.commands);
   function drawMenu() {

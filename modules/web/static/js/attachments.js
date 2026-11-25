@@ -1,5 +1,5 @@
 // Attachments: the "File" button, drag-and-drop onto the feed, pasting an image from the clipboard (⌘V). A file is uploaded to the server right away.
-import { $ } from "./dom.js";
+import { $, el, icon, kb } from "./dom.js";
 import { S, render } from "./state.js";
 import { post } from "./api.js";
 import { boxes, refreshBoxes } from "./boxes.js";
@@ -99,6 +99,27 @@ export function addFiles(name, files) {
     });
   }
   redraw();
+}
+
+const chipTitle = (p) => (p.label ? `[${p.label}]` : p.name);
+
+// Chips of the files attached under draft key `name` (the chat field's and a question card's field share them): a preview
+// or a paperclip, the name, the size or "uploading", the cross removes the file; `redraw` repaints the owner of the chips
+export function chipNodes(name, redraw) {
+  return (S.pending[name] || []).map((p) => {
+    const c = el("span", "pchip");
+    if (p.preview) { const img = el("img"); img.src = p.preview; img.alt = ""; c.append(img); }
+    else if (p.text) c.append(el("span", "ptile", p.text));   // a long paste: the start of its text in a small square
+    else c.append(icon("attach"));
+    c.append(el("span", "nm", `${chipTitle(p)} · ${p.meta ? kb(p.size) : t("web.composer.uploading")}`));
+    const x = el("button", "x");
+    x.type = "button";
+    x.append(icon("close"));
+    x.setAttribute("aria-label", t("web.composer.remove_file", { name: chipTitle(p) }));
+    x.addEventListener("click", () => { S.pending[name] = S.pending[name].filter((q) => q !== p); dropMark(name, p); redraw(); });
+    c.append(x);
+    return c;
+  });
 }
 
 // A long paste (a log, an article) is a text attachment, not a wall of text in the field — as in the phone and Mac apps:

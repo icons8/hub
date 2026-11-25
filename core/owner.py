@@ -35,9 +35,23 @@ def more_forms():
                                                         for key in ("core.owner.more_context", "web.cards.more_context"))})
 
 
+# the head of the list of files the page puts under an answer to a card (cards.js FILES_HEAD, withFiles)
+FILES_HEAD = "Attached files:"
+
+
+def answer_words(value):
+    """An answer to a card without the list of files the page attached under it ("\\n\\nAttached files:\\n- <path>…"):
+    what he chose or wrote. Only a tail of that exact shape goes; anything else is his text as it is."""
+    head, sep, tail = ("\n\n" + value).rpartition("\n\n" + FILES_HEAD + "\n")
+    if sep and tail and all(line.startswith("- ") for line in tail.split("\n")):
+        return head[2:]
+    return value
+
+
 def asks_more(answers):
-    """The owner's answers to a card ask for more context (in any language of the catalogs, or the earlier forms)."""
-    return any(isinstance(v, str) and v in more_forms() for v in (answers or {}).values())
+    """The owner's answers to a card ask for more context (in any language of the catalogs, or the earlier forms), files
+    attached on the page or not."""
+    return any(isinstance(v, str) and answer_words(v) in more_forms() for v in (answers or {}).values())
 
 
 MORE_HINT = T("core.msg.more_hint",

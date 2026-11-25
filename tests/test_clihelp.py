@@ -41,6 +41,8 @@ ELSEWHERE = {
     "remote": [("modules/cloudflare/cli.py", ("parser", "main")), ("modules/cloudflare/setup.py", ("parser", "main"))],
     "setup": [("core/ownclaude.py", ("main",))],
     "support-bundle": [("core/supportbundle.py", ("main",))],
+    "export": [("core/hubexport.py", ("main_export",))],
+    "import": [("core/hubexport.py", ("main_import",))],
     "uninstall": [("core/uninstall.py", ("main",))],
     "instance": [("core/instancecli.py", ("main", "new", "show", "remove"))],
     "marketplace": [("core/marketplace.py", ("main",))],
@@ -247,7 +249,7 @@ class TheFile(unittest.TestCase):
 
     def test_the_index_is_short_and_names_every_command(self):
         index = self.h.index()
-        self.assertLess(len(index), 10_000)   # it was 40 KB: sessions read it through `| head`
+        self.assertLess(len(index), 10_100)   # it was 40 KB: sessions read it through `| head` (+100: hub export/import)
         for e in self.h.entries:
             self.assertIn(f"  {e.key} ", index)
 

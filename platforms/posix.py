@@ -435,12 +435,74 @@ def _running(pid):
     return st[1] != "Z" if st else alive(pid) and not os.path.isdir("/proc/self")
 
 
-def end_tagged(match, grace=3.0):
+def _procs(pids):
+    """{pid: (parent, argv[0])}: argv[0] is the name the process gave itself, not the resolved binary. Linux: /proc/<pid>/
+    cmdline; macOS: `ps -o comm=` (also argv[0]: a process that renamed itself, such as ssh's control master, is seen under
+    the new name)."""
+    found = {}
+    if os.path.isdir("/proc/self"):
+        for pid in pids:
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    argv0 = f.read().split(b"\0", 1)[0].decode("utf-8", "replace")
+            except OSError:
+                continue
+            st = _stat(pid)
+            found[pid] = (st[0] if st else None, argv0)
+        return found
+    try:
+        env = {k: v for k, v in os.environ.items() if k != TREE_ENV}
+        out = subprocess.run(["ps", "-ww", "-o", "pid=,ppid=,comm=", "-p", ",".join(map(str, pids))], capture_output=True,
+                             text=True, errors="replace", timeout=20, env=env).stdout
+    except (OSError, subprocess.SubprocessError):
+        return found
+    for line in out.splitlines():
+        pid, ppid, name = (line.strip().split(None, 2) + ["", ""])[:3]
+        if pid.isdigit() and ppid.isdigit():
+            found[int(pid)] = (int(ppid), name.strip())
+    return found
+
+
+def _shared(argv0, keep):
+    """argv[0] names a shared daemon from keep (hub.json -> tree.keep): the name of the executable or of a folder on its
+    path. The folder is for helpers that rename themselves: Lima's ssh control master is "ssh: <home>/.colima/_lima/colima/
+    ssh.sock [mux]", and its death cuts the forwarded Docker socket of a still running VM. -> the matching entry or None."""
+    words = set(re.split(r"[/\\\s]+", argv0 or ""))
+    return next((k for k in keep if k in words), None)
+
+
+def _spared(found, keep):
+    """{pid: the keep entry or None} for the marked processes found: a shared daemon named in keep, and whatever it
+    started under the same marker — with QEMU (Linux, vm-type qemu) the VM is limactl's child, and stopping it takes
+    Docker down while limactl lives. Only through marked parents: a daemon's descendant that dropped the marker is not
+    in found at all."""
+    procs = _procs(found)
+    own = {p: _shared(procs.get(p, (None, None))[1], keep) for p in found}
+    spared = {}
+    for p in found:
+        q, seen = p, set()
+        while q in own and not own[q] and q not in seen:
+            seen.add(q)
+            q = procs.get(q, (None, None))[0]
+        spared[p] = own[q] if q in own else None
+    return spared, {p: procs.get(p, (None, ""))[1] for p in found}
+
+
+def end_tagged(match, grace=3.0, keep=(), kept=None):
     """Stop the processes whose tree marker (TREE_ENV) fits match(value): SIGTERM, and after grace seconds SIGKILL for
     those still alive and still with the same marker (the pid may have gone to another process). It does not touch itself
-    or its ancestors. -> how many processes were found."""
+    or its ancestors, nor shared daemons named in keep and what they started (see _spared): a session that started Colima
+    passes its marker to the VM, which other sessions use too (an executor handing in its task took Docker down for
+    everyone); each one spared goes to kept as (pid, argv[0], entry, marker). -> how many processes were stopped."""
     skip = _parents()
-    found = [p for p, tag in _tags().items() if p not in skip and real_pid(p) and match(tag)]
+    tags = _tags()
+    found = [p for p, tag in tags.items() if p not in skip and real_pid(p) and match(tag)]
+    if keep and found:
+        spared, names = _spared(found, keep)
+        for p in found:
+            if spared[p] and kept is not None:
+                kept.append((p, names[p], spared[p], tags[p]))
+        found = [p for p in found if not spared[p]]
     for pid in found:
         try:
             os.kill(pid, signal.SIGTERM)
@@ -1365,11 +1427,12 @@ def secret_key_file(folder, platform=sys.platform):
     return None if platform == "darwin" else os.path.join(folder, SECRET_KEY_FILE)
 
 
-def secret_key(account, folder, create=False, platform=sys.platform, run=None):
+def secret_key(account, folder, create=False, platform=sys.platform, run=None, value=None):
     """The vault key: 32 bytes, or None when there is none (and `create` is false). macOS: a generic password of the login
     Keychain through /usr/bin/security — the key goes on its stdin (`security -i`), not in its arguments, which `ps`
     shows. Linux: a file 0600 in the settings folder 0700. Another value than a key there is OSError: the vault says the
-    key is lost rather than making a new one over it."""
+    key is lost rather than making a new one over it. value — the key a new one is made with (`hub import` brings the
+    vault's key from another machine) instead of a random one; never written over another key that is there."""
     run = run or subprocess.run
     if platform == "darwin":
         got = run(["/usr/bin/security", "find-generic-password", "-s", SECRET_SERVICE, "-a", account, "-w"],
@@ -1380,7 +1443,7 @@ def secret_key(account, folder, create=False, platform=sys.platform, run=None):
             raise OSError(f"security find-generic-password: exit {got.returncode}")
         if not create:
             return None
-        key = os.urandom(32)
+        key = _new_key(value)
         made = run(["/usr/bin/security", "-i"], input=f"add-generic-password -U -s {SECRET_SERVICE} -a {account} "
                    f"-w {key.hex()}\n", capture_output=True, text=True, timeout=30)
         # `security -i` may exit 0 for a command that failed inside it: the key counts only once it reads back
@@ -1394,7 +1457,7 @@ def secret_key(account, folder, create=False, platform=sys.platform, run=None):
     except FileNotFoundError:
         if not create:
             return None
-    key = os.urandom(32)
+    key = _new_key(value)
     os.makedirs(folder, mode=0o700, exist_ok=True)
     import tempfile
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=SECRET_KEY_FILE + ".", suffix=".tmp")   # 0600 at once
@@ -1417,6 +1480,31 @@ def secret_key(account, folder, create=False, platform=sys.platform, run=None):
             pass
         raise
     return key
+
+
+def drop_secret_key(account, folder, platform=sys.platform, run=None):
+    """The vault key removed (`hub import` puts a hub's own key aside and back): the Keychain item of the account, or
+    the key file. -> whether there was one."""
+    run = run or subprocess.run
+    if platform == "darwin":
+        got = run(["/usr/bin/security", "delete-generic-password", "-s", SECRET_SERVICE, "-a", account],
+                  capture_output=True, text=True, timeout=30)
+        if got.returncode not in (0, 44):
+            raise OSError(f"security delete-generic-password: exit {got.returncode}")
+        return got.returncode == 0
+    try:
+        os.unlink(secret_key_file(folder, platform))
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _new_key(value):
+    if value is None:
+        return os.urandom(32)
+    if not isinstance(value, bytes) or len(value) != 32:
+        raise ValueError("a vault key is 32 bytes")
+    return value
 
 
 def _key_from_hex(text):

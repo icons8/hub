@@ -934,6 +934,29 @@ hub setup voice [on [<model>]|off]
 --force  install again even if the version is already there (claude: this release's, into the hub's folder)
 @ anyone — setup claude, setup codex: terminal; setup voice: owner, hub
 
+hub export [<file>] [--secrets] [--full]
+: the hub into an archive
+  Agents with their profiles, directions, the schedule, tasks, contacts, settings without keys. The hub keeps running.
+  Without <file> — ~/hub-<name>-<date>.tar.gz. Take the archive off this disk: it is the backup only elsewhere.
+  At the end — what was left out and what this disk alone holds (repos without a remote, unpushed commits).
+  Every night, a week round: hub schedule add … --command 'hub export /Volumes/Backup/hub-$(date +%a).tar.gz'
+--secrets  add the secrets sealed with a password (asked twice): the vault, Claude accounts, the bot, bus keys
+--full  also attachments, big files of the agents' folders, the agents' conversations
+@ anyone — --secrets: terminal
+$ hub export /Volumes/Backup/hub.tar.gz --secrets
+
+hub import <file> [--replace] [--no-secrets] [--no-clone]
+hub import --undo
+: the hub from an archive
+  Stops this hub, puts what it had aside, brings in the archive, moves the paths to this machine, clones the repos,
+  starts the hub. The report says what to do by hand (sign-ins, tokens). Refuses with the reason, changing nothing.
+--replace  over a hub that already has its own work (it goes aside, hub import --undo brings it back)
+--no-secrets  without the archive's secrets (the password is lost)
+--no-clone  list the repos, do not clone them
+--undo  the last import back
+@ terminal
+$ hub import /Volumes/Backup/hub.tar.gz
+
 hub support-bundle [--out <file>]
 : (owner) a zip for support, without keys; sends nothing
 --out F  where to write it

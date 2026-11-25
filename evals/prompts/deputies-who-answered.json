@@ -1,0 +1,148 @@
+{
+ "id": "deputies-who-answered",
+ "title": "A card routed to a deputy: the answer headed «The user's answer to question qN» is the owner himself — the session records the owner as the decider, not the deputy; «Reply on qN from <name>» stays the deputy's",
+ "note": "Invented names (Masha Kim, maps-dev). The session's view after `hub question route`: its printed line (ROUTED_WHO of the version, empty before the fix) and then an answer. Control: the deputy's REPLY is recorded as the deputy's.",
+ "model": "sonnet",
+ "effort": "medium",
+ "prompt": {
+  "file": "plugins/hub-base/skills/hub/SKILL.md",
+  "schema": {
+   "type": "object",
+   "required": [
+    "actions_now",
+    "says"
+   ],
+   "properties": {
+    "actions_now": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the exact shell commands and tool calls you make right now, in this turn, one per item; none — an empty list"
+    },
+    "says": {
+     "type": "string",
+     "description": "the text of your reply in this turn (the turn's result)"
+    }
+   }
+  }
+ },
+ "turns": [
+  {
+   "id": "owner-chose-option",
+   "input": "[hub:m960 from core] ⟦HEAD⟧:\nMove it to the bottom-left (Recommended)\n\n(bench: you are the session maps-dev; your card q305 to the owner was «The tile legend overlaps the zoom buttons on narrow screens: move it to the bottom-left or shrink it?» Options: Move to the bottom-left (Recommended); Shrink it. The owner is away. You sent the card to the deputy Masha Kim: you ran `hub question route q305 Masha` and it printed:\nq305 went to Masha Kim through their hub masha-hub: the answer comes to you on q305\n⟦WHO⟧\nSince then you have done nothing about the card.)\n\nWhat do you do in this turn? Record the decision as the rules say.",
+   "checks": [
+    {
+     "id": "not_deputy",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "(?i)^hub (decided|task note)\\b.*?(?<!not )(?<!n't )(?<!never )\\b(answered|decided|chosen|approved|allowed|came|settled|confirmed|replied)\\s+(\\w+\\s+){0,2}(by|from)\\s+(the\\s+)?(deputy|Masha)"
+    },
+    {
+     "id": "says_owner",
+     "type": "said",
+     "re": "(?i)\\b(owner|user)\\b[^.\\n]{0,50}(himself|decid|answer|chose)|\\b(owner|user)'s (own )?(answer|decision|word)"
+    },
+    {
+     "id": "says_not_deputy",
+     "type": "not_said",
+     "re": "(?i)(?<!not )(?<!n't )(?<!never )\\b(answered|decided|chosen|approved|allowed|came|settled|confirmed|replied)\\s+(\\w+\\s+){0,2}(by|from)\\s+(the\\s+)?(deputy|Masha)"
+    }
+   ],
+   "consts": {
+    "HEAD": {
+     "file": "core/reducer.py",
+     "name": "OWNER_ANSWER_HEAD",
+     "format": {
+      "id": "q305"
+     }
+    },
+    "WHO": {
+     "file": "core/deputyroute.py",
+     "name": "ROUTED_WHO",
+     "optional": true,
+     "format": {
+      "qid": "q305",
+      "name": "Masha Kim"
+     }
+    }
+   }
+  },
+  {
+   "id": "owner-in-words",
+   "input": "[hub:m961 from core] ⟦HEAD⟧:\nShrink it, but keep it at the top: the bottom-left is where the attribution sits\n\n(bench: you are the session maps-dev; your card q305 to the owner was «The tile legend overlaps the zoom buttons on narrow screens: move it to the bottom-left or shrink it?» Options: Move to the bottom-left (Recommended); Shrink it. The owner is away. You sent the card to the deputy Masha Kim: you ran `hub question route q305 Masha` and it printed:\nq305 went to Masha Kim through their hub masha-hub: the answer comes to you on q305\n⟦WHO⟧\nSince then you have done nothing about the card.)\n\nWhat do you do in this turn? Record the decision as the rules say.",
+   "checks": [
+    {
+     "id": "not_deputy",
+     "type": "field",
+     "name": "actions_now",
+     "item_not_re": "(?i)^hub (decided|task note)\\b.*?(?<!not )(?<!n't )(?<!never )\\b(answered|decided|chosen|approved|allowed|came|settled|confirmed|replied)\\s+(\\w+\\s+){0,2}(by|from)\\s+(the\\s+)?(deputy|Masha)"
+    },
+    {
+     "id": "says_owner",
+     "type": "said",
+     "re": "(?i)\\b(owner|user)\\b[^.\\n]{0,50}(himself|decid|answer|chose)|\\b(owner|user)'s (own )?(answer|decision|word)"
+    },
+    {
+     "id": "says_not_deputy",
+     "type": "not_said",
+     "re": "(?i)(?<!not )(?<!n't )(?<!never )\\b(answered|decided|chosen|approved|allowed|came|settled|confirmed|replied)\\s+(\\w+\\s+){0,2}(by|from)\\s+(the\\s+)?(deputy|Masha)"
+    }
+   ],
+   "consts": {
+    "HEAD": {
+     "file": "core/reducer.py",
+     "name": "OWNER_ANSWER_HEAD",
+     "format": {
+      "id": "q305"
+     }
+    },
+    "WHO": {
+     "file": "core/deputyroute.py",
+     "name": "ROUTED_WHO",
+     "optional": true,
+     "format": {
+      "qid": "q305",
+      "name": "Masha Kim"
+     }
+    }
+   }
+  },
+  {
+   "id": "deputy-reply-control",
+   "input": "[hub:m962 from core] ⟦REPLY⟧\n\n(bench: you are the session maps-dev; your card q305 to the owner was «The tile legend overlaps the zoom buttons on narrow screens: move it to the bottom-left or shrink it?» Options: Move to the bottom-left (Recommended); Shrink it. The owner is away. You sent the card to the deputy Masha Kim: you ran `hub question route q305 Masha` and it printed:\nq305 went to Masha Kim through their hub masha-hub: the answer comes to you on q305\n⟦WHO⟧\nSince then you have done nothing about the card.)\n\nWhat do you do in this turn? Record the decision as the rules say.",
+   "checks": [
+    {
+     "id": "deputy_decided",
+     "type": "field",
+     "name": "actions_now",
+     "item_re": "^hub decided --card q305\\b.*\\b(Masha|deputy)\\b"
+    }
+   ],
+   "consts": {
+    "REPLY": {
+     "file": "core/deputyroute.py",
+     "name": "REPLY",
+     "format": {
+      "qid": "q305",
+      "name": "Masha Kim",
+      "via": "through their hub masha-hub",
+      "zone": "map tiles frontend: layout, styles, stage releases",
+      "nope": "",
+      "back": " in the thread: hub send liaison --to masha-hub --thread 7a1c… \"…\"",
+      "words": "Move it to the bottom-left, like on the main map"
+     }
+    },
+    "WHO": {
+     "file": "core/deputyroute.py",
+     "name": "ROUTED_WHO",
+     "optional": true,
+     "format": {
+      "qid": "q305",
+      "name": "Masha Kim"
+     }
+    }
+   }
+  }
+ ]
+}

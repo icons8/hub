@@ -389,12 +389,19 @@ class Cli:
             print(i18n.t("cli.bus.sent_held", out=d.get("out")))
         elif hit["type"] == "core.bus_out":
             print(i18n.t("cli.bus.sent", out=d.get("out"), id=d.get("id")))
+            self.say_thread(d.get("out"))
         elif hit["type"] == "core.bus_passed":
             print(i18n.t("cli.bus.passed", inbox=d.get("inbox"), to=d.get("to")))
         else:
             print(i18n.t("cli.bus.refused", reason=" ".join([d.get("code") or "-", busstate.REFUSED_HINT.get(d.get("code"), "")]).strip()))
             return 1
         return 0
+
+    def say_thread(self, oid):
+        """The line after a sent message: the thread it went in (nothing when the state does not hold the message)."""
+        bus_now = self.bus()
+        if oid in bus_now.get("out", {}):
+            print(i18n.t("cli.bus.sent_thread", line=busstate.thread_line(bus_now, bus_now["out"][oid])))
 
     def send(self, args):
         self.liaison_only("hub bus send")
@@ -499,6 +506,7 @@ class Cli:
             if why is None:
                 if seq is not None:
                     print(i18n.t("cli.bus.direct_sent", contact=name, seq=seq))
+                    self.say_thread(f"o{seq}")
                 return 0   # not decided in time: put said it is not lost, a later refusal comes to the session
             if not str(why).startswith("not_direct"):
                 print(i18n.t("cli.bus.rejected", reason=coretext.human(why)))

@@ -703,3 +703,30 @@ def worktrees_to_clean(st):
     """Removed sessions whose working copy is still on disk — to clean up (hubd, hosts/worktree.remove)."""
     return [s for s in st["sessions"].values() if s["state"] == "removed" and (s.get("worktree") or {}).get("path")
             and not s["worktree"].get("cleaned")]
+
+
+DROP_BELOW_GB = 15   # executors.drop_copy_below_gb by default: below it a finished copy goes without waiting out the term
+DROP_BATCH = 5   # copies dropped per background pass: a wake of one of them waits at most this many removals (busy_copy)
+
+
+def copies_to_drop(st, now, after, early=False):
+    """Handed-in executors (retired) asleep at least `after` s whose working copy — or own folder without a repo — may
+    go (hub.json executors.drop_copy_after_hours; 0 — never, the default): the session, its conversation and its branch
+    stay, `hub session wake` brings the copy back. Whether the copy is
+    finished is checked by git right before the drop (hosts/worktree.drop); a copy kept at this sleep is not looked at
+    again until the next one (copy_drop). early: the ones still within the term too (a low disk, the caller checks it).
+    Oldest sleep first. -> [(name, since, "copy" | "space", info)]"""
+    if not after or after <= 0:
+        return []
+    out = []
+    for name, s in st["sessions"].items():
+        if s["state"] != "retired" or not minihub.runner(s) or s.get("here") or not early and now - s["since"] < after \
+                or (s.get("copy_drop") or {}).get("since") == s["since"]:
+            continue
+        wt = s.get("worktree") or {}
+        if wt.get("path"):
+            if not wt.get("cleaned") and not wt.get("dropped"):
+                out.append((name, s["since"], "copy", dict(wt)))
+        elif s.get("cwd"):
+            out.append((name, s["since"], "space", {"path": s["cwd"]}))
+    return sorted(out, key=lambda x: x[1])

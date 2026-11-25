@@ -1774,44 +1774,191 @@ class PageInChrome(test_web.WebTest):
         return shot
 
     PREVIEW = ("(() => { const c = document.querySelector('.ask-card'); const r = c.getBoundingClientRect();"
-               "const pre = c.querySelector('pre.opt-preview'); const img = c.querySelector('img.opt-img');"
-               "const miss = c.querySelector('.opt-missing'); const labs = [...c.querySelectorAll('label.opt')];"
-               "return {right: Math.round(r.right), win: innerWidth, text: pre && pre.textContent,"
-               "ws: pre && getComputedStyle(pre).whiteSpace, ox: pre && getComputedStyle(pre).overflowX,"
-               "mono: pre && getComputedStyle(pre).fontFamily, pw: pre && Math.round(pre.getBoundingClientRect().right),"
-               "scrolls: pre && pre.scrollWidth > pre.clientWidth, img: img && img.complete && img.naturalWidth,"
-               "imgRight: img && Math.round(img.getBoundingClientRect().right), miss: miss && miss.textContent,"
-               "previews: labs.map((l) => !!l.querySelector('.opt-preview, .opt-shot, .opt-missing')),"
-               "pages: document.documentElement.scrollWidth}; })()")
+               "const thumbs = [...c.querySelectorAll('button.opt-thumb')]; const img = c.querySelector('img.opt-thumb-img');"
+               "const pre = c.querySelector('pre.opt-thumb-pre'); const labs = [...c.querySelectorAll('label.opt')];"
+               "return {right: Math.round(r.right), win: innerWidth, thumbs: thumbs.length, missing: thumbs.filter((b) => b.classList.contains('missing')).length,"
+               "img: img && img.complete && img.naturalWidth, sketch: pre && pre.textContent,"
+               "tr: thumbs.map((b) => Math.round(b.getBoundingClientRect().right)),"
+               "previews: labs.map((l) => !!l.querySelector('.opt-thumb')), pages: document.documentElement.scrollWidth}; })()")
+    BOX = ("(() => { const d = document.querySelector('dialog.askbox[open]'); if (!d) return null; const pre = d.querySelector('.askbox-pre');"
+           "const b = d.getBoundingClientRect();"
+           "return {title: d.querySelector('.askbox-title').textContent, count: d.querySelector('.askbox-count').textContent,"
+           "pre: pre && pre.textContent, ws: pre && getComputedStyle(pre).whiteSpace, mono: pre && getComputedStyle(pre).fontFamily,"
+           "img: d.querySelector('.askbox-img')?.src, miss: d.querySelector('.askbox-missing')?.textContent,"
+           "pick: d.querySelector('.askbox-pick').textContent, w: Math.round(b.width), h: Math.round(b.height), win: [innerWidth, innerHeight],"
+           "active: document.activeElement.className}; })()")
 
-    def test_option_previews_show_a_sketch_a_picture_and_a_missing_picture_on_both_widths(self):
-        # a variant is judged by sight. `preview` of an option: an ASCII block (monospace, spaces and
-        # line breaks as written, scrolls sideways inside the card) or a path to a picture (served by the page; a click
-        # opens it large, not answers); a picture that is gone is a line, not a broken icon; no preview — as before
+    def attach_card(self, preview=False):
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("turn.started", "a", marker=None, prompt_head="x")
+        opts = [{"label": "Yes", **({"preview": "┌┐"} if preview else {})}, {"label": "No"}]
+        q = {"questions": [{"question": "Like this?", "options": opts}]}
+        self.ev("permission.requested", "a", request_id="r1", tool="AskUserQuestion", interactive=True, input=q)
+
+    def test_option_previews_are_thumbnails_that_open_large_on_both_widths(self):
+        # a variant is judged by sight, so an option shows a thumbnail on its row and a click opens it large. `preview` of an option: an ASCII block or a
+        # path to a picture (served by the page); a picture that is gone is a line, not a broken icon; no preview — no thumbnail
         long = "[ OK ]" + " " * 20 + "·" * 200
         self.preview_card(["┌──────┐\n│  OK  │  " + long + "\n└──────┘", "SHOT"])
         shot = os.path.join(tempfile.gettempdir(), "e2e-preview-narrow.png")
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which button is better?"},
-                        {"until": "!!document.querySelector('.ask-card img.opt-img') && document.querySelector('.ask-card img.opt-img').complete"
-                                  " && !!document.querySelector('.ask-card .opt-missing')", "ms": 10000},
+                        {"until": "!!document.querySelector('.ask-card img.opt-thumb-img') && document.querySelector('.ask-card img.opt-thumb-img').complete"
+                                  " && !!document.querySelector('.ask-card .opt-thumb.missing')", "ms": 10000},
                         {"eval": self.PREVIEW}, {"shot": shot, "width": 390, "height": 900}, {"sleep": 300}, {"eval": self.PREVIEW})
         wide, narrow = got[3]["eval"], got[-1]["eval"]
-        self.assertIn("┌──────┐\n│  OK  │", wide["text"], got)           # line breaks and spaces are kept
-        self.assertEqual((wide["ws"], wide["ox"]), ("pre", "auto"), got)
-        self.assertIn("mono", wide["mono"].lower(), got)                 # monospace: columns of a sketch line up
-        self.assertGreater(wide["img"], 0, got)                          # the picture loaded from the page
+        self.assertEqual((wide["thumbs"], wide["missing"]), (3, 1), got)
         self.assertEqual(wide["previews"], [True, True, True, False], got)   # the empty preview adds nothing
-        self.assertIn("/nope/gone.png", wide["miss"], got)
+        self.assertGreater(wide["img"], 0, got)                          # the picture loaded from the page
+        self.assertIn("┌──────┐", wide["sketch"], got)
         self.assertLessEqual(narrow["right"], 390, got)                  # the card frame is whole on a phone
-        self.assertLessEqual(narrow["pw"], 390, got)
-        self.assertTrue(narrow["scrolls"], got)                          # the long line scrolls inside the block
+        self.assertLessEqual(max(narrow["tr"]), 390, got)
         self.assertLessEqual(narrow["pages"], 390, got)                  # the page itself does not scroll sideways
-        # a click on the picture opens it large and answers nothing
-        got = self.page({"eval": "document.querySelector('.ask-card img.opt-img').click(), 1"},
-                        {"until": "!!document.querySelector('.lightbox:not([hidden])')", "ms": 3000},
-                        {"eval": "document.querySelector('.lightbox .lb-img').src"})
-        self.assertIn("/api/file?path=", got[-1]["eval"])
+        # a click on the sketch's thumbnail opens it large, as written, and answers nothing
+        got = self.page({"eval": "document.querySelector('.ask-card button.opt-thumb').click(), 1"},
+                        {"until": "!!document.querySelector('dialog.askbox[open]')", "ms": 3000}, {"eval": self.BOX})
+        box = got[-1]["eval"]
+        self.assertIn("┌──────┐\n│  OK  │", box["pre"], box)           # line breaks and spaces are kept
+        self.assertEqual(box["ws"], "pre", box)
+        self.assertIn("mono", box["mono"].lower(), box)                  # monospace: columns of a sketch line up
+        self.assertEqual(box["count"], "1 / 3", box)
+        # › pages to the picture, › again to the missing one: a line with the path, not a broken icon
+        got = self.page({"key": "ArrowRight"}, {"sleep": 150}, {"eval": self.BOX}, {"key": "ArrowRight"}, {"sleep": 150}, {"eval": self.BOX})
+        self.assertIn("/api/file?path=", got[2]["eval"]["img"], got)
+        self.assertIn("/nope/gone.png", got[-1]["eval"]["miss"], got)
         self.assertFalse([e for e in self.spooled() if e["type"] == "permission.answered"])
+
+    def test_a_card_with_previews_is_looked_at_first_a_tap_chooses_and_the_button_answers(self):
+        # a tap on an option only chooses it; the answer goes by "Choose". The big view pages with ‹ › and
+        # arrows, chooses with "Choose this", Esc closes it and the focus goes back to the thumbnail; on a phone it fills the screen
+        self.preview_card(["┌──┐\n└──┘", "SHOT"])
+        lab = "document.querySelectorAll('.ask-card label.opt')"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which button is better?"}, self.OPT_STEADY,
+                        {"eval": f"(() => {{ {lab}[1].click(); return [{lab}[1].querySelector('input').checked, document.querySelector('.ask-card').classList.contains('instant'),"
+                                 f"document.querySelector('.ask-card .btns .btn.primary').hidden, document.querySelector('.ask-card .btns .btn.primary').textContent.trim()]; }})()"},
+                        {"sleep": 700})
+        self.assertEqual(got[-2]["eval"], [True, False, False, "Choose"], got)   # chosen, not answered; the button is there
+        self.assertFalse([e for e in self.spooled() if e["type"] == "permission.answered"])
+        # the big view: open from the first row's thumbnail, Esc closes, focus is back on the thumbnail
+        got = self.page({"eval": f"(() => {{ const b = {lab}[0].querySelector('.opt-thumb'); b.focus(); b.click(); return 1; }})()"},
+                        {"until": "!!document.querySelector('dialog.askbox[open]')", "ms": 3000}, {"eval": self.BOX},
+                        {"key": "Escape"}, {"sleep": 200},
+                        {"eval": "[!!document.querySelector('dialog.askbox'), document.activeElement.className, !!document.querySelector('.feed .ask-card')]"})
+        self.assertEqual(got[2]["eval"]["pick"], "Choose this", got)
+        self.assertEqual(got[-1]["eval"], [False, "opt-thumb", True], got)   # closed, focus back, and Esc did not close the question
+        # arrows page, "Choose this" chooses and closes; still nothing answered
+        got = self.page({"eval": f"{lab}[0].querySelector('.opt-thumb').click(), 1"}, {"until": "!!document.querySelector('dialog.askbox[open]')", "ms": 3000},
+                        {"key": "ArrowRight"}, {"sleep": 150}, {"eval": self.BOX}, {"eval": "document.querySelector('.askbox-pick').click(), 1"}, {"sleep": 200},
+                        {"eval": f"[!!document.querySelector('dialog.askbox'), {lab}[0].querySelector('input').checked, {lab}[1].querySelector('input').checked]"})
+        self.assertEqual(got[4]["eval"]["count"], "2 / 3", got)
+        self.assertEqual(got[-1]["eval"], [False, False, True], got)         # the second option's "Choose this" (the one shown)
+        self.assertFalse([e for e in self.spooled() if e["type"] == "permission.answered"])
+        # the button answers with the chosen option
+        self.page({"eval": "document.querySelector('.ask-card .btns .btn.primary').click(), 1"},
+                  {"until": "!document.querySelector('.feed .ask-card:not(.sent)')", "ms": 5000})
+        sent = [e["data"] for e in self.spooled() if e["type"] == "permission.answered"]
+        self.assertEqual([list(x["answers"].values()) for x in sent], [["Right"]], sent)
+
+    def test_the_big_preview_fills_the_screen_on_a_phone(self):
+        self.preview_card(["┌──┐\n└──┘", "SHOT"])
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which button is better?"}, self.OPT_STEADY,
+                        {"eval": "document.querySelector('.ask-card .opt-thumb').click(), 1"},
+                        {"until": "!!document.querySelector('dialog.askbox[open]')", "ms": 3000}, {"shot": os.path.join(self.state, "box-phone.png"), "width": 390, "height": 800}, {"sleep": 300}, {"eval": self.BOX})
+        box = got[-1]["eval"]
+        self.assertEqual((box["w"], box["h"]), (390, 800), box)
+        # a tap on the box's own padding (beside ‹ ›, between the picture and the buttons) keeps it open; the dim area
+        # around a smaller box closes it
+        tap = ("(() => { const d = document.querySelector('dialog.askbox'); const r = d.getBoundingClientRect();"
+               " d.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: r.left + %d, clientY: r.top + %d})); return !!d.open; })()")
+        got = self.page({"eval": tap % (3, 3)}, {"shot": os.path.join(self.state, "box-wide.png"), "width": 1300, "height": 900},
+                        {"eval": tap % (-20, -20)})
+        self.assertEqual([got[0]["eval"], got[-1]["eval"]], [True, False], got)
+
+    PASTE = ("(() => { const bin = atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==');"
+             "const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0)); const dt = new DataTransfer();"
+             "dt.items.add(new File([bytes], 'shot.png', {type: 'image/png'}));"
+             "const ta = document.querySelector('.ask-card textarea.other'); ta.focus();"
+             "ta.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true})); return 1; })()")
+    UPLOADED = "!!document.querySelector('.ask-card .pchip .nm') && !/uploading/.test(document.querySelector('.ask-card .pchip .nm').textContent)"
+
+    def test_a_picture_pasted_into_the_answer_field_of_a_card_goes_with_the_answer_by_path(self):
+        # the chat field's attachments (paste, chip, the cross) work in the answer field of a card:
+        # the path of the uploaded file is in the answer's text, so the session reads it; a picture alone, with no words, answers too
+        self.attach_card()
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Like this?"}, self.OPT_STEADY, {"eval": self.PASTE},
+                        {"until": self.UPLOADED, "ms": 10000},
+                        {"eval": "[document.querySelectorAll('.ask-card .pchip').length, document.querySelector('.ask-card .btns .btn.primary')?.hidden,"
+                                 " !!document.querySelector('.ask-card .attach'), document.querySelector('.ask-card textarea.other').value,"
+                                 " document.querySelector('.ask-card .row .btn.primary, .ask-card .other-row .btn.primary')?.hidden]"})
+        self.assertEqual(got[-1]["eval"][0], 1, got)                     # the chip
+        self.assertTrue(got[-1]["eval"][2], got)                         # the paperclip is in the field's row
+        self.assertIn("[Image #1]", got[-1]["eval"][3], got)             # the mark in the text, as in the chat
+        self.assertFalse(got[-1]["eval"][4], got)                        # a tap answers: with only a file the "Answer" button shows
+        self.page({"eval": "(() => { const t = document.querySelector('.ask-card textarea.other'); t.value = ''; t.dispatchEvent(new Event('input', {bubbles: true}));"
+                           " document.querySelector('.ask-card .other-row .btn.primary').click(); return 1; })()"},
+                  {"until": "!document.querySelector('.feed .ask-card:not(.sent)')", "ms": 5000})
+        sent = [e["data"] for e in self.spooled() if e["type"] == "permission.answered"]
+        self.assertEqual(len(sent), 1, sent)
+        text = list(sent[0]["answers"].values())[0]
+        self.assertTrue(text.startswith("Attached files:\n- "), text)    # no words, no option: the picture alone is the answer
+        path = text.split("- ", 1)[1].split(" (")[0]
+        self.assertTrue(os.path.isfile(path), text)                      # the file the session will read is there
+        self.assertIn("attachments", path, text)
+
+    def test_attached_files_ride_with_a_chosen_option_and_with_more_context(self):
+        self.attach_card(preview=True)
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Like this?"}, self.OPT_STEADY, {"eval": self.PASTE},
+                        {"until": self.UPLOADED, "ms": 10000},
+                        {"eval": "(() => { document.querySelectorAll('.ask-card label.opt')[0].click(); return 1; })()"},
+                        {"eval": "document.querySelector('.ask-card .btns .btn.primary').click(), 1"},
+                        {"until": "!document.querySelector('.feed .ask-card:not(.sent)')", "ms": 5000})
+        text = list([e["data"] for e in self.spooled() if e["type"] == "permission.answered"][0]["answers"].values())[0]
+        self.assertTrue(text.startswith("Yes\n\nAttached files:\n- "), text)   # the chosen option first, the path under it
+        for e in [e for e in self.spooled() if e["type"] == "permission.answered"]:
+            self.ev("permission.answered", "a", request_id="r1", channel="web", owner=True)
+        self.ev("permission.requested", "a", request_id="r2", tool="AskUserQuestion", interactive=True,
+                input={"questions": [{"question": "More?", "options": [{"label": "Yes"}, {"label": "No"}]}]})
+        c2 = ".ask-card[data-ask=r2]"
+        self.page({"until": f"!!document.querySelector('{c2} textarea.other')", "ms": 10000}, {"sleep": 700},
+                  {"eval": self.PASTE.replace(".ask-card textarea.other", f"{c2} textarea.other")},
+                  {"until": self.UPLOADED.replace(".ask-card", c2), "ms": 10000},
+                  {"eval": f"document.querySelector('{c2} .btn.more').click(), 1"}, {"sleep": 1500})
+        more = [e["data"]["answers"] for e in self.spooled() if e["type"] == "permission.answered" and e["data"].get("request_id") == "r2"]
+        self.assertEqual(len(more), 1, more)
+        self.assertTrue(list(more[0].values())[0].startswith("Need more context\n\nAttached files:\n- "), more)
+
+    def test_files_sent_with_a_card_answer_do_not_hold_the_tab_on_a_new_version(self):
+        # files attached to a card's answer are the page's unsent files only while the card is there: once it is
+        # answered and gone, a new page version reloads the tab by itself again (the files kept it on a banner forever)
+        self.attach_card()
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Like this?"}, self.OPT_STEADY, {"eval": self.PASTE},
+                  {"until": self.UPLOADED, "ms": 10000},
+                  {"eval": "document.querySelectorAll('.ask-card label.opt')[0].click(), 1"},
+                  {"until": "!document.querySelector('.feed .ask-card:not(.sent)')", "ms": 5000})
+        sent = [e["data"] for e in self.spooled() if e["type"] == "permission.answered"]
+        self.assertEqual(len(sent), 1, sent)
+        self.ev("permission.answered", "a", **{k: v for k, v in sent[0].items() if k != "session"})   # the core records it
+        self.page({"until": "!document.querySelector('.ask-card')", "ms": 6000}, {"eval": "window.__kept = 1"})
+        with mock.patch.object(self.web, "version", lambda: "new"):
+            self.ev("owner.away", None, hours=1, channel="cli", owner=True)
+            got = self.page({"until": "window.__kept === undefined", "ms": 8000})
+        self.assertTrue(got[0]["until"], "the answered card's files still held the tab: it never reloaded")
+
+    def test_a_card_taken_off_with_only_a_file_keeps_it_and_hands_it_to_the_field(self):
+        # the question is answered elsewhere while a file waits in the card's answer field (no words): the card freezes
+        # with the file, as with typed text, and "To the input field" takes the file along to the session's field
+        self.attach_card()
+        clear = ("(() => { const t = document.querySelector('.ask-card textarea.other'); t.value = '';"
+                 " t.dispatchEvent(new Event('input', {bubbles: true})); return 1; })()")
+        self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Like this?"}, self.OPT_STEADY, {"eval": self.PASTE},
+                  {"until": self.UPLOADED, "ms": 10000}, {"eval": clear})
+        self.ev("permission.answered", "a", request_id="r1", channel="telegram", owner=True, behavior="allow",
+                answers={"Like this?": "No"})
+        got = self.page({"until": "!!document.querySelector('.ask-card.frozen')", "ms": 6000},
+                        {"eval": "document.querySelectorAll('.ask-card.frozen .pchip').length"},
+                        {"eval": "document.querySelector('.ask-card.frozen .frozen-bar .btn.primary').click(), 1"},
+                        {"until": "!document.querySelector('.ask-card') && document.querySelectorAll('form.composer .pchip').length === 1", "ms": 5000})
+        self.assertEqual([got[0]["until"], got[1]["eval"], got[-1]["until"]], [True, 1, True], got)
 
     def test_an_option_preview_is_text_never_html_and_a_picture_loads_only_from_the_file_routes(self):
         # a preview is the session's text: markup in it is shown as written and runs nothing; every picture of a card
@@ -1819,9 +1966,9 @@ class PageInChrome(test_web.WebTest):
         evil = '<img src="http://127.0.0.1:9/x.png" onerror="window.__pwn=1"><b>bold</b><script>window.__pwn=2</script>'
         self.preview_card([evil, "SHOT"])
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which button is better?"},
-                        {"until": "!!document.querySelector('.ask-card img.opt-img') && document.querySelector('.ask-card img.opt-img').complete",
+                        {"until": "!!document.querySelector('.ask-card img.opt-thumb-img') && document.querySelector('.ask-card img.opt-thumb-img').complete",
                          "ms": 10000}, {"sleep": 300},
-                        {"eval": "(() => { const pre = document.querySelector('.ask-card pre.opt-preview');"
+                        {"eval": "(() => { const pre = document.querySelector('.ask-card pre.opt-thumb-pre');"
                                  "return {text: pre.textContent, kids: pre.children.length, pwn: window.__pwn || 0,"
                                  "srcs: [...document.querySelectorAll('.ask-card img')].map((i) => i.getAttribute('src'))}; })()"})
         r = got[-1]["eval"]
@@ -1829,12 +1976,11 @@ class PageInChrome(test_web.WebTest):
         self.assertTrue(r["srcs"] and all(x.startswith(("/api/file?path=", "http://127.0.0.1:")) and "x.png" not in x
                                           for x in r["srcs"]), got)
 
-    def test_a_preview_path_to_a_report_a_pdf_or_a_folder_is_the_file_not_the_path_as_text(self):
-        # a preview naming a report.html used to show the bare path in monospace, cut off at the card's edge. One path to
-        # a file that is not a picture is that file: an html report is its live frame from "Files" /render (its pictures
-        # load by their relative paths there) above its name, a click opens it whole in a new tab; a pdf goes to the
-        # browser's viewer (/raw), a folder to "Files"; a file that is not there is its name, "not found", no link;
-        # opening a file answers nothing
+    def test_a_preview_path_to_a_report_is_its_live_frame_and_opens_in_a_new_tab(self):
+        # a preview naming report.html must not show the path cut off in monospace, in the thumbnail or in the big view.
+        # An html report is its live frame from "Files" /render (its frames/*.png load by their relative paths there),
+        # a click opens it whole in a new tab; a pdf goes to the browser's viewer (/raw), a folder to "Files"; a file that
+        # is not there is its name without a link; never the path as text; nothing is answered
         report = os.path.join(os.path.realpath(self.state), "states", "report.html")
         os.makedirs(os.path.dirname(report), exist_ok=True)
         with open(report, "w", encoding="utf-8") as f:
@@ -1856,48 +2002,61 @@ class PageInChrome(test_web.WebTest):
             {"label": "Home", "preview": "~/spec.pdf"},   # the session's folder is not under a home: only the server expands "~"
             {"label": "Gone", "preview": "/nope/gone.pdf"}]}]}
         self.ev("permission.requested", "a", request_id="r1", tool="AskUserQuestion", interactive=True, input=q)
-        card = ("(() => [...document.querySelectorAll('.ask-card label.opt')].map((l) => {"
-                "const b = l.querySelector('.opt-file'), a = b && b.querySelector('a'), f = b && b.querySelector('iframe');"
-                "return {file: !!b, pre: !!l.querySelector('pre.opt-preview'), text: b ? b.textContent : null,"
-                "name: b && b.querySelector('.opt-file-name').textContent, href: a && a.getAttribute('href'),"
-                "tab: a && a.target, icon: !!(b && b.querySelector('svg.icon, .kit-img')),"
-                "frame: f && f.getAttribute('src'), sandbox: f && f.getAttribute('sandbox'), inert: f && getComputedStyle(f).pointerEvents,"
-                "fw: f ? Math.round(f.getBoundingClientRect().width) : 0,"
-                "sw: f ? Math.round(f.parentNode.getBoundingClientRect().width) : 0}; }))()")
+        card = ("(() => { const c = document.querySelector('.ask-card'); const t = [...c.querySelectorAll('.opt-thumb')];"
+                "return t.map((b) => { const a = b.querySelector('a'), f = b.querySelector('iframe');"
+                "return {file: b.classList.contains('opt-file'), pre: !!b.querySelector('pre'), text: b.textContent,"
+                "name: b.querySelector('.opt-file-name')?.textContent || null, href: a?.getAttribute('href') || null,"
+                "tab: a?.target || null, frame: f ? f.getAttribute('src') : null, sandbox: f ? f.getAttribute('sandbox') : null,"
+                "inert: f ? getComputedStyle(f).pointerEvents : null, fw: f ? Math.round(f.getBoundingClientRect().width) : 0,"
+                "tw: Math.round(b.getBoundingClientRect().width)}; }); })()")
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which layout?"},
                         {"until": "document.querySelectorAll('.ask-card .opt-file a[href]').length === 4"
                                   " && !!document.querySelector('.ask-card .opt-file.missing')", "ms": 10000},
-                        {"sleep": 300}, {"eval": card})
+                        {"sleep": 200}, {"eval": card})
         sketch, rep, pdf, folder, home, gone = got[-1]["eval"]
-        self.assertTrue(sketch["pre"] and not sketch["file"], got)       # an ASCII sketch stays a sketch
+        self.assertTrue(sketch["pre"] and not sketch["file"], got)     # an ASCII sketch stays a sketch
         for t in (rep, pdf, folder, home, gone):
-            self.assertTrue(t["file"] and not t["pre"] and t["icon"], got)   # never the path in monospace
-            self.assertNotIn("/", t["text"], got)                         # the name, not the path
-        self.assertEqual([t["name"] for t in (rep, pdf, folder, home, gone)],
-                         ["report.html", "spec.pdf", "states", "spec.pdf", "gone.pdf"])
-        self.assertIn("/render/", rep["frame"], got)                      # the report itself, live
+            self.assertTrue(t["file"] and not t["pre"], got)            # never the path in monospace
+            self.assertNotIn("/", t["text"], got)
+        self.assertIn("/render/", rep["frame"], got)                    # the report itself, live
         self.assertTrue(rep["frame"].endswith("/states/report.html"), got)
         self.assertEqual((rep["sandbox"], rep["inert"]), ("allow-scripts", "none"), got)
-        self.assertLessEqual(abs(rep["fw"] - rep["sw"]), 3, got)         # scaled down to the option's width
+        self.assertLessEqual(abs(rep["fw"] - rep["tw"]), 3, got)       # scaled down to the thumbnail
         self.assertEqual((rep["href"], rep["tab"]), (rep["frame"], "_blank"), got)   # a click: the report whole, a new tab
         self.assertRegex(pdf["href"], r"/raw\?root=[^&]+&path=.*spec\.pdf$", got)   # by the root and path the server resolved
         self.assertRegex(home["href"], r"/raw\?root=[^&]+&path=.*spec\.pdf$", got)   # "~/spec.pdf" is a link that works too
-        self.assertEqual((pdf["frame"], pdf["tab"]), (None, "_blank"), got)
+        self.assertEqual((pdf["name"], pdf["frame"], pdf["tab"]), ("spec.pdf", None, "_blank"), got)
         self.assertIn("/#/", folder["href"], got)                         # a folder in "Files"
-        self.assertEqual(folder["tab"], "_blank", got)
-        self.assertIsNone(gone["href"], got)                              # not there: no link, and says so
-        self.assertIn(i18n.t("web.cards.file_missing"), gone["text"], got)
-        # following the link opens a tab and picks no option (a click inside the option's label)
-        got = self.page({"eval": "document.querySelectorAll('.ask-card .opt-file a[href]')[1].click(), 1"}, {"sleep": 500},
-                        {"eval": "[...document.querySelectorAll('.ask-card input')].filter((i) => i.checked).length"})
+        self.assertEqual((folder["name"], folder["tab"]), ("states", "_blank"), got)
+        self.assertEqual((gone["name"], gone["href"]), ("gone.pdf", None), got)   # not there: no link
+        # the big view, paged to from the sketch: the report's frame and "Open" to a new tab; the missing file says so
+        box = ("(() => { const d = document.querySelector('dialog.askbox[open]'); if (!d) return null; const o = d.querySelector('.askbox-open');"
+               "return {title: d.querySelector('.askbox-title').textContent, pre: !!d.querySelector('.askbox-pre'),"
+               "frame: d.querySelector('.askbox-frame')?.getAttribute('src') || null, open: o.hidden ? null : o.getAttribute('href'),"
+               "tab: o.target, miss: d.querySelector('.askbox-missing')?.textContent || null, body: d.querySelector('.askbox-body').textContent}; })()")
+        got = self.page({"eval": "document.querySelector('.ask-card button.opt-thumb').click(), 1"},
+                        {"until": "!!document.querySelector('dialog.askbox[open]')", "ms": 3000},
+                        {"eval": box}, {"key": "ArrowRight"}, {"until": "!!document.querySelector('.askbox-frame')", "ms": 5000},
+                        {"eval": box}, {"key": "ArrowRight"}, {"key": "ArrowRight"}, {"key": "ArrowRight"}, {"key": "ArrowRight"}, {"sleep": 300}, {"eval": box})
+        first, rbox, gbox = got[2]["eval"], got[5]["eval"], got[-1]["eval"]
+        self.assertIsNone(first["open"], got)                            # a sketch has nothing to open
+        self.assertEqual((rbox["title"], rbox["pre"], rbox["frame"]), ("Report", False, rep["frame"]), got)
+        self.assertEqual((rbox["open"], rbox["tab"]), (rep["frame"], "_blank"), got)
+        self.assertNotIn(report, rbox["body"], got)
+        self.assertEqual((gbox["title"], gbox["open"]), ("Gone", None), got)
+        self.assertTrue(gbox["miss"], got)
+        # the missing file's thumbnail is a link with no address: a click on it opens nothing and picks no option
+        got = self.page({"key": "Escape"}, {"sleep": 200},
+                        {"eval": "(() => { const t = [...document.querySelectorAll('.ask-card .opt-file.missing a')].pop(); t.click();"
+                                 " return [...document.querySelectorAll('.ask-card input[type=radio]')].filter((r) => r.checked).length; })()"})
         self.assertEqual(got[-1]["eval"], 0, got)
         self.assertFalse([e for e in self.spooled() if e["type"] == "permission.answered"])
 
     def test_a_picture_rewritten_under_the_same_path_shows_anew_in_the_next_question(self):
-        # a session sent a question with a preview path, then redrew the file under the same name and asked again: the page
-        # keeps a loaded picture per address (even under no-store) until it is closed, so the address carries the question
+        # a session sent a question with preview paths, then redrew the files under the same names and asked again;
+        # the page keeps a loaded picture per address (even under no-store) until it is closed
         shot = self.preview_card(["sketch", "SHOT"])
-        wide = ("(() => { const i = document.querySelector('.ask-card[data-ask=\"%s\"] img.opt-img');"
+        wide = ("(() => { const i = document.querySelector('.ask-card[data-ask=\"%s\"] img.opt-thumb-img');"
                 " return i && i.complete ? i.naturalWidth : 0; })()")
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "Which button is better?"},
                         {"until": wide % "r1" + " > 0", "ms": 10000}, {"eval": wide % "r1"})
@@ -2072,7 +2231,7 @@ class PageInChrome(test_web.WebTest):
         test_web.write_decided(self.j, self.j.event(item["type"], item["entity"], item["data"], src="web"), "Session busy")
         os.unlink(path)
         got = self.page({"until": "document.querySelector('.ask-card .error-text').textContent", "ms": 15000}, {"eval": self.FOLD})
-        self.assertEqual(got[1]["eval"], {"sent": False, "line": None, "err": "Answer not sent: Session busy", "live": 4})
+        self.assertEqual(got[1]["eval"], {"sent": False, "line": None, "err": "Answer not sent: Session busy", "live": 5})
 
     def test_a_refusal_after_leaving_the_session_opens_its_card_again(self):
         # PR #268 review (high): the answer is queued, the owner moved to another session, the core refused: the card stayed
@@ -2096,7 +2255,7 @@ class PageInChrome(test_web.WebTest):
         os.unlink(path)
         got = self.page({"sleep": 2500}, {"go": url + "a"}, {"until": "document.querySelector('.ask-card .error-text')?.textContent", "ms": 8000},
                         {"eval": self.FOLD})
-        self.assertEqual(got[-1]["eval"], {"sent": False, "line": None, "err": "Answer not sent: Session busy", "live": 4})
+        self.assertEqual(got[-1]["eval"], {"sent": False, "line": None, "err": "Answer not sent: Session busy", "live": 5})
 
     def test_a_queued_answer_the_core_never_records_opens_the_card_again(self):
         # review: the "queued" polling ended and the card stayed collapsed forever: no way to answer again or close it, and
@@ -2110,7 +2269,7 @@ class PageInChrome(test_web.WebTest):
                         {"until": "document.querySelector('.ask-card .error-text').textContent", "ms": 5000},
                         {"eval": self.FOLD})
         self.assertTrue(got[3]["until"] and got[4]["until"], got)   # the poll is shortened, the card stood still
-        self.assertEqual(got[-1]["eval"], {"sent": False, "line": None, "live": 4,
+        self.assertEqual(got[-1]["eval"], {"sent": False, "line": None, "live": 5,
                                            "err": "Answer not sent: the hub never recorded the answer. Is hubd running? (hub status)"})
         self.assertEqual(len([e for e in self.spooled() if e["type"] == "permission.answered"]), 1)   # polling without a second fact
 
@@ -2145,7 +2304,7 @@ class PageInChrome(test_web.WebTest):
         self.assertTrue(got[2]["until"], got)
         self.assertTrue(got[4]["until"], got)
         self.assertEqual(got[5]["eval"], {"sent": False, "line": None, "err": "Answer not sent: Session no longer waits",
-                                          "live": 4})
+                                          "live": 5})
         self.assertEqual(got[6]["eval"], 0)                  # the choice is cleared: the same option can be tapped again
 
     def test_the_card_stays_in_place_inside_a_search_excerpt_and_after_leaving_it(self):
@@ -8774,7 +8933,7 @@ class PageInChrome(test_web.WebTest):
             "questions": [{"question": "Which option?", "options": [{"label": "A"}, {"label": "B"}]}]})
         look = ("(() => { const c = document.querySelector('.ask-card'); const r = c.querySelector('input[type=radio]'); "
                 "const ok = c.querySelector('.btns button[type=submit]'); return [getComputedStyle(r).opacity, !!ok && !ok.hidden, "
-                "c.querySelector('.other-row button').hidden]; })()")
+                "c.querySelector('.other-row .btn.primary').hidden]; })()")
         got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"wait": "The session is waiting for your answer"},
                         {"eval": look},
                         {"eval": "document.querySelector('.ask-card .opt.pick:last-of-type').click(), 1"}, {"sleep": 800})

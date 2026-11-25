@@ -44,6 +44,17 @@ class MoreContext(unittest.TestCase):
                 self.assertIn("decision", text)
         self.assertNotIn("decide yourself;", streamjson.CARDS[streamjson.CARDS.index("They answered"):])
 
+    def test_more_context_with_attached_files_still_asks_for_detail(self):
+        # the page adds the paths of attached files under the words (cards.js): the first line is still the standard answer
+        text = self.answer(owner.MORE_CONTEXT + "\n\nAttached files:\n- /tmp/shot.png")
+        self.assertIn(owner.MORE_HINT, text)
+        self.assertIn("/tmp/shot.png", text)
+
+    def test_own_words_that_start_with_the_label_are_not_the_standard_answer(self):
+        # only the page's list of attached files is taken off the answer: a line of his own under the label is his words
+        self.assertFalse(owner.asks_more({"q": owner.MORE_CONTEXT + "\nand why the second one"}))
+        self.assertTrue(owner.asks_more({"q": owner.MORE_CONTEXT + "\n\nAttached files:\n- /tmp/a.png\n- /tmp/b.pdf"}))
+
     def test_other_answers_stay_as_they_were(self):
         self.assertNotIn(owner.MORE_HINT, self.answer("Yes"))
 

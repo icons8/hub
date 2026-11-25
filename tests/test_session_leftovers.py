@@ -6,18 +6,23 @@ folder), which everything the session started inherits. Marked processes are kil
 good or hands its work in: the executor fell asleep, the session was deleted or closed, the hub was stopped by `hub stop`.
 Parking and a hub restart do not touch them: after coming back the session continues with them."""
 import tests  # noqa: F401 — hide the machine's settings
+import glob
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import platforms
 from core import executors, reducer
 from platforms import posix
 from core import restart
-from core.daemon import stop_sessions
+from core.daemon import Hub, stop_sessions
+from core import journal
+from hosts.common import Trees
 from hosts.streamjson import StreamHost
 from tests.fakes.procs import alive, kill
 
@@ -39,6 +44,10 @@ open(sys.argv[1], "w").write(str(p.pid))
 sys.stdin.buffer.read()
 """
 SLEEPER = [sys.executable, "-c", "import time; time.sleep(120)"]
+# shared daemons a session may start (Colima): what argv[0] they show in ps
+HOSTAGENT = "/opt/homebrew/bin/limactl"
+MUX = "ssh: /srv/x/.colima/_lima/colima/ssh.sock [mux]"   # Lima's ssh control master renames itself
+VM = "/opt/homebrew/bin/qemu-system-aarch64"   # the VM itself with QEMU (Linux, vm-type qemu): a child of limactl
 
 
 def until(pred, timeout=15.0):
@@ -93,6 +102,61 @@ class Host(unittest.TestCase):
             p = subprocess.Popen(SLEEPER, env=env, start_new_session=True)
         self.addCleanup(lambda: (kill(p.pid), p.wait()))
         return p.pid
+
+    def named(self, argv0, tag, child=None):
+        """A process with the session mark that shows argv0 in ps (exec -a): a stand-in for limactl and its ssh master.
+        Python, not /bin/sleep: macOS shows no environment of its own binaries in `ps -E`; and the interpreter itself, not
+        the framework build's launcher, which execs Python.app with its own argv[0]. child=(argv0, pid file): it starts
+        one more such process itself (the mark goes with the environment), as limactl starts the VM."""
+        py = glob.glob(os.path.join(sys.base_prefix, "Resources", "Python.app", "Contents", "MacOS", "Python")) \
+            or [sys.executable]
+        code = "import time; time.sleep(120)"
+        if child:
+            code = (f"import subprocess, time; p = subprocess.Popen([{child[0]!r}, '-c', {code!r}], executable={py[0]!r}); "
+                    f"open({child[1]!r}, 'w').write(str(p.pid)); time.sleep(120)")
+        p = subprocess.Popen([argv0, "-c", code], executable=py[0], env={**os.environ, TAG: tag}, start_new_session=True)
+        self.addCleanup(lambda: (kill(p.pid), p.wait()))
+        return p.pid
+
+    def test_shared_daemons_from_hub_json_outlive_the_tree(self):
+        # an executor ran `colima start` from its tree; handing in its task, the core stopped the VM's limactl
+        # and Docker went down for every session. hub.json -> tree.keep names the shared daemons the cleanup spares
+        host = self.host()
+        host.keep = ("limactl", ".colima")
+        dev = self.tagged(host.tree_tag("a"))
+        agent, mux = self.named(HOSTAGENT, host.tree_tag("a")), self.named(MUX, host.tree_tag("a"))
+        self.assertEqual(host.end_tree("a"), "ended 1, kept 2")
+        self.assertTrue(until(lambda: not alive(dev)))   # signalled together: a spared one would be gone by now too
+        self.assertTrue(alive(agent) and alive(mux))
+        self.assertEqual(sorted(host.tree_kept), sorted([("a", agent, HOSTAGENT, "limactl"), ("a", mux, MUX, ".colima")]))
+        host.tree_kept.clear()
+        self.assertEqual(host.end_tree("a"), "ended 0, kept 2")
+        self.assertEqual(host.tree_kept, [])   # into the journal once per process
+        host.shutdown(2.0, final=True)   # `hub stop` spares them too: the owner's Docker outlives the hub
+        self.assertTrue(alive(agent) and alive(mux))   # end_tagged returns after the ones it signalled are gone
+
+    def test_what_a_shared_daemon_started_outlives_the_tree_too(self):
+        # with QEMU (Linux, vm-type qemu on macOS) the VM is limactl's child and carries the session mark too: a spared
+        # limactl with its VM stopped still took Docker down for every session
+        host = self.host()
+        host.keep = ("limactl",)
+        vm_pid = os.path.join(self.dir, "vm.pid")
+        agent = self.named(HOSTAGENT, host.tree_tag("a"), child=(VM, vm_pid))
+        self.assertTrue(until(lambda: text_of(vm_pid)), "the VM stand-in did not start")
+        vm = int(text_of(vm_pid))
+        self.addCleanup(kill, vm)
+        dev = self.tagged(host.tree_tag("a"))
+        self.assertEqual(host.end_tree("a"), "ended 1, kept 2")
+        self.assertTrue(until(lambda: not alive(dev)))
+        self.assertTrue(alive(agent) and alive(vm))
+        self.assertIn(("a", vm, VM, "limactl"), host.tree_kept)
+
+    def test_without_the_list_a_daemon_from_the_tree_goes_as_before(self):
+        host = self.host()
+        agent = self.named(HOSTAGENT, host.tree_tag("a"))
+        self.assertEqual(host.end_tree("a"), "ended 1")
+        self.assertTrue(until(lambda: not alive(agent)))
+        self.assertFalse(host.tree_kept)
 
     def test_release_keeps_the_commands_and_end_tree_takes_them(self):
         # parking and restart are release: the session comes back and continues with its dev server; a sleeping executor
@@ -181,6 +245,60 @@ class MacListing(unittest.TestCase):
                     "  105 python3 new.py HUB_TREE=a@/Users/x/.hub-core\n"      # born between ps calls
                     "  106 sh -c runner HUB_TREE=a@/Users/x/.hub-core\n")      # changed by exec: argv is longer
         self.assertEqual(posix._ps_tags(plain, with_env), {101: "a@/Users/x/.hub-core", 103: "a@/Users/x/my hub"})
+
+
+class SharedName(unittest.TestCase):
+    """What in argv[0] names a shared daemon of tree.keep: the executable or a folder on its path."""
+    def test_name_or_folder(self):
+        keep = ("limactl", ".colima")
+        self.assertEqual(posix._shared(HOSTAGENT, keep), "limactl")
+        self.assertEqual(posix._shared(MUX, keep), ".colima")
+        self.assertEqual(posix._shared("limactl", keep), "limactl")
+        for other in ("node", "/usr/bin/limactl-test", "/srv/x/colima/dev.sh", "", None):   # a prefix or a near name is not it
+            self.assertIsNone(posix._shared(other, keep), other)
+
+
+class Settings(unittest.TestCase):
+    """hub.json -> tree.keep reaches the host with the settings; what the cleanup spared becomes a tree.kept fact."""
+    def hub(self, cfg):
+        path = os.path.join(tempfile.mkdtemp(prefix="tree-keep-"), "hub.json")
+        with open(path, "w") as f:
+            json.dump(cfg, f)
+        host = type("H", (Trees,), {"alive": lambda s, n: True})()
+        with mock.patch.dict(os.environ, {"HUB_CONFIG": path}):
+            h = Hub(tempfile.mkdtemp(prefix="tree-keep-state-"), host, registry_dir=tempfile.mkdtemp())
+        return h, host
+
+    def test_the_list_reaches_the_host_and_the_spared_reach_the_journal(self):
+        h, host = self.hub({"tree": {"keep": ["limactl", " colima ", "", 5]}})
+        self.assertEqual(host.keep, ("limactl", "colima"))
+        host.tree_kept = [("a", 4242, HOSTAGENT, "limactl")]
+        h.record_kept()
+        self.assertEqual(host.tree_kept, [])
+        events = journal.read(os.path.join(h.state_dir, "journal.jsonl"))
+        (kept,) = [e for e in events if e["type"] == "tree.kept"]
+        self.assertEqual((kept["entity"], kept["data"]), ("a", {"pid": 4242, "argv0": HOSTAGENT, "keep": "limactl"}))
+        self.assertFalse([e for e in events if e["type"] == "core.rejected"])
+
+    def test_both_halves_of_a_mux_host_reach_the_journal(self):
+        # HUB_CODEX=1: a codex/… session's tree is cleaned by the Codex half; what it spared is in the journal too
+        from hosts.codex import MuxHost
+        path = os.path.join(tempfile.mkdtemp(prefix="tree-keep-"), "hub.json")
+        with open(path, "w") as f:
+            json.dump({"tree": {"keep": ["limactl"]}}, f)
+        half = type("H", (Trees,), {"alive": lambda s, n: True})
+        stream, codex = half(), half()
+        with mock.patch.dict(os.environ, {"HUB_CONFIG": path}):
+            h = Hub(tempfile.mkdtemp(prefix="tree-keep-state-"), MuxHost(stream, codex), registry_dir=tempfile.mkdtemp())
+        self.assertEqual((stream.keep, codex.keep), (("limactl",), ("limactl",)))
+        codex.tree_kept.append(("a", 4242, HOSTAGENT, "limactl"))
+        h.record_kept()
+        events = journal.read(os.path.join(h.state_dir, "journal.jsonl"))
+        self.assertEqual([e["data"]["pid"] for e in events if e["type"] == "tree.kept"], [4242])
+
+    def test_no_list_spares_nothing(self):
+        for cfg in ({}, {"tree": {"keep": "limactl"}}, {"tree": ["limactl"]}):
+            self.assertEqual(self.hub(cfg)[1].keep, (), cfg)
 
 
 OWNER = {"channel": "web", "owner": True}

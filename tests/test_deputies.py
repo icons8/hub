@@ -659,7 +659,7 @@ class AfterReview(Route):
         self.assertEqual([m for m in self.to("hub") if qid in m["text"]], [])
         self.route(qid, who=None)
         (msg,) = [m for m in self.to("hub") if f"hub answer maps --card {qid}" in m["text"]]
-        self.assertIn("Boris", msg["text"])   # the deputies are in it
+        self.assertNotIn("hub question route", msg["text"])   # its one deputy gave it back: no deputy takes it now
 
     def test_a_module_or_plugin_does_not_turn_the_flag_on(self):
         self.ev("owner.back", None, **WEB)
@@ -725,6 +725,87 @@ class AfterCritic(Route):
                 answers={form["questions"][0]["question"]: "everything except production (Recommended)"}, **WEB)
         self.assertIn("is not the owner's words", self.set(who=HUB, zone="production", **{"for": qid}) or "")
         self.assertIsNone(self.set(who=HUB, zone="everything except production", **{"for": qid}))
+
+    def card_answer(self, text):
+        form = {"questions": [{"question": "What does Anna Lee decide for you?", "options": [{"label": "x"}]}]}
+        self.ev("turn.started", "hub", marker=None)
+        self.ev("permission.requested", "hub", request_id="rq", tool="AskUserQuestion", input=form, interactive=True)
+        qid = f"q{self.seq}"
+        self.ev("permission.answered", "hub", request_id="rq", behavior="allow",
+                answers={form["questions"][0]["question"]: text}, **WEB)
+        return qid
+
+    def test_the_area_and_does_not_decide_are_two_halves_of_one_answer(self):
+        qid = self.card_answer("Everything in maps, including the stage rollouts; except merging into the core")
+        why = self.set(who=HUB, zone="Everything in maps, including the stage rollouts",
+                       **{"not": "except merging into the core", "for": qid})
+        self.assertIsNone(why)
+        rec = self.rec()
+        self.assertEqual((rec["zone"], rec["not"]), ("Everything in maps, including the stage rollouts",
+                                                     "except merging into the core"))
+
+    def test_two_halves_must_be_the_whole_answer_not_what_is_left_of_it(self):
+        qid = self.card_answer("Everything in maps, including the stage rollouts; except merging into the core")
+        # the exception is dropped from "does not decide": the answer is not carried whole
+        self.assertIn("is not the owner's words", self.set(who=HUB, zone="Everything in maps",
+                                                            **{"not": "merging into the core", "for": qid}) or "")
+        self.assertIn("is not the owner's words", self.set(who=HUB, zone="including the stage rollouts",
+                                                            **{"not": "except merging into the core",
+                                                               "for": qid}) or "")
+
+    def test_the_answer_is_split_where_the_owner_put_a_sign_not_anywhere(self):
+        qid = self.card_answer("Everything in maps; except merging into the core")
+        why = self.set(who=HUB, zone="Everything", **{"not": "in maps; except merging into the core", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+        qid = self.card_answer("Everything in maps (except the core)")   # the mark in brackets is not a split either
+        why = self.set(who=HUB, zone="Everything in maps", **{"not": "except the core", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+
+    def test_the_halves_of_a_recommended_option_are_quoted_without_its_mark(self):
+        qid = self.card_answer("Everything in maps; except merging into the core (Recommended)")
+        self.assertIsNone(self.set(who=HUB, zone="Everything in maps",
+                                   **{"not": "except merging into the core", "for": qid}))
+        qid = self.card_answer("Everything in maps; except merging into the core (Recommended)")   # or with it
+        self.assertIsNone(self.set(who=HUB, zone="Everything in maps",
+                                   **{"not": "except merging into the core (Recommended)", "for": qid}))
+
+    def test_a_bracket_the_owner_wrote_is_not_dropped_from_the_halves(self):
+        qid = self.card_answer("Everything in maps; except merging into the core (and billing)")
+        why = self.set(who=HUB, zone="Everything in maps", **{"not": "except merging into the core", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+        self.assertIsNone(self.set(who=HUB, zone="Everything in maps",
+                                   **{"not": "except merging into the core (and billing)", "for": qid}))
+
+    def test_a_half_repeated_in_the_answer_is_found_at_the_right_place(self):
+        qid = self.card_answer("maps, maps; except the core")
+        self.assertIsNone(self.set(who=HUB, zone="maps, maps", **{"not": "except the core", "for": qid}))
+
+    def test_the_halves_keep_their_order(self):
+        qid = self.card_answer("Everything in maps; except merging into the core")
+        why = self.set(who=HUB, zone="except merging into the core", **{"not": "Everything in maps", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+
+    def test_a_does_not_decide_that_the_answer_never_said_is_refused(self):
+        qid = self.card_answer("Everything in maps; except merging into the core")
+        why = self.set(who=HUB, zone="Everything in maps", **{"not": "except payments", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+
+    def test_a_does_not_decide_from_another_card_is_refused(self):
+        self.card_answer("except payments")
+        qid = self.card_answer("Everything in maps")
+        why = self.set(who=HUB, zone="Everything in maps", **{"not": "except payments", "for": qid})
+        self.assertIn("is not the owner's words", why or "")
+        self.assertIsNone(self.set(who=HUB, zone="Everything in maps", **{"for": qid}))
+
+    def test_an_answer_with_files_attached_on_the_page_is_still_quoted(self):
+        # the page puts the paths of attached files under his answer (cards.js withFiles): the answer is still his words
+        form = {"questions": [{"question": "What does Anna Lee decide for you?", "options": [{"label": "x"}]}]}
+        self.ev("turn.started", "hub", marker=None)
+        self.ev("permission.requested", "hub", request_id="rq", tool="AskUserQuestion", input=form, interactive=True)
+        qid = f"q{self.seq}"
+        self.ev("permission.answered", "hub", request_id="rq", behavior="allow", **WEB,
+                answers={form["questions"][0]["question"]: "staging\n\nAttached files:\n- /home/x/uploads/plan.png"})
+        self.assertIsNone(self.set(who=HUB, zone="staging", **{"for": qid}))
 
     def test_a_similar_name_is_not_named(self):
         self.assertFalse(deputies.names_in("Make Maria my deputy", ["Marina"]))
@@ -1275,6 +1356,104 @@ class DeputyLiaison(DecidesAll):
         self.assertIsNone(self.card(q, "liaison"))
         self.assertNotIn(q, self.st.get("deputy_words") or {})   # its "Send" opens no gate of the core
 
+    def test_named_anew_the_liaison_is_not_told_to_route_its_form(self):
+        self.mark()
+        q = self.ask("liaison", "r5", self.SEND)
+        self.route(q, by="hub", name="liaison")
+        self.mark(zone="map tiles and their legend")
+        (gone,) = [m for m in self.to("liaison") if q in m["text"]]
+        self.assertIn("did not reach Boris", gone["text"])   # the hub routes its forms: no command it cannot run
+        self.assertNotIn("hub question route", gone["text"])
+
+
+class OneCardOneDeputy(DecidesAll):
+    """One card — one deputy (spec d2679763, A6: "the one they pick may give it back; it does not go to a second"). A
+    card that was at a deputy and came back — "not mine", the owner changed their area, not delivered — goes to that
+    deputy again (named anew) or waits for the owner; the core refuses it to another deputy. 23.11: a mailing launch
+    went to the deputy for mailings, came back when the owner widened their area, and the session sent it on to the
+    deputy for the backend; the core had told it "do not send it again" and took the route all the same."""
+
+    ANN = {"id": "c0000a0b3", "name": "Ann Lee"}
+    ANN_VIA = {"kind": "via", "session": "chat", "address": {"teams_chat": "19:a"}}
+
+    def setUp(self):
+        super().setUp()
+        self.ev("contact.deputy_set", None, person=self.ANN, names=["Ann"], zone="docs", path=self.ANN_VIA, all=True,
+                **OWNER)
+        self.ev("owner.away", None, deputies=["Boris", "Ann"], **WEB)
+
+    def to_ann(self, qid, by="maps", name="maps"):
+        return self.ev("question.routed", name, id=qid, person="Ann Lee", address={"teams_chat": "19:a"}, sender=by,
+                       **SAY)
+
+    def test_a_card_back_from_one_deputy_does_not_go_to_another(self):
+        qid = self.ask()
+        self.assertIsNone(self.route(qid))
+        self.mark()   # the owner widens Boris's area: the card comes back under the old appointment
+        self.assertEqual(self.card(qid)["deputy"]["state"], "returned")
+        why = self.to_ann(qid) or ""
+        self.assertIn("was at Boris", why)
+        self.assertEqual(self.card(qid)["deputy"]["name"], "Boris")
+        self.assertIsNone(self.route(qid))   # Boris, named anew, may take it again
+
+    def test_given_back_by_the_session_or_the_hub_it_does_not_go_to_another(self):
+        for back in ("maps", "hub"):
+            with self.subTest(back):
+                self.setUp()
+                qid = self.ask()
+                self.route(qid)
+                self.assertIsNone(self.route(qid, who=None, by=back))
+                self.assertIn("was at Boris", self.to_ann(qid, by="hub") or "")
+                self.assertIn("came back", self.route(qid) or "")
+
+    def test_a_card_no_deputy_had_goes_to_any_of_them(self):
+        qid = self.ask()
+        self.assertIsNone(self.to_ann(qid))
+        self.assertEqual(self.card(qid)["deputy"]["name"], "Ann Lee")
+
+    def test_named_anew_the_session_hears_only_that_deputy_and_the_hub_none(self):
+        qid = self.ask()
+        self.route(qid)
+        self.mark(zone="map tiles and their legend")
+        (gone,) = [m for m in self.to("maps") if "came back from Boris" in m["text"]]
+        self.assertIn(f'hub question route {qid} "Boris"', gone["text"])
+        self.assertIn("Never to another deputy", gone["text"])
+        (hub,) = [m for m in self.to("hub") if qid in m["text"]]
+        self.assertNotIn("hub question route", hub["text"])   # the session that asked routes it, not both
+        self.ev("contact.deputy_off", None, person=BORIS, names=[], **OWNER)   # removed, not named anew: as before
+        q2 = self.ask("maps", "r2")
+        self.assertIsNone(self.to_ann(q2))
+        self.ev("contact.deputy_off", None, person=self.ANN, names=[], **OWNER)
+        self.assertIn("did not reach Ann Lee", self.to("maps")[-1]["text"])
+
+    def test_named_anew_without_the_mark_a_card_the_owner_keeps_is_told_as_before(self):
+        self.mark()
+        urgent = self.ask("maps", "r2", self.URGENT)
+        self.assertIsNone(self.route(urgent))   # Boris decides everything: the 🚨 card is his to take
+        self.mark(on=False)   # named anew, without the mark: the card is the owner's again, and not Boris's
+        (gone,) = [m for m in self.to("maps") if urgent in m["text"]]
+        self.assertIn("did not reach Boris", gone["text"])
+        self.assertIn("the owner's own", self.route(urgent) or "")
+
+    def test_the_hub_is_not_told_a_deputy_who_gave_the_card_back(self):
+        qid = self.ask()
+        self.route(qid, by="hub")
+        self.route(qid, who=None, by="hub")
+        self.assertEqual(deputyroute.hub_text(self.st, self.card(qid)), "")
+        self.ev("owner.back", None, **WEB)
+        self.ev("owner.away", None, deputies=["Boris", "Ann"], **WEB)
+        said = deputyroute.hub_text(self.st, self.card(qid))
+        self.assertIn("Ann Lee", said)
+        self.assertNotIn("Boris", said)   # gave it back before: ROUTE_TRIED
+
+    def test_a_new_away_is_a_new_start(self):
+        qid = self.ask()
+        self.route(qid)
+        self.ev("owner.back", None, **WEB)
+        self.assertEqual(self.card(qid)["deputy"]["state"], "returned")
+        self.ev("owner.away", None, deputies=["Ann"], **WEB)
+        self.assertIsNone(self.to_ann(qid))
+
 
 class CardInHeldAway(Base):
     """A card asked while the away is held for the deputies: his words do not end that away, so there is no return to
@@ -1478,6 +1657,15 @@ class RouteCommand(unittest.TestCase):
         self.assertEqual(hub("question", "route", qid, "--owner", me="a").returncode, 0)   # back to the owner
         self.assertEqual(line(), "state: open — waits for the owner's answer")
         self.assertIn(f"{qid} waits for the owner", status())
+
+    def test_the_route_line_tells_whose_answer_is_whose(self):
+        """After the route the session reads who is who in the answers it will get: the owner's head and the deputy's."""
+        cli, hub, qid = self.cards()
+        out = hub("question", "route", qid, "Boris", me="a").stdout
+        self.assertIn(reducer.OWNER_ANSWER_HEAD.format(id=qid), out)
+        self.assertIn(f"Reply on {qid} from Boris", out)
+        self.assertTrue(deputyroute.REPLY.startswith("Reply on {qid} from {name}"))   # the head the line promises
+        self.assertNotIn("owner himself", hub("question", "route", qid, "--owner", me="a").stdout)
 
     def test_route_answer_and_close(self):
         cli, hub, qid = self.cards()

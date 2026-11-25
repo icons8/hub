@@ -164,11 +164,13 @@ def route(asker, qid, words, note, put, current, rejected):
     dep = ask.get("deputy") or {}
     if back:
         print(i18n.t("cli.question.route_back", qid=qid))
-    elif dep.get("kind") == "bus":
+        return 0
+    if dep.get("kind") == "bus":
         print(i18n.t("cli.question.routed_hub", qid=qid, name=dep.get("name"), hub=dep.get("contact")))
     else:
         print(i18n.t("cli.question.routed_via", qid=qid, name=dep.get("name"), session=dep.get("session"),
                      route=dep.get("route")))
+    print(deputyroute.ROUTED_WHO.format(qid=qid, name=dep.get("name")))
     return 0
 
 

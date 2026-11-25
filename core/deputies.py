@@ -20,7 +20,7 @@ the record (the hub reads that his words say so, as it reads the area); set agai
 import re
 import unicodedata
 
-from core import guards, tools
+from core import guards, owner, tools
 from core.minihub import GONE   # a session that will not take a message
 from core.coretext import T
 
@@ -188,6 +188,26 @@ def _person(data):
     return {"id": p["id"], "name": p["name"]}, [p["name"], *names]
 
 
+SIGNS = r"[\s.,;:!?\u2014\u2013-]"   # what may stand between the halves of an answer, or around them
+
+
+def _carry(answer, texts, at=0):
+    """The texts are pieces of the answer, in its order: its ends are bare, and a sign (a comma, a semicolon, a dash)
+    stands between every two — the split falls where the owner put it, nothing of him is dropped."""
+    piece = norm(texts[0])
+    i = answer.find(piece, at) if piece else -1
+    while i >= 0:
+        gap, end = answer[at:i], i + len(piece)
+        if re.fullmatch(SIGNS + "*", gap) and (not at or re.search(r"[^\s]", gap)):
+            if len(texts) == 1:
+                if re.fullmatch(SIGNS + "*", answer[end:]):
+                    return True
+            elif _carry(answer, texts[1:], end):
+                return True
+        i = answer.find(piece, i + 1)
+    return False
+
+
 def _words(st, ev, data, names, quoted):
     """Whose word sets it: "owner" (his own channel), or the mN/qN of his words the hub cites — checked: his, fresh,
     naming the person, with the quoted texts in it verbatim. Rejected otherwise."""
@@ -206,9 +226,15 @@ def _words(st, ev, data, names, quoted):
         if not isinstance(answers, dict) or not answers:
             raise tools.Rejected(DEPUTY_NO_ANSWERS.format(ref=ref))
         # a whole answer of his (the option he chose, without its "(Recommended)" mark, or his own text), not a piece
-        # of one: "production" is not quoted from "everything except production"
-        theirs = {norm(v) for v in answers.values()} | {norm(re.sub(r"\s*\([^()]*\)\s*$", "", str(v)))
-                                                       for v in answers.values()}
+        # of one: "production" is not quoted from "everything except production"; files he attached on the page under
+        # it (owner.answer_words) are not part of it
+        said = [owner.answer_words(v) if isinstance(v, str) else v for v in answers.values()]
+        theirs = {norm(v) for v in said} | {norm(re.sub(r"\s*\([^()]*\)\s*$", "", str(v))) for v in said}
+        # or the area and "does not decide" are the two halves of one answer ("…; except X"): together they carry all of
+        # it, nothing dropped but the signs between them and the option's "(Recommended)" mark — not a bracket he wrote
+        if len(quoted) > 1 and any(_carry(norm(w), quoted) for v in said
+                                   for w in {str(v), re.sub(r"\s*\(recommended\)\s*$", "", str(v), flags=re.I)}):
+            return ref, msg["id"]
         for text in quoted:
             if norm(text) not in theirs:
                 raise tools.Rejected(DEPUTY_NOT_QUOTED.format(ref=ref, text=text[:80]))

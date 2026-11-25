@@ -898,13 +898,23 @@ def chat_rows(st, name, journal_path=None, most=CHAT_ROWS, said=None):
     b = (st or {}).get("bus") or {}
     if said is None:
         said = said_in_journal(journal_path) if journal_path else {}
-    rows = []
+    rows, heads = [], {}
+
+    def head_of(thread):   # once per thread: an old thread's is found by a walk over the state
+        if thread not in heads:
+            heads[thread] = busstate.thread_head(b, thread)
+        return heads[thread]
+
     for oid, o in (b.get("out") or {}).items():
         if o.get("contact") != name or o.get("kind") != "message" or o.get("code") == "secret":
             continue   # a key-like text the core held back never went
         owner = o.get("for") == "owner" or bool(o.get("press"))
+        auto = not owner and busstate.core_chose(o)
         rows.append({"id": oid, "ts": o.get("ts") or 0, "way": "out", "kind": "chat" if owner else "thread",
                      "thread": o.get("thread"),
+                     # the core chose the thread for a session's words (not the liaison, not the session): the start of
+                     # its first line says which matter they went into
+                     "auto": auto, **({"head": head_of(o["thread"])} if auto else {}),
                      # None: the words are only in an older journal (the state keeps no text of a delivered one)
                      "text": o.get("text") or said.get(o.get("of")), "status": OUT_SHOWN.get(o.get("status"),
                                                                                                  o.get("status")),

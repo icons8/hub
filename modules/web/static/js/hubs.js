@@ -1078,6 +1078,7 @@ function msgNode(r, c, statuses, outcomes) {
     const [mark, word] = statuses[r.status] || ["", r.status || ""];
     const tone = r.status === "delivered" ? "ok" : r.status === "expired" || r.status === "refused" ? "bad" : r.status === "held" ? "warn" : "mute";
     foot.append(chip([mark, word].filter(Boolean).join(" "), tone));
+    if (r.auto) foot.append(el("span", "hint", t("web.bus.thread_auto", { head: r.head || r.thread })));   // the core chose the thread
   }
   m.append(foot);
   return m;

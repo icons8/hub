@@ -26,7 +26,7 @@ DEPRECATED = {   # feature name -> {"since": "1.x", "removed": "2.0", "use": the
 # updater from before 2026-11-11 reads that literal of the release it is about to install and, with an older claude,
 # waits for a person to update it ("needs-claude") or runs `claude install`. Read the version of a release's file with
 # core/ownclaude.named()
-CLAUDE_TESTED = "2.1.311"
+CLAUDE_TESTED = "2.1.326"
 CLAUDE_FLOOR = "2.1.218"   # the oldest claude a hub from a working copy (no CLAUDE_TESTED) counts as ready («Setup»)
 MIN_CLAUDE = os.environ.get("HUB_TEST_MIN_CLAUDE") or CLAUDE_TESTED or CLAUDE_FLOOR   # the tests' own (tests/__init__.py)
 

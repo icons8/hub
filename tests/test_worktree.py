@@ -6,7 +6,9 @@ import tests  # noqa: F401 — ignore the machine's settings
 import os
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -93,12 +95,26 @@ class Prepare(unittest.TestCase):
         path = os.path.join(self.repo, ".claude", "worktrees", "smm-1")
         git(self.repo, "worktree", "add", "-q", "-b", "task/smm-1", path)
         git(self.repo, "worktree", "lock", "--reason", "initializing", path)
+        os.remove(os.path.join(git(path, "rev-parse", "--git-dir").strip(), "index"))   # git writes it last: none yet
         with open(os.path.join(path, "half"), "w") as f:            # half checked out
             f.write("x")
         cwd, info, err = worktree.prepare(self.repo, "smm-1")
         self.assertIsNone(err)
         self.assertEqual(cwd, path)
         self.assertTrue(all(ok for _, ok in info["checks"]), info["checks"])
+        self.assertNotIn("locked", git(self.repo, "worktree", "list", "--porcelain"))
+
+    def test_a_copy_locked_initializing_with_an_index_keeps_the_work_in_it(self):
+        # git writes the index at the end of the checkout: with one, the copy was checked out (git killed before it
+        # unlocked it) or a session fixed a half copy with `git reset` and worked in it. Redoing it erased that work
+        path = os.path.join(self.repo, ".claude", "worktrees", "smm-4")
+        git(self.repo, "worktree", "add", "-q", "-b", "task/smm-4", path)
+        git(self.repo, "worktree", "lock", "--reason", "initializing", path)
+        work = os.path.join(path, "notes.txt")
+        with open(work, "w") as f:
+            f.write("not committed yet")
+        worktree.prepare(self.repo, "smm-4")
+        self.assertTrue(os.path.isfile(work))
         self.assertNotIn("locked", git(self.repo, "worktree", "list", "--porcelain"))
 
     def test_a_record_left_initializing_without_its_folder_is_cleared_too(self):
@@ -197,6 +213,53 @@ class Prepare(unittest.TestCase):
         self.assertNotIn("source_cwd", info or {})
         self.assertIn("has no folder apps", err)
         self.assertNotIn("a-3t", git(self.repo, "worktree", "list"))   # the half copy is dropped, as before
+
+    def test_a_copy_made_from_another_copy_lands_beside_the_main_clone(self):
+        # --repo pointing at an existing working copy: the new one must not nest inside it (vitest and the pre-commit
+        # hook would pick up the inner copy's files)
+        _, first, _ = worktree.prepare(self.repo, "first")
+        cwd, second, err = worktree.prepare(first["path"], "second")
+        self.assertIsNone(err)
+        want = os.path.join(os.path.realpath(self.repo), ".claude", "worktrees", "second")
+        self.assertEqual(second["path"], want)
+        self.assertEqual(cwd, want)
+        self.assertEqual(second["repo"], os.path.realpath(self.repo))
+        self.assertTrue(all(ok for _, ok, *_ in second["checks"]), second["checks"])
+
+    def test_a_copy_made_from_another_copy_starts_from_that_copys_head_and_merges_into_its_branch(self):
+        # only the place moves: the raiser's folder is still where the branch starts and what the base is (the doc of _start)
+        _, first, _ = worktree.prepare(self.repo, "first")
+        with open(os.path.join(first["path"], "work.txt"), "w") as f:
+            f.write("w\n")
+        git(first["path"], "add", "-A")
+        git(first["path"], "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "work")
+        _, second, err = worktree.prepare(first["path"], "second", with_base=True)
+        self.assertIsNone(err)
+        self.assertTrue(os.path.isfile(os.path.join(second["path"], "work.txt")))
+        self.assertEqual(git(second["path"], "rev-parse", "HEAD"), git(first["path"], "rev-parse", "HEAD"))
+        self.assertEqual((second["base"], second["base_sha"]), ("task/first", git(first["path"], "rev-parse", "HEAD").strip()))
+
+    def test_a_copy_made_from_a_subfolder_of_another_copy_keeps_the_subfolder_beside_the_main_clone(self):
+        with open(os.path.join(self.repo, "apps", "main.py"), "w") as f:
+            f.write("x = 1\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "apps")
+        _, first, _ = worktree.prepare(self.repo, "first")
+        cwd, second, err = worktree.prepare(os.path.join(first["path"], "apps"), "second")
+        self.assertIsNone(err)
+        path = os.path.join(self.repo, ".claude", "worktrees", "second")
+        self.assertEqual((cwd, second["path"]), (os.path.join(path, "apps"), path))
+
+    def test_a_copy_of_a_bare_repo_named_dot_git_stays_where_it_was(self):
+        # <root>/.git is bare, <root>/main its copy: <root> has no working tree to put the new one beside
+        root = os.path.join(self.tmp, "bare")
+        os.makedirs(root)
+        git(self.tmp, "clone", "-q", "--bare", self.repo, os.path.join(root, ".git"))
+        main = os.path.join(root, "main")
+        git(root, "worktree", "add", main, git(self.repo, "branch", "--show-current").strip())
+        cwd, info, err = worktree.prepare(main, "bb")
+        self.assertIsNone(err)
+        self.assertEqual(info["path"], os.path.join(main, ".claude", "worktrees", "bb"))
 
     def test_removed_session_takes_its_worktree_but_never_loses_work(self):
         # 01.10: missing feature at the time: worktree cleanup on removal, done by hand until then
@@ -906,6 +969,125 @@ class Prepare(unittest.TestCase):
         cwd, info, err = worktree.prepare(self.repo, "devops-2")
         self.assertIsNone(cwd)
         self.assertTrue(err)
+
+
+class RestoreHeavy(unittest.TestCase):
+    """hosts/worktree.restore on a big repo: `git worktree add` is killed by its timeout in the middle of the checkout and
+    leaves the copy locked "initializing" without an index. Such a copy is not a copy that came back: the first call said
+    "did not come back" and the next one took the half copy for one in place."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="wtr-"))
+        self.addCleanup(platforms.current.rmtree, self.tmp)
+        self.repo = os.path.join(self.tmp, "repo")
+        os.makedirs(self.repo)
+        git(self.tmp, "init", "-q", self.repo)
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
+        self.cwd, self.info, err = worktree.prepare(self.repo, "w-1")
+        self.assertIsNone(err)
+        self.path, self.branch = self.info["path"], self.info["branch"]
+        git(self.repo, "worktree", "remove", "-f", "-f", self.path)   # the copy was removed: the branch stays
+        self.real = worktree._git
+
+    def half(self):
+        """What a git killed in the middle of `worktree add` leaves: the record locked "initializing", no index."""
+        self.real(self.repo, "worktree", "lock", "--reason", "initializing", self.path)
+        os.remove(os.path.join(git(self.path, "rev-parse", "--git-dir").strip(), "index"))
+
+    def killed(self, timeouts, leave=True):
+        """_git that runs `worktree add` for real and then reports the timeout, with the copy left as a killed git leaves it."""
+        def fake(cwd, *args, **kw):
+            if args[:2] == ("worktree", "add"):
+                timeouts.append(kw.get("timeout"))
+                if leave:
+                    self.real(cwd, *args)
+                    self.half()
+                raise subprocess.TimeoutExpired(["git", *args], kw.get("timeout"))
+            return self.real(cwd, *args, **kw)
+        return mock.patch.object(worktree, "_git", fake)
+
+    def test_a_timeout_is_a_long_one_and_the_half_copy_goes_so_the_next_try_is_clean(self):
+        timeouts = []
+        with self.killed(timeouts):
+            ok, why = worktree.restore(self.info)
+        self.assertEqual(timeouts, [worktree.COPY_TIMEOUT])   # minutes, not the 30 s of a plain git call
+        self.assertFalse(ok)
+        self.assertIn("did not finish", why)
+        self.assertFalse(os.path.exists(self.path))
+        self.assertIsNone(worktree._registered(self.repo, self.path))
+        self.assertEqual(git(self.repo, "rev-parse", "--verify", self.branch), git(self.repo, "rev-parse", "HEAD"))
+        ok, why = worktree.restore(self.info)   # the next wake
+        self.assertTrue(ok, why)
+        self.assertEqual(git(self.path, "status", "--porcelain"), "")
+
+    def test_a_half_copy_left_by_an_earlier_kill_is_redone_not_taken_for_in_place(self):
+        self.real(self.repo, "worktree", "add", self.path, self.branch)   # what that kill leaves: record + folder
+        self.half()
+        ok, why = worktree.restore(self.info)
+        self.assertTrue(ok, why)
+        self.assertNotEqual(why, worktree.IN_PLACE)
+        self.assertNotIn("initializing", "\n".join(worktree._registered(self.repo, self.path)))
+        self.assertEqual(git(self.path, "status", "--porcelain"), "")
+
+    def test_a_finished_copy_is_still_in_place(self):
+        self.assertTrue(worktree.restore(self.info)[0])
+        ok, why = worktree.restore(self.info)
+        self.assertTrue(ok)
+        self.assertEqual(why, worktree.IN_PLACE)
+
+    def test_a_timeout_with_no_copy_made_is_a_refusal_as_before(self):
+        with self.killed([], leave=False):
+            ok, why = worktree.restore(self.info)
+        self.assertFalse(ok)
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_a_copy_locked_initializing_with_an_index_and_work_in_it_is_kept(self):
+        # an index means the checkout reached its end (git writes it last): git was killed before it unlocked the copy,
+        # or an executor that an earlier core started in a half copy fixed it with `git reset` and worked there.
+        # Removing it as a half copy erased that work
+        self.real(self.repo, "worktree", "add", self.path, self.branch)
+        self.real(self.repo, "worktree", "lock", "--reason", "initializing", self.path)
+        work = os.path.join(self.path, "notes.txt")
+        with open(work, "w") as f:
+            f.write("not committed yet")
+        self.assertEqual(worktree.restore(self.info), (True, worktree.IN_PLACE))
+        self.assertTrue(os.path.isfile(work))
+        self.assertNotIn("locked initializing", worktree._registered(self.repo, self.path))   # git's own end state
+
+    def test_a_timeout_stops_the_checkout_too_not_only_git(self):
+        # the checkout of `worktree add` is its child `git reset --hard`: a kill of git alone left that child writing into
+        # the folder while it was being removed (a repo of 60 000 files: the copy "could not be removed", and the next
+        # wake took what the child had written for a copy in place). A slow smudge filter is the slow disk here
+        marks, pids, smudge = (os.path.join(self.tmp, x) for x in ("marks", "pids", "smudge.py"))
+        with open(smudge, "w") as f:   # each file: its pid at the start, a mark when it is written
+            f.write("import os, sys, time\nopen(sys.argv[2], 'a').write(f'{os.getpid()}\\n')\ntime.sleep(0.5)\n"
+                    "open(sys.argv[1], 'a').write('x')\nsys.stdout.write(sys.stdin.read())\n")
+        for n in range(8):
+            with open(os.path.join(self.repo, f"f{n}.txt"), "w") as f:
+                f.write(str(n))
+        with open(os.path.join(self.repo, ".gitattributes"), "w") as f:
+            f.write("*.txt filter=slow\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "files")
+        git(self.repo, "branch", "-f", self.branch, "HEAD")
+        slash = lambda p: '"' + p.replace(os.sep, "/") + '"'   # noqa: E731 — the filter runs in git's sh
+        git(self.repo, "config", "filter.slow.smudge", " ".join(map(slash, (sys.executable, smudge, marks, pids))))
+        size = lambda p: os.path.getsize(p) if os.path.exists(p) else 0   # noqa: E731
+        with mock.patch.object(worktree, "COPY_TIMEOUT", 1):
+            ok, why = worktree.restore(self.info)
+        self.assertFalse(ok)
+        written, deadline = size(marks), time.monotonic() + 30
+        # a zombie is gone too: a killed filter's parent is killed with it, and not every PID 1 (a container) reaps
+        running = getattr(platforms.current, "_running", platforms.current.alive)
+        while os.path.exists(pids):   # until every filter that started is gone: killed with git, or done
+            with open(pids) as f:
+                if not any(running(int(x)) for x in f.read().split()):
+                    break
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(0.05)
+        self.assertEqual(size(marks), written)   # no file was written after git was stopped
+        self.assertFalse(os.path.exists(self.path), why)
+        self.assertIsNone(worktree._registered(self.repo, self.path))
 
 
 class Core(unittest.TestCase):

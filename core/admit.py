@@ -33,10 +33,11 @@ CORE_ONLY = frozenset({
     "session.folder_forwarding", "session.fork_failed",
     "session.identified", "session.info", "session.kit", "session.limit_reset", "session.mcp", "session.mcp_login",
     "session.mcp_reconnected", "session.mcp_set", "session.model_refused", "session.parked",
-    "session.queue_moved", "session.said", "session.start_stuck", "session.worktree_removed", "spool.checked",
+    "session.queue_moved", "session.said", "session.start_stuck", "session.worktree_dropped", "session.worktree_removed",
+    "session.worktree_restored", "spool.checked",
     "spool.flagged", "spool.mode", "spool.refused", "task.auto_run", "task.run_failed", "task.run_held", "task.run_ready",
     "timer.fired",
-    "turn.result", "turn.tool", "turn.tool_result",
+    "tree.kept", "turn.result", "turn.tool", "turn.tool_result",
 })
 # written without a channel by: a session hook (its process), the schedule clock, the agents' browser, the account
 # gateway (limits), the module launcher itself about modules (failure, model spend — the page), plugins and modules about

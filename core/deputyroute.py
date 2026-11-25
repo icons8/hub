@@ -10,7 +10,8 @@ their channel (Teams), which asks the person with the route's tag [rN] and recor
 owner's rule about that hub is the liaison's to read, and a deputy's question does not go around it.
 
 A deputy's answer is never the owner's word: no from_owner, answers_question, re or on_behalf; no gate of the core
-passes with it. One card — one deputy — one thread: "not mine" returns it to the owner, never to someone else.
+passes with it. One card — one deputy — one thread: a card back from a deputy ("not mine", their area changed, not
+delivered) goes to that deputy again once named anew, or waits for the owner; never to another deputy (ROUTE_OTHER).
 
 A deputy who decides everything in their area (deputies "all") takes the owner's own cards too (🚨, money, the hub's own
 card) and their own request (--own, marked to them and in his summary); never a card of the liaison or the bus (their
@@ -36,6 +37,8 @@ ROUTE_OWN = T("core.deputyroute.own", "card {qid} is about {name}'s own request:
 ROUTE_ALREADY = T("core.deputyroute.already", "card {qid} is at {name} already — their answer comes to {session}")
 ROUTE_TRIED = T("core.deputyroute.tried", "card {qid} was at {name} and came back: it waits for the owner, not for "
                                           "the same deputy again")
+ROUTE_OTHER = T("core.deputyroute.other", "card {qid} was at {name} and came back: it does not go to another deputy — "
+                                          "it waits for the owner")
 ROUTE_RULES = T("core.deputyroute.rules", "the liaison has a rule about the hub {hub}: words to it go through the "
                                           "liaison, a deputy's card does not — it waits for the owner")
 ROUTE_ADDRESS = T("core.deputyroute.address", "the channel of {name} is not the one the owner named: {why} — the card "
@@ -104,10 +107,18 @@ REPLY_LIAISON = T("core.deputyroute.reply_liaison",
                   "· {name}, deputy · —\". They ask back — answer them{back}.")
 REPLY_VIA_HUB = T("core.deputyroute.via_hub", "through their hub {hub}")
 REPLY_VIA_SESSION = T("core.deputyroute.via_session", "through {session}")
+# printed after `hub question route` (core/deputycli.py): the owner may still answer the card himself
+ROUTED_WHO = T("core.deputyroute.routed_who",
+               "The deputy's answer comes as «Reply on {qid} from {name}»; «The user's answer to question {qid}» is the "
+               "owner himself, not {name}.")
 BACK_BUS = T("core.deputyroute.back_bus", " in the thread: hub send liaison --to {hub} --thread {thread} \"…\"")
 BACK_VIA = T("core.deputyroute.back_via", ": hub send {session} \"[{route}] …\"")
 VOID = T("core.deputyroute.void", "{name}'s reply on {qid} is no longer a ground: {why}. Do not act on it; the card is "
                                   "the owner's.")
+GONE_ANEW = T("core.deputyroute.gone_anew",
+              "Card {qid} came back from {name}: the owner named them anew or changed their area. If every question of "
+              "the card lies in their area now — send it to them again: hub question route {qid} \"{name}\"; else it "
+              "waits for the owner. Never to another deputy.")
 GONE = T("core.deputyroute.gone", "Card {qid} did not reach {name}: {why}. It waits for the owner — do not send it "
                                   "again.")
 WHY_WITHDRAWN = T("core.deputyroute.why_withdrawn", "the card is withdrawn")
@@ -180,8 +191,14 @@ def ask_text(st, qid, owners_own=False):
     return (ASK_ALL if any(r.get("all") for r in inc.values()) else ASK_DEPUTIES).format(who=who_line(inc), qid=qid)
 
 
-def hub_text(st):
+def hub_text(st, ask=None):
+    """The deputies told to the hub with the cards left for the owner; ask — the one card of AWAY_CARD: back from a
+    deputy in this away, it names none (ROUTE_OTHER; the session that asked hears if that deputy may take it again,
+    GONE_ANEW), else not the ones who gave it back (ROUTE_TRIED)."""
     inc = deputies.included(st)
+    if ask is not None:
+        tried = ask.get("deputy_tried") or []
+        inc = {} if this_away(st, ask) else {p: r for p, r in inc.items() if p not in tried}
     return (HUB_ALL if any(r.get("all") for r in inc.values()) else HUB_DEPUTIES).format(who=who_line(inc)) \
         if inc else ""
 
@@ -199,6 +216,13 @@ def bus_gate(st, sess, ask):
     the bus puts one on the hub when there is no liaison). The liaison's own forms on words to another hub are work
     cards: a deputy who decides everything takes them (REPLY_LIAISON)."""
     return busstate.is_card(ask)
+
+
+def this_away(st, ask):
+    """The deputy the card was at in this away (its one deputy: ROUTE_OTHER), or None."""
+    dep = (ask or {}).get("deputy") or {}
+    since = (st.get("owner") or {}).get("away_since")
+    return dep.get("pid") if since is not None and (dep.get("at") or 0) >= since else None
 
 
 def at(ask):
@@ -267,6 +291,8 @@ def route(st, ev, data, actions):
         raise tools.Rejected(ROUTE_OWN.format(qid=ask["id"], name=rec["person"]["name"]))
     if dep.get("state") in AT:
         raise tools.Rejected(ROUTE_ALREADY.format(qid=ask["id"], name=dep.get("name"), session=sess["name"]))
+    if this_away(st, ask) not in (None, pid):   # back from one deputy: to them again (named anew) or the owner
+        raise tools.Rejected(ROUTE_OTHER.format(qid=ask["id"], name=dep.get("name")))
     if pid in (ask.get("deputy_tried") or []):
         raise tools.Rejected(ROUTE_TRIED.format(qid=ask["id"], name=rec["person"]["name"]))
     ch = rec["channel"]
@@ -421,7 +447,7 @@ def answered(st, ev, data):
         deputy_reply=ask["id"])
 
 
-def void(st, ev, sess, ask, why, k=""):
+def void(st, ev, sess, ask, why, k="", anew=False):
     """The ground is gone (the owner answered, the deputy removed, away over, not delivered, the thread over): the card
     is the owner's again; a session that has the deputy's answer hears it is no ground; one still waiting — that the
     card did not reach them."""
@@ -443,7 +469,8 @@ def void(st, ev, sess, ask, why, k=""):
         return
     # the session that has the deputy's answer hears it is no ground; one still waiting — that it did not reach them
     text = VOID.format(name=dep["name"], qid=ask["id"], why=why) if was == ANSWERED else \
-        None if closed else GONE.format(name=dep["name"], qid=ask["id"], why=why)
+        None if closed else GONE_ANEW.format(name=dep["name"], qid=ask["id"]) if anew else \
+        GONE.format(name=dep["name"], qid=ask["id"], why=why)
     if text:
         r.new_message(st, f"m{ev['seq']}{k or 'v'}", sess["name"], text, ev["ts"], origin=forms.ORIGIN_CORE)
 
@@ -465,14 +492,24 @@ def each_at(st, keep=lambda ask: True):
 def deputy_changed(st, ev, pid):
     """contact.deputy_set/_off: the cards at this deputy under an earlier appointment go back to the owner."""
     rec = (st.get("deputies") or {}).get(pid) or {}
-    for n, (s, a) in enumerate(each_at(st, lambda a: a["deputy"].get("pid") == pid
-                                       and (not rec.get("on") or rec.get("seq") != a["deputy"].get("appt")))):
-        void(st, ev, s, a, WHY_OFF, k=f"d{n}")
     if rec.get("on"):   # named again (the mark, the channel, the area): a new appointment may take their cards again
         for s in (st.get("sessions") or {}).values():
             for a in s.get("asks") or []:
                 if pid in (a.get("deputy_tried") or []):
                     a["deputy_tried"] = [p for p in a["deputy_tried"] if p != pid]
+    named = bool(rec.get("on")) and pid in deputies.included(st)
+    for n, (s, a) in enumerate(each_at(st, lambda a: a["deputy"].get("pid") == pid
+                                       and (not rec.get("on") or rec.get("seq") != a["deputy"].get("appt")))):
+        void(st, ev, s, a, WHY_OFF, k=f"d{n}", anew=named and _again(st, s, a, rec))
+
+
+def _again(st, sess, ask, rec):
+    """The deputy named anew takes this card again (route's checks of the card): not the liaison's form (the hub routes
+    it), not one the owner keeps unless they decide everything, never a card of the bus."""
+    if liaison.is_liaison(st, sess["name"]):
+        return False
+    own = _reducer()._owners_own(st, sess, ask)
+    return not own or bool(rec.get("all")) and not bus_gate(st, sess, ask)
 
 
 def came_back(st, ev):

@@ -177,12 +177,18 @@ def last_line(path, size=4096):
     return redact.mask_head(lines[-1], 200) if lines else ""
 
 
-def digest(name, sess, steps, queued, now):
-    """The text for the model: the session state and its last steps."""
-    quiet = int(now - steps[-1]["ts"]) if steps else 0
+def awake_quiet(st, since, now):
+    """Seconds of [since, now] the hub lived: a sleep and a dark wake (reducer.paused) froze the session too, so a
+    silence across them is no silence (2026-11-23: "silent mid-turn, last event 17 min ago" 10 s after a wake)."""
+    return now - since - (reducer.paused(st, since, now) if st else 0)
+
+
+def digest(name, sess, steps, queued, now, st=None):
+    """The text for the model: the session state and its last steps (st: the core state, for the time it slept)."""
+    quiet = int(awake_quiet(st, steps[-1]["ts"], now)) if steps else 0
     head = f"Session {name}. State: {sess['state']}"
     if sess["state"] == "busy":
-        head += f", turn running {int(now - sess['since']) // 60} min"
+        head += f", turn running {int(awake_quiet(st, sess['since'], now)) // 60} min"
     if sess.get("pending") or sess["state"] == "dialog":
         head += f"; waits {int(now - sess['since']) // 60} min for the owner's answer to its question — normal"
     if queued:
@@ -191,6 +197,8 @@ def digest(name, sess, steps, queued, now):
         head += "; waits for its background tasks: " + ", ".join(
             (b.get("title") or b["id"])[:60] for b in sess["background"].values())
     head += f". Last event {quiet // 60} min {quiet % 60} s ago"
+    if steps and now - steps[-1]["ts"] - quiet >= 60:
+        head += f" (awake time; the computer slept {int(now - steps[-1]['ts'] - quiet) // 60} min more since)"
     if sess["state"] == "busy" and quiet >= SILENT:
         head += " — silent mid-turn"
     lines = [" ".join(x.split()) for x in (_line(e) for e in steps) if x]
@@ -653,15 +661,18 @@ def auto_allowed(e):
         and (e.get("data") or {}).get("auto") == "allow"
 
 
-def plausible(kind, steps, now, sess=None):
+def plausible(kind, steps, now, sess=None, st=None):
     """Checking by facts what the models said (2026-09-30: five false alarms in an evening — "hung" on pauses of 4–7 s,
     deliberate waits in the browser, one command error; "hung" 73% on a session that waited 26 minutes for the owner's answer
-    to a form question). Eval of 2026-10-03 over the journal 09-30..10-03: of 23 alarms 5 were right — the rules below."""
+    to a form question). Eval of 2026-10-03 over the journal 09-30..10-03: of 23 alarms 5 were right — the rules below.
+    st — the core state: a silence counts awake time only (awake_quiet)."""
     sess = sess or {}
     if sess.get("kind") == "hub" and kind != "hung":
         return False  # the hub retells others' troubles — by its steps we judge only "hung" (eval 2026-10-03, item 1)
     if kind in ("hung", "silent") and (sess.get("pending") or sess.get("state") == "dialog"):
         return False  # waiting for the owner's answer — this is neither a hang nor a silence
+    if kind == "silent" and steps and now - steps[-1]["ts"] >= SILENT > awake_quiet(st, steps[-1]["ts"], now):
+        return False  # its silence is the machine's sleep: the session was frozen with it
     if kind == "hung":
         if sess.get("background"):
             return False  # waiting for its own background agent or command (eval 2026-10-03, item 5)
@@ -676,7 +687,7 @@ def plausible(kind, steps, now, sess=None):
         last = steps[-1] if steps else None
         if last and last["type"] == "permission.requested" and not auto_allowed(last):
             return False  # waiting for the owner's permission for a command (eval 2026-10-03, item 4)
-        quiet = now - last["ts"] if last else 0
+        quiet = awake_quiet(st, last["ts"], now) if last else 0
         browser = last and last["type"] == "turn.tool" and "browser" in str((last.get("data") or {}).get("name"))
         scheduled = _has(((head or {}).get("data") or {}).get("prompt_head"), SCHEDULE_MARKS)
         # a scheduled turn is waited for by nobody: a long one is not yet trouble (eval 2026-10-03, case b)
@@ -958,7 +969,8 @@ class Watcher:
                     continue
                 shown = steps[-self.recap_limits()[0]:]
                 ask = self.lang_line() + (f"Turn task: {task}\n\n" if task else "") \
-                    + ("No steps yet: the turn has just begun.\n" if not cur else "") + digest(name, sess, shown, 0, now)
+                    + ("No steps yet: the turn has just begun.\n" if not cur else "") \
+                    + digest(name, sess, shown, 0, now, self.state)
                 try:
                     text, by = self.recap(ask), "model"
                 except Exception as e:  # noqa: BLE001 — the model did not answer: after a pause
@@ -1055,7 +1067,7 @@ class Watcher:
                 continue
             f = self.fresh.get(name)
             due = f and (f["n"] >= BATCH or now - f["since"] >= WINDOW_SECONDS)
-            silent = not f and sess["state"] == "busy" and now - self.checked.get(name, now) >= SILENT
+            silent = not f and sess["state"] == "busy" and awake_quiet(self.state, self.checked.get(name, now), now) >= SILENT
             if not due and not silent:
                 continue
             steps = list(self.steps.get(name) or [])
@@ -1064,7 +1076,7 @@ class Watcher:
                 continue
             queued = sum(1 for m in self.state["messages"].values()
                          if m["session"] == name and m["state"] in ("queued", "typing"))
-            text = digest(name, sess, steps, queued, now)
+            text = digest(name, sess, steps, queued, now, self.state)
             asked += 1
             try:
                 got = self.ask(self.lang_line() + text)
@@ -1080,7 +1092,7 @@ class Watcher:
                 self.checked[name] = now
             sure = bool(got.get("trouble"))
             kind = got.get("kind") if got.get("kind") in KINDS and got.get("kind") != "ok" else "errors"
-            if sure and not plausible(kind, steps, now, sess):
+            if sure and not plausible(kind, steps, now, sess, self.state):
                 sure = False  # the models' "hung" on pauses of seconds and "errors" from a single error are false (the hub, 2026-09-30)
             if sure:
                 self.emit(name, now, {"kind": kind, "why": text.split("\n")[0], "tail": text.split("\n")[1:][-3:],
@@ -1115,7 +1127,7 @@ class Watcher:
                     self.insert(m["id"], rule, now)
                 continue
             steps = list(self.steps.get(sess["name"]) or [])
-            text = digest(sess["name"], sess, steps, 0, now) + \
+            text = digest(sess["name"], sess, steps, 0, now, self.state) + \
                 f"\n\nNEW MESSAGE{m.get('origin') or ''}:\n{m['text'][:3000]}"
             try:
                 p = self.urgent(text[-MAX_CHARS:])

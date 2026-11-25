@@ -1,45 +1,45 @@
 {
- "tool": "tools/dev/readme_demo.py forbidden() over the visible text of each frame source page",
+ "tool": "page shots of a copy of the demo hub's journal (an invented fleet, paths and the hub's name replaced in the copy), composed with tools/dev/readme_media over the page; tools/dev/readme_demo.py forbidden() over the visible text of each source page and each composed page",
  "pictures": {
   "hero.png": {
-   "sha256": "bec1c1f06a61807c9b3d1c506f98beb4a713fd3a77948ed832c0121cf6368118",
+   "sha256": "99f8e91f709c69155ec84dc77b95149c166fe5dcdcac60dbf4544495f85356a3",
    "scan": "clean",
    "pages": {
-    "hub: waiting question": "f066f93f97c35d9012d48eabd9884cd0a0359576c526ffcd9bc397412dd01024",
-    "phone: recap": "6813675e4f0481930e1957be5a4d7447c35228054232cc3f272292ecb19f17ae",
-    "hero": "27192114f254950c99e755dab939e1dde56337d21775b168481172a0467791a7"
+    "hub: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "phone: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "composed: hero.png": "5b408b15d1ab96d67ffe2baf4df777e1b1ddc707f0eb1210f1707d218e9e7cd9"
    }
   },
   "social-preview.png": {
-   "sha256": "1d48b467ef6e14e107024a579c6f977b9877d2fcf4afec4540753b91d6f5597e",
+   "sha256": "cb70a5be943cf935bfadb0133b4b1b687f3c9aee4765e343fc491307e39470a8",
    "scan": "clean",
    "pages": {
-    "hub: waiting question": "f066f93f97c35d9012d48eabd9884cd0a0359576c526ffcd9bc397412dd01024",
-    "phone: recap": "6813675e4f0481930e1957be5a4d7447c35228054232cc3f272292ecb19f17ae",
-    "social preview": "d69c631b089e0117ee50bdf3b80f8772dd1235a6c3f2a803b216842587662833"
+    "hub: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "phone: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "composed: social-preview.png": "6ea297da7aedf53e00c0bf363c458aedb391e3d9dd518b13e5dfb9c948ed4a2b"
    }
   },
   "feed.png": {
-   "sha256": "6b34ac3ba4d7cc11c296cce857de3f1e1b68c6f2e20e2823938e2c5c82c1080d",
+   "sha256": "6ce479670b5997a29918673e4b9a49444077c558bee39d441e01233526b54dc1",
    "scan": "clean",
    "pages": {
-    "hub: chat with the dispatcher": "957ea96f872d594606e3c810b5bf9a0a6f135800a1ff2ae03c08954cbc1d9de8",
-    "feed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "hub: chat with the dispatcher": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "composed: feed.png": "5f144acd22d1627bbc15cb11dfa2a0f0f7ed4f507a0e59cc65185851e5a39fd7"
    }
   },
   "now.png": {
-   "sha256": "b0fd1e9008742dd240841f75bc7713981180398f1fe7095d8b296acb1c97c016",
+   "sha256": "ad3ddf704981122f83ee9c08021acb61d0cf0eb023675f965d308951a5511ec2",
    "scan": "clean",
    "pages": {
-    "hub: Now tab": "3184e89b7df4496787ba0793fb9564cc7799a24e67cb8c55f4d0c9f4badc151b",
-    "now": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "hub: Now tab": "546b83924195e714653e3ce80fbb14766580572dffab536add1fa26c203d7f35",
+    "composed: now.png": "5f144acd22d1627bbc15cb11dfa2a0f0f7ed4f507a0e59cc65185851e5a39fd7"
    }
   },
   "telegram.png": {
-   "sha256": "8a773514ef0aa782dc54dc1d14124d78e2be16e09bf5680b69a32efadd670530",
+   "sha256": "c436f8467d3c562ab5579e166833468bbc43b8feeabdcc4e8bec87b124dd4c49",
    "scan": "clean",
    "pages": {
-    "telegram illustration": "55e7030b607e259930015f2ffa26ff90d7bdb68ef18a3debf57f1e1067a3d6bd"
+    "composed: telegram.png": "0be4da5f14cc2425706be17add5cd28bde19fe6204072fcc1260bebed0bc930e"
    }
   }
  }

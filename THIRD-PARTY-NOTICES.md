@@ -72,8 +72,8 @@ is subject to the Icons8 license terms.
   `modules/web/static/clean/id/`; the list with their Icons8 ids is `modules/web/static/clean/icons8.json`.
   `sidebar.svg` is drawn by the theme's author in the same style and goes with the theme under MIT.
 
-The hub's mark (the sun of dots) is not one of them: it is the project's own work under the Apache License 2.0, like the
-code — `modules/web/favicon.svg`, `modules/web/static/favicon/`, `media/logo.svg`, the app icons of
+The hub's mark is not one of them: it is the project's own work under the Apache License 2.0, like the
+code — `modules/web/favicon.svg`, `modules/web/static/favicon/`, `media/brand/hub-logo.png`, the app icons of
 `modules/web/static/icons/` and the Mac launcher's `logo.icns`.
 
 ## Bundled JavaScript libraries

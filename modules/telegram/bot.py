@@ -755,13 +755,12 @@ class Bot:
                     parts += [md[last:start], i18n.t("telegram.diagram_below", n=len(pics))]
                     last = end
             md = "".join(parts) + md[last:]
-        msgs = fmt.to_messages(md, head=head, fold=fold and not buttons and self.fold_long())
-        if cwd:  # paths in `code` and in plain text — links into "Files" (a plan, a spec)
-            who = (route or {}).get("session")
-            msgs = [fmt.link_text(fmt.link_paths(m, self.files_url(), cwd, session=who), self.files_url(), cwd, session=who)
-                    for m in msgs]
-        msgs = self.linked(msgs)
         where = self.where(reply_to, (route or {}).get("session"))   # the chat, and in the group its topic
+        link = self.linker(cwd, (route or {}).get("session"))   # with cwd: paths into "Files" (a plan, a spec)
+        rich_id = None if buttons or not fold else self.rich_result(md, head, where, reply_to, link, quiet)
+        # the session's words went as one rich message (telegram.rich_results): no HTML parts
+        msgs = [] if rich_id is not None else fmt.to_messages(md, head=head, fold=fold and not buttons and self.fold_long())
+        msgs = [link(m) for m in msgs]
         for i, html_text in enumerate(msgs):
             params = {**where, "text": html_text, "parse_mode": "HTML", "disable_web_page_preview": True}
             if quiet:
@@ -792,6 +791,14 @@ class Bot:
             if route:
                 # the heading above the reply (head) — as a line: a reply to it quotes without it (quote)
                 self.st["routes"][str(message_id)] = {**route, "head": fmt.plain(head)} if head and not i else route
+        if rich_id is not None:   # the same for the one rich message
+            ids.append(rich_id)
+            if where.get("message_thread_id") in self.gone_threads:
+                where.pop("message_thread_id")
+            if self.group() is not None:
+                self.st["topic_of"][str(rich_id)] = where.get("message_thread_id")
+            if route:
+                self.st["routes"][str(rich_id)] = {**route, "head": fmt.plain(head)} if head else route
         if ids and fold and self.sending is not None:
             # fold marks a session's own words (on_result sends every result with it; a failure line goes without)
             self.result_sent = True   # joined
@@ -810,12 +817,58 @@ class Bot:
                 shutil.rmtree(os.path.dirname(png), ignore_errors=True)
         return ids
 
+    def rich_results_on(self):
+        """telegram.rich_results: a session's words (a result) as a rich message — real tables, a gist and the folded rest;
+        off by default."""
+        try:
+            return ((self.hub_config() or {}).get("telegram") or {}).get("rich_results") is True
+        except Exception:   # noqa: BLE001 — hub.json is unreadable: as before
+            return False
+
+    def rich_result(self, md, head, where, reply_to, link, quiet):
+        """The session's words as one sendRichMessage (rich.result: the same chat, topic, reply and links — link — as the
+        HTML parts; a long text with telegram.fold_long — the gist and the rest under <details>) → the message number, or
+        None: the ordinary HTML path (option off, over the Bot API limits, or Telegram refused it). A network failure or
+        a flood wait repeats the event, as for any message."""
+        if not self.rich_results_on():
+            return None
+        try:
+            r, why = rich.result(md, head, link, i18n.t("web.updates.more") if self.fold_long() else None)
+        except Exception:  # noqa: BLE001 — a text the conversion did not expect: the words go as HTML, not lost
+            r, why = None, f"not converted\n{traceback.format_exc()}"
+        if why:
+            sys.stderr.write(f"telegram: rich result: {why}, sending as HTML\n")  # i18n-ok: operator log
+            return None
+        params = {**where, "rich_message": r.message()}
+        if quiet:
+            params["disable_notification"] = True
+        if reply_to:
+            params["reply_parameters"] = {"message_id": reply_to, "allow_sending_without_reply": True}
+        try:   # a repeat of the event does not send it again (the key without the topic, as for the HTML parts)
+            return self.once(("sendRichMessage", {k: v for k, v in params.items() if k != "message_thread_id"}),
+                             lambda: self.call("sendRichMessage", **params)["message_id"])
+        except TgError as e:
+            if e.transient or e.retry_after:
+                raise
+            sys.stderr.write(f"telegram: rich result: {e}, sending as HTML\n")  # i18n-ok: operator log
+            return None
+
+    def linker(self, cwd=None, who=None):
+        """html → html with the links of a message to the owner: with cwd (the session folder) paths in `code` and in plain
+        text become links into "Files"; a session name in `code` — to its tab; a Jira task number — to the task."""
+        files = self.files_url() if cwd else None
+        web, names, cfg = self.web_url(), set(self.reader.state["sessions"]), self.hub_config()
+
+        def link(h):
+            if cwd:
+                h = fmt.link_text(fmt.link_paths(h, files, cwd, session=who), files, cwd, session=who)
+            return jira.link_html(fmt.link_sessions(h, web, names), cfg)
+        return link
+
     def linked(self, msgs):
         """The ready HTML parts of a message: a session name in `code` is a link to its tab, a Jira task number is a link."""
-        names = set(self.reader.state["sessions"])
-        msgs = [fmt.link_sessions(m, self.web_url(), names) for m in msgs]
-        cfg = self.hub_config()
-        return [jira.link_html(m, cfg) for m in msgs]
+        link = self.linker()
+        return [link(m) for m in msgs]
 
     def auto_receipts(self):
         """telegram.receipts: false — no 👀/👍 receipts of the core on the owner's messages (failures and the voice progress stay)."""
@@ -1526,8 +1579,11 @@ class Bot:
         """What the owner replied to: the selected fragment, otherwise the message text without the "<session>:" signature."""
         if (m.get("quote") or {}).get("text"):
             return hubs.mask(m["quote"]["text"])
+        if (m.get("quote") or {}).get("rich_texts"):   # a fragment of a rich message (telegram.rich_results)
+            return hubs.mask(rich.plain(m["quote"]["rich_texts"]))
         orig = m.get("reply_to_message") or {}
-        text = hubs.mask(orig.get("text") or orig.get("caption") or "")   # a bus link quoted goes to the hub hidden
+        # a bus link quoted goes to the hub hidden; a rich message has no text, only its blocks
+        text = hubs.mask(orig.get("text") or orig.get("caption") or rich.plain(orig.get("rich_message")))
         name = (route or {}).get("session")
         first, _, rest = text.partition("\n")
         # the heading the bot wrote itself (the route's head field), without it — its forms (core/forms.py)

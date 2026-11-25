@@ -468,6 +468,7 @@ FACTS = {
     # the app's code layer (core/appwatch.py): an edit of the layer, the release put back; the fold keeps them in app_code
     "app.code_modified", "app.code_restored", "app.moved",   # app.moved: the move from a git clone, in app_move
     "schedule.milestone_removed",  # the core removed a progress job (core/schedule._drop): which, why, after how many, the notice
+    "tree.kept",  # the tree cleanup of a session spared a shared daemon (hub.json -> tree.keep): whose, pid, name
     "settings.changed",  # the owner changed a setting on the page (hub name…): the page gets a snapshot   # the owner installed, enabled or removed a plugin: the page gets a snapshot and reloads
 }
 

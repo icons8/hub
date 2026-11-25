@@ -67,6 +67,25 @@ def blocks(md):
     return out
 
 
+def tables(md):
+    """The column counts of the Markdown tables in md (code blocks are skipped): [] — no table (the rich path of
+    telegram.rich_results)."""
+    out, lines, i = [], (md or "").replace("\r\n", "\n").split("\n"), 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith("```"):
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                i += 1
+        elif line.strip().startswith("|") and i + 1 < len(lines) and re.match(r"^\s*\|?[\s:|-]+\|", lines[i + 1]):
+            out.append(len(line.strip().strip("|").split("|")))
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                i += 1
+            continue
+        i += 1
+    return out
+
+
 def render_text(block, nested=False):
     rows = []
     for line in block.split("\n"):

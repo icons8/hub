@@ -10,7 +10,7 @@ import re
 import traceback
 
 from core import (appcode, appwatch, askexpired, backbone, board, budget, busstate, catalog, chain, chats, codeedits, configwatch, coretext, corewrite, delegations, deputies, deputyroute, executors, gitaccess, guards, hubrun, identity, journal, layout,
-                  langdata, i18n, lessons, liaison, forms, limitresume, mcpwatch, minihub, modelrule, modprompt, modrun, modstate, news, owner, parking, profcap, redact, refusals, restart, schedule, specmode, system,
+                  langdata, i18n, lessons, liaison, forms, limitresume, mcpwatch, minihub, modelrule, modprompt, modrun, modstate, news, owner, parking, pathmap, profcap, redact, refusals, restart, schedule, specmode, system,
                   tools)
 from core.coretext import T
 from core.guards import checker
@@ -1346,6 +1346,25 @@ def _apply(st, ev, actions):
             ctx["notify"](ev, T("core.msg.worktree_kept", "The working copy of the removed session {name} is kept: {why}.")
                           .format(name=sess["name"], why=coretext.got(data, "why")))
         return
+    if kind == "session.worktree_dropped":  # hubd dropped (or kept) the finished copy of a handed-in executor (copies_to_drop)
+        sess = st["sessions"].get(ev.get("entity"))
+        if not sess:
+            raise Rejected(T("core.reducer.no_worktree", "no working copy"))
+        # this sleep is judged: a kept copy is looked at again after the next one (the since of the judged sleep)
+        sess["copy_drop"] = {"since": data.get("since"), "ok": bool(data.get("ok"))}
+        if data.get("ok") and not data.get("space") and sess.get("worktree"):
+            sess["worktree"]["dropped"] = True
+        return
+    if kind == "session.worktree_restored":  # hubd brought a dropped copy back before the session's spawn (wait_copy)
+        sess = st["sessions"].get(ev.get("entity"))
+        if not sess:
+            raise Rejected(T("core.reducer.no_worktree", "no working copy"))
+        if data.get("ok") and sess.get("worktree"):
+            sess["worktree"].pop("dropped", None)
+        elif not data.get("ok"):   # the session is not raised: whoever reads the hub should know why (why_l10n)
+            ctx["notify"](ev, T("core.msg.copy_not_back", "The working copy of {name} did not come back, the session is "
+                                "not raised: {why}.").format(name=sess["name"], why=coretext.got(data, "why")))
+        return
     if kind == "session.role_set":
         return _role_set(st, ev, data)
     if kind == "session.iconed":
@@ -1910,6 +1929,18 @@ def _apply(st, ev, actions):
         return _slept(st, data, ev["ts"])   # the machine slept: terms that count a living process's time move by it
     if kind == "core.dark":
         return _dark(st, data, ev["ts"])   # the Mac is awake without the person (DarkWake): the queue waits for the full wake
+    if kind == "core.imported":
+        # `hub import` brought this hub from another machine (core/hubexport.py, spec d2789272): the state's paths of the
+        # old machine go to the new one by the table (core/pathmap.py); the journal itself is never rewritten
+        pairs = data.get("paths")
+        if not isinstance(pairs, list) or not all(isinstance(p, list) and len(p) == 2 for p in pairs):
+            raise Rejected(T("core.reducer.imported_paths", "core.imported: paths is a list of [old, new]"))
+        table = pathmap.Table(pairs, str(data.get("from_os") or "").startswith("win"),
+                              str(data.get("to_os") or "").startswith("win"))
+        pathmap.move_state(st, table)
+        st["imported"] = {"at": ev["ts"], "archive": str(data.get("archive") or "")[:200],
+                          "made": str(data.get("made") or "")[:40]}
+        return
     if kind == "core.started":
         st["started"] = ev["ts"]  # since when the core runs, for "About" (03.10: uptime)
         st["started_seq"] = ev["seq"]   # and by which event: is the core on pre-update code? (core/restart.behind)
@@ -5651,7 +5682,7 @@ def _away_card(st, ev, sess, ask):
         if d else ""
     _notify_hub(st, ev, coretext.join(AWAY_CARD.format(qid=ask["id"], name=sess["name"], task=task,
                                                        questions=_card_text(ask), rule=AWAY_RULE),
-                                      deputyroute.hub_text(st)), away_card=ev["seq"])
+                                      deputyroute.hub_text(st, ask)), away_card=ev["seq"])
 
 
 def _away_open(st, ev):

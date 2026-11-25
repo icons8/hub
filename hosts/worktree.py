@@ -89,6 +89,14 @@ FOREIGN_COPY = T("core.worktree.foreign_copy", "the working copy {path} is anoth
 FOREIGN_LIVE = T("core.worktree.foreign_live", "a session of another hub ({hub}) works in {path} — not taken: an "
                  "executor under another name")
 FOREIGN_KEPT = T("core.worktree.foreign_kept", "{path} is another hub's ({hub}) — leaving it alone")
+# a handed-in executor's finished copy goes after a term (hub.json executors.drop_copy_after_hours, drop): its branch stays
+DROP_AHEAD = T("core.worktree.drop_ahead", {"one": "{count} commit is in no remote and not in {base} — keeping the copy",
+                                            "other": "{count} commits are in no remote and not in {base} — keeping the copy"})
+DROP_IGNORED = T("core.worktree.drop_ignored", "{path} holds an ignored file that is not build junk ({file}) — keeping the "
+                 "copy")
+DROP_IN_USE = T("core.worktree.drop_in_use", "a program works in {path} — keeping the copy")
+DROP_UNKNOWN = T("core.worktree.drop_unknown", "cannot tell whether a program works in {path} — keeping the copy")
+DROP_GIT = T("core.worktree.drop_git", "git could not check the copy ({error}) — keeping it")
 LOCK_BUSY = T("core.worktree.lock_busy", "git of a hub of this machine has held this repo longer than {seconds} s — "
               "try again later")
 
@@ -203,16 +211,18 @@ def slug(path):
     return re.sub(r"[^A-Za-z0-9]", "-", os.path.realpath(path))
 
 
-def _git(cwd, *args, raw=False, timeout=30, english=False):
+def _git(cwd, *args, raw=False, timeout=30, english=False, group=False):
     # git output is UTF-8 (paths, branch names): the system encoding (Windows cp1251) broke parsing on a Cyrillic letter
     # in a path; raw is the output as is (`status -z`). GIT_OPTIONAL_LOCKS=0: the core's status does not rewrite the
     # index, otherwise it holds index.lock, and a stash, merge or commit in the same folder at that moment fails with
     # "index.lock exists". english: the core parses a git refusal by its text: LC_ALL=C for this call only (git hooks
-    # inherit it too, and they should get the owner's locale)
+    # inherit it too, and they should get the owner's locale). group: a timeout stops git's children too (POSIX: its
+    # own group; Windows stops the tree anyway)
     # the user's repo: working copy files get the user's umask, not the hub's closed one (core/perms.py)
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0", **({"LC_ALL": "C"} if english else {})}
     r = platforms.current.run(["git", "-c", "core.longpaths=true", "-C", cwd, *args], timeout, capture_output=True,
-                              text=True, encoding="utf-8", errors="replace", env=env, umask=perms.user_umask())
+                              text=True, encoding="utf-8", errors="replace", env=env, umask=perms.user_umask(),
+                              **(platforms.current.no_terminal() if group else {}))
     out = r.stdout or ""
     return r.returncode, out if raw else out.strip(), (r.stderr or "").strip()
 
@@ -676,6 +686,43 @@ def _drop_half(top, path, branch=None, start=None):
         return False   # cleanup is best effort: we will state the refusal reason anyway
 
 
+def _redo_or_unlock(top, path):
+    """Whether the copy at path is one git did not finish (killed by a timeout or a hub restart), to be redone: its
+    record is locked "initializing" and it has no index. git writes the index at the end of the checkout (`git status`
+    in the copy writes none): a copy locked "initializing" with an index was checked out to the end (git was killed
+    before it unlocked it) or a session fixed a half copy with `git reset` and works in it. That one is unlocked here,
+    as git would have done, and kept with whatever is in it. git did not answer: not redone, the copy stays as it is."""
+    try:
+        if "locked initializing" not in (_registered(top, path) or []):
+            return False
+        gitdir = _copy_gitdir(path)
+        if not gitdir or not os.path.isfile(os.path.join(gitdir, "index")):
+            return True
+        _git(top, "worktree", "unlock", path)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return False
+
+
+def _add(top, path, branch, has_branch, start):
+    """`git worktree add` of the copy at path (prepare, restore) -> None, or the refusal with no half copy left: its folder
+    and record are removed, and the branch if it was created here. A checkout of a big repo takes minutes (COPY_TIMEOUT,
+    not the 30 s of a plain git call); a timeout stops git's whole tree: the checkout is its child `git reset --hard`,
+    which outlived a killed git and wrote into the folder while it was being removed (a repo of 60 000 files: the copy
+    "could not be removed", and the next wake took what the child had written for a copy in place)."""
+    args = ["worktree", "add", path, branch] if has_branch else ["worktree", "add", "-b", branch, path] + ([start] if start else [])
+    try:
+        code, _, err = _git(top, *args, timeout=COPY_TIMEOUT, group=True)
+    except subprocess.TimeoutExpired:
+        code, err = None, ""
+    if code == 0:
+        return None
+    gone = _drop_half(top, path, None if has_branch else branch, start)
+    if code is None:
+        return ADD_TIMEOUT.format(minutes=COPY_TIMEOUT // 60, left=HALF_DROPPED if gone else HALF_LEFT.format(path=path))
+    return f"git worktree add: {err[:300]}"
+
+
 def fetch_main(top, main, every=0):
     """Bring origin's main branch up to date before a base is chosen (main_tip reads what is downloaded) -> None when it
     is, or when there is nothing to fetch (the repo has no origin: our own hub's working repo has none), otherwise why not
@@ -783,6 +830,15 @@ def prepare(cwd, name, branch=None, from_main=False, with_base=False, space=None
         return None, None, None
     top = os.path.realpath(top)
     rel = os.path.relpath(os.path.realpath(cwd), top)
+    # --repo pointed at a working copy (a linked one): its toplevel is itself; put the new copy beside the main clone, not
+    # inside that copy (a copy within a copy breaks the test runner and hooks). Only a plain `<clone>/.git`: a submodule's
+    # or a bare repo's common dir is not a clone's .git (a bare one named .git has no working tree to put it beside; unless git
+    # says "false", nothing moves).
+    # here stays the folder the raiser works in: the new branch starts from its HEAD and merges into its branch (_start, base_of)
+    here, common = top, common_dir(top)
+    if (common and os.path.basename(common) == ".git" and common != os.path.join(top, ".git")
+            and _git(common, "config", "--bool", "core.bare")[1] == "false"):
+        top = os.path.dirname(common)
     path = copy_path(top, name, space)
     info = {"path": path, "branch": branch or task_branch(name, space), "repo": top, "checks": []}
     if os.path.exists(path):
@@ -792,7 +848,7 @@ def prepare(cwd, name, branch=None, from_main=False, with_base=False, space=None
     if from_main and not branch:
         info["from_main"] = True   # restoring the copy (restore) is also from the main branch
     if with_base and not branch:
-        info.update(base_of(top, from_main))   # where it merges into (experiment, slice C: core/executors.on_unmerged)
+        info.update(base_of(here, from_main))   # where it merges into (experiment, slice C: core/executors.on_unmerged)
     if branch:
         info["keep_branch"] = True
         if not any(_git(top, "rev-parse", "--verify", "--quiet", ref)[0] == 0
@@ -800,25 +856,17 @@ def prepare(cwd, name, branch=None, from_main=False, with_base=False, space=None
             return None, info, NO_BRANCH.format(branch=branch, top=top)
     branch = info["branch"]
     # the previous git was killed halfway (a hub restart in the middle of checkout): the record is locked "initializing"; redo it
-    if "locked initializing" in (_registered(top, path) or []):
+    if _redo_or_unlock(top, path):
         _drop_half(top, path)   # keeping the branch: its commit is HEAD, add will take it
     made = None   # the copy and branch were created here: if it does not reach the end, remove (only our own: the branch without foreign commits)
     if not os.path.exists(path):
         hide_copies(top)
         # a branch from origin without a local one: git creates its own, tracking it
         has_branch = info.get("keep_branch") or _git(top, "rev-parse", "--verify", "--quiet", branch)[0] == 0
-        start = None if has_branch else _start(top, from_main, info)
-        args = ["worktree", "add", path, branch] if has_branch else ["worktree", "add", "-b", branch, path] + ([start] if start else [])
-        try:
-            code, _, err = _git(top, *args, timeout=COPY_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            code, err = None, ""
-        if code != 0:
-            gone = _drop_half(top, path, None if has_branch else branch, start)
-            if code is None:
-                left = HALF_DROPPED if gone else HALF_LEFT.format(path=path)
-                return None, info, ADD_TIMEOUT.format(minutes=COPY_TIMEOUT // 60, left=left)
-            return None, info, f"git worktree add: {err[:300]}"
+        start = None if has_branch else _start(here, from_main, info)
+        err = _add(top, path, branch, has_branch, start)
+        if err:
+            return None, info, err
         made = (None if has_branch else branch, start)
     # 2026-10-23: preparation that failed after `worktree add` (a git timeout) left the copy and branch without a session;
     # cleanup did not see it, and a retry under the same name went into the half copy
@@ -899,8 +947,13 @@ def restore(info, owner=None, foreign=None):
         why, hub = _foreign(path, owner, foreign)   # several hubs on one machine: not a copy another hub holds now
         if why:
             return False, (FOREIGN_COPY if why == "mark" else FOREIGN_LIVE).format(path=path, hub=hub)
-        _mark(path, owner)   # ours: a copy from before marks gets one, as in prepare
-        return True, IN_PLACE
+        # a git killed halfway (the timeout of a big repo, a hub restart) leaves the record locked "initializing" and
+        # no index: that is not a copy in place, redo it (as prepare) — the branch and its commits stay
+        if not (repo and os.path.isdir(repo) and _redo_or_unlock(repo, path)):
+            _mark(path, owner)   # ours: a copy from before marks gets one, as in prepare
+            return True, IN_PLACE
+        if not _drop_half(repo, path):
+            return False, HALF_LEFT.format(path=path)
     if not path or not repo or not branch or not os.path.isdir(repo):
         return False, NO_REPO
     # not `worktree prune`: it drops the records of every copy whose folder is missing here (a .git shared between
@@ -910,10 +963,11 @@ def restore(info, owner=None, foreign=None):
     # the `--branch` branch (keep_branch) is the same one, own or from origin: do not create a new one
     has_branch = info.get("keep_branch") or _git(repo, "rev-parse", "--verify", "--quiet", branch)[0] == 0
     start = None if has_branch else _start(repo, info.get("from_main"))
-    args = ["worktree", "add", path, branch] if has_branch else ["worktree", "add", "-b", branch, path] + ([start] if start else [])
-    code, _, err = _git(repo, *args)
-    if code != 0:
-        return False, f"git worktree add: {err[:200]}"
+    # as prepare: the minutes of a big repo, and a killed add leaves no half copy that a recheck would take for one that
+    # came back (2026-11-18: "did not come back", then in place with no files checked out)
+    err = _add(repo, path, branch, has_branch, start)
+    if err:
+        return False, err
     include(repo, path)
     mcp_settings(repo, path)   # the details have no session folder, only the repo root
     _mark(path, owner)   # several hubs on one machine: owner — this hub (the caller holds repo_lock)
@@ -944,6 +998,10 @@ def remove(info, owner=None, foreign=None):
             listed = _git(repo, "worktree", "list", "--porcelain")[1].splitlines()
             if f"worktree {os.path.realpath(path)}" not in {f"worktree {os.path.realpath(x[9:])}" for x in listed
                                                               if x.startswith("worktree ")}:
+                if info.get("dropped") and info.get("branch") and _git(
+                        repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{info['branch']}")[0] == 0:
+                    # the copy went while its session slept (drop): its branch goes as with a copy
+                    return _drop_branch(info, _merged_into_base(info))
                 return True, ALREADY_GONE   # no record at this path: nothing to clean (a repeated call lands here)
             return False, "git worktree remove: " + err   # the record is there and stays: the whole reason
         return _drop_branch(info, _merged_into_base(info))
@@ -1003,6 +1061,171 @@ def remove(info, owner=None, foreign=None):
     if code != 0:
         return False, "git worktree remove: " + err   # the whole reason: it names what git could not delete
     return _drop_branch(info, into_base)
+
+
+# build junk: what a finished copy may hold besides its commits (a dropped copy loses it; an install brings it back)
+JUNK = frozenset({"node_modules", ".next", "__pycache__", ".pytest_cache", ".turbo", "dist", "build", ".DS_Store"})
+SOURCE_TOO = frozenset({"dist", "build"})   # names of junk folders that also hold sources when nothing ignores them
+
+
+def _bases(info):
+    """The branches a finished copy's commits must be in: its base, otherwise main/master of the repo that exist."""
+    repo = info.get("repo")
+    names = [info["base"]] if info.get("base") else ["main", "master"]
+    return [b for b in names if _git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{b}")[0] == 0]
+
+
+SAME_MAX = 16 << 20   # bytes; a bigger ignored file is not compared with the repo's: the copy stays
+
+
+def _same_as_repo(repo, path, rel):
+    """An ignored file of the copy that the repo's own folder holds byte for byte, or a JSON file with the same data
+    (.worktreeinclude copied it, `include` and mcp_settings write it again on a restore): nothing is lost with it."""
+    mine, theirs = os.path.join(path, rel), os.path.join(repo, rel)
+    try:
+        if not os.path.isfile(mine) or os.path.islink(mine) or not os.path.isfile(theirs):
+            return False
+        size = os.path.getsize(mine)
+        if size > SAME_MAX or size != os.path.getsize(theirs) and not rel.endswith(".json"):
+            return False
+        with open(mine, "rb") as a, open(theirs, "rb") as b:
+            ours, repos = a.read(), b.read()
+        if ours == repos:
+            return True
+        # the same settings written anew (.claude/settings.local.json: mcp_settings carries the MCP choice over)
+        return rel.endswith(".json") and json.loads(ours) == json.loads(repos)
+    except (OSError, ValueError):
+        return False
+
+
+def unfinished(info):
+    """Why a handed-in executor's copy is not finished, or None — it is:
+    every commit of HEAD and of its branch is in a remote or in its base (main/master), no change in tracked files, no
+    untracked or ignored file except build junk (JUNK; build and dist only when ignored) and the repo's own ignored
+    files (.env from .worktreeinclude).
+    A git failure is an answer too: the copy stays."""
+    path, repo, branch = info.get("path"), info.get("repo"), info.get("branch")
+    if not path or not repo or not os.path.isdir(path) or not os.path.exists(os.path.join(path, ".git")):
+        return NOT_A_COPY
+    code, top, err = _git(path, "rev-parse", "--show-toplevel")
+    if code != 0 or os.path.realpath(top) != os.path.realpath(path):
+        return NOT_A_COPY if code == 0 else DROP_GIT.format(error=err[:200])
+    bases = _bases(info)
+    heads = ["HEAD"] + ([f"refs/heads/{branch}"] if branch and _git(
+        repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}")[0] == 0 else [])
+    code, out, err = _git(path, "rev-list", *heads, "--not", "--remotes", *[f"refs/heads/{b}" for b in bases])
+    if code != 0:
+        return DROP_GIT.format(error=err[:200])
+    if out:
+        return DROP_AHEAD.format(count=len(out.splitlines()), base="/".join(bases) or "main")
+    code, out, err = _git(path, "status", "--porcelain", "-z", "--ignored=matching", "--untracked-files=all",
+                          raw=True)
+    if code != 0:
+        return DROP_GIT.format(error=err[:200])
+    for entry in out.split("\0"):
+        if not entry:
+            continue
+        what, rel = entry[:2], entry[3:]
+        if what not in ("??", "!!"):
+            return KEPT_DIRTY.format(path=path)
+        # an untracked file under a folder named build or dist may be a source the session wrote (src/build/plan.py):
+        # only the folders that hold nothing but tools' output are junk there; ignored ones are junk in all of them
+        if (JUNK if what == "!!" else JUNK - SOURCE_TOO) & set(rel.rstrip("/").split("/")):
+            continue
+        if what == "!!" and _same_as_repo(repo, path, rel):
+            continue
+        return KEPT_DIRTY.format(path=path) if what == "??" else DROP_IGNORED.format(path=path, file=rel)
+    return None
+
+
+def cwd_folders():
+    """The working folders of the machine's processes: a copy a program stands in is not dropped. Linux: /proc/<pid>/cwd
+    of the processes this user may read (as lsof without root; a slim server has no lsof), macOS: lsof. Windows has no
+    lsof — an empty set: removing the folder fails there by itself; no lsof elsewhere, or lsof failed — None (unknown:
+    keep the copies)."""
+    if os.path.isdir("/proc/self"):
+        found = set()
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    found.add(os.readlink(f"/proc/{pid}/cwd"))
+                except OSError:   # gone, or another user's
+                    continue
+        return found
+    lsof = shutil.which("lsof") or next((p for p in ("/usr/sbin/lsof", "/usr/bin/lsof") if os.path.exists(p)), None)
+    if not lsof:
+        return set() if platforms.current.APP_OS == "windows" else None
+    try:
+        r = subprocess.run([lsof, "-n", "-P", "-w", "-d", "cwd", "-Fn"], capture_output=True, text=True,
+                           errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = {line[1:] for line in r.stdout.splitlines() if line.startswith("n/")}
+    return found if found or r.returncode == 0 else None
+
+
+GB = 1 << 30   # a gigabyte as df -h counts it
+
+
+def free_space(path):
+    """Bytes free for this user on the disk of path (a copy's folder); None when it cannot be read."""
+    try:
+        return shutil.disk_usage(path).free
+    except OSError:
+        return None
+
+
+def size_of(path):
+    """Bytes the folder takes on disk (blocks; a hard link once) — what a drop reports; 0 when it cannot be read."""
+    seen, total = set(), 0
+    for root, dirs, files in os.walk(path):
+        for name in dirs + files:
+            try:
+                st = os.lstat(os.path.join(root, name))
+            except OSError:
+                continue
+            if (st.st_dev, st.st_ino) in seen:
+                continue
+            seen.add((st.st_dev, st.st_ino))
+            total += getattr(st, "st_blocks", 0) * 512 or st.st_size
+    return total
+
+
+def drop(info, owner=None, foreign=None, cwds=frozenset()):
+    """A handed-in executor's finished copy goes, its branch stays (`hub session wake` brings the copy back from it:
+    restore). The check is made here, under the caller's repo_lock, right before git removes the copy; cwds — the
+    processes' working folders (cwd_folders; None — unknown). -> (whether it is removed — None as in remove, what was
+    done, bytes it took on disk: 0 when kept)."""
+    path = info.get("path")
+    why = unfinished(info)
+    if why:
+        return False, why, 0
+    if cwds is None:
+        return False, DROP_UNKNOWN.format(path=path), 0
+    top = os.path.realpath(path)
+    if any(os.path.realpath(c) == top or os.path.realpath(c).startswith(top + os.sep) for c in cwds):
+        return False, DROP_IN_USE.format(path=path), 0
+    repo = info.get("repo")
+    if "locked initializing" in (_registered(repo, path) or []):
+        # git's own lock of a worktree add that was killed after the checkout (a restore before its long timeout): the
+        # copy is finished (checked above), the lock is no one's will — otherwise every drop fails on it
+        _git(repo, "worktree", "unlock", path)
+    size = size_of(path)
+    ok, why = remove({**info, "keep_branch": True}, owner=owner, foreign=foreign)
+    return ok, why, size if ok else 0
+
+
+def bring_back(info, owner=None, foreign=None):
+    """restore for a copy dropped while its session slept (drop), and for a folder that was deleted by hand: an empty
+    shell left by a failed removal goes first (restore takes any folder for the copy in place). -> as restore."""
+    path = info.get("path")
+    if path and os.path.isdir(path) and not os.path.lexists(os.path.join(path, ".git")):
+        # restore takes any folder for the copy in place: a shell is erased, one with files left is not started in (git
+        # there answers for the main checkout) and not erased (whose files they are, the folder does not tell)
+        stuck = []
+        if not (_only_folders(path) and _erase_empty(path, stuck)):
+            return False, SHELL_LOCKED.format(path=path, error=stuck[0]) if stuck else NO_DOT_GIT.format(path=path)
+    return restore(info, owner=owner, foreign=foreign)
 
 
 def space_dir(top, space):
@@ -1122,6 +1345,16 @@ def _only_folders(path):
                    and _only_folders(os.path.join(path, e.name)) for e in entries)
     except OSError:
         return False
+
+
+def only_folders(path):
+    """Whether the folder holds nothing but (nested) empty folders — for the core's drop of an own folder."""
+    return _only_folders(path)
+
+
+def erase_empty(path, errors=None):
+    """_erase_empty for the core's drop of an own folder: a file that appears meanwhile is never erased."""
+    return _erase_empty(path, errors)
 
 
 def _erase_empty(path, errors=None):

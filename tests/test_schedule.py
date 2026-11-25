@@ -403,6 +403,48 @@ class ClockTest(unittest.TestCase):
         with open(out) as f:
             self.assertEqual(f.read().split(), ["run"])
 
+    def test_a_slot_held_in_a_dark_wake_is_not_started_when_a_newer_slot_is_due_at_the_full_wake(self):
+        """An every-2h command job: its slot came in a dark wake (held), the Mac slept through the next one and woke fully.
+        Both slots were started two seconds apart: the held slot's start went out first, the core recorded it before the
+        newer slot's due, the clock started the command for it, and the newer slot then took the run over (the held run's
+        report was refused as unexpected). A catch-up is one run, for the last slot."""
+        out = os.path.join(self.state, "ran.txt")
+        cmd = f"\"{sys.executable}\" -c \"open('{out.replace(chr(92), '/')}', 'a').write('run' + chr(10))\""
+        self.j.append("schedule.set", "gate", {"every": "2h", "command": cmd, "channel": "cli", "owner": True},
+                      ts=self.now)
+        first = self.now + 2 * 3600
+        self.now = first + 5
+        self.j.append("core.dark", data={"on": True}, ts=self.now)
+        self.beat()
+        self.clock.step()
+        self.ingest()   # the first slot's due is recorded in the dark wake, the launch waits
+        self.clock.step()
+        self.assertEqual(self.clock.running, {})
+        self.assertEqual(self.spooled(), [])
+        second = first + 2 * 3600
+        self.now = second + 6 * 60 + 57   # the full wake
+        self.j.append("core.dark", data={"on": False}, ts=self.now)
+        self.beat()
+        self.clock.step()
+        facts = self.spooled()   # the core records them one by one, the clock looks in between
+        self.assertEqual([(e["type"], e["data"]["slot"]) for e in facts if e["entity"] == "gate"],
+                         [("schedule.due", second)])
+        for e in facts:
+            self.j.append(e["type"], e.get("entity"), e.get("data"), src=e.get("src"), ts=self.now)
+            self.clock.step()
+            self.ingest()
+        for _ in range(3):
+            self.now += 1
+            self.beat()
+            self.clock.step()
+            self.ingest()
+            for r in list(self.clock.running.values()):
+                r[0].wait(timeout=20)
+        with open(out) as f:
+            self.assertEqual(f.read().split(), ["run"])
+        job = self.clock.tail.reader.state["schedule"]["gate"]
+        self.assertEqual((job["ran_slot"], job["run_slot"], job["started_slot"]), (second, second, second))
+
     def test_a_core_lagging_past_the_start_wait_does_not_get_the_command_run_twice(self):
         """The core took longer than START_WAIT to record schedule.started (a backed-up spool), so the clock ran the
         command on its own — and then restarted before the core caught up. The new clock saw no start in the core,

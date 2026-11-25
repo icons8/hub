@@ -1,7 +1,23 @@
 @font-face { font-family: Onest; src: url(fonts/onest-latin.woff2) format("woff2"); font-weight: 100 900; }
 @font-face { font-family: "Geist Mono"; src: url(fonts/geist-mono-latin.woff2) format("woff2"); font-weight: 100 900; }
-html, body { margin: 0; background: #0c0c0e; }
-body { font-family: Onest, sans-serif; color: #ececf0; }
-.stage { position: relative; overflow: hidden; background: radial-gradient(900px 500px at 85% 0%, rgb(79 108 246 / 0.28), transparent 60%), #14141a; }
-.desk { position: absolute; border-radius: 14px; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12), 0 30px 60px -20px rgb(0 0 0 / 0.8); display: block; }
-.phone { position: absolute; border-radius: 26px; box-shadow: 0 0 0 6px #0c0c0e, 0 0 0 7px rgb(255 255 255 / 0.18), 0 30px 60px -10px rgb(0 0 0 / 0.85); display: block; }
+@font-face { font-family: Lora; src: url(fonts/lora-700-latin.woff2) format("woff2"); font-weight: 700; }
+html, body { margin: 0; background: #f4efec; }
+body { font-family: Onest, sans-serif; color: #1c1c22; }
+/* the warm-to-cool wash behind every picture of the README: peach at the top left, lavender at the right and the bottom */
+.stage { position: relative; overflow: hidden; background:
+  radial-gradient(760px 520px at 0% 0%, #ffe3d3 0%, rgb(255 227 211 / 0) 70%),
+  radial-gradient(820px 560px at 100% 8%, #dfe4fb 0%, rgb(223 228 251 / 0) 72%),
+  radial-gradient(900px 480px at 70% 110%, #e8e0f6 0%, rgb(232 224 246 / 0) 70%), #f5f1ee; }
+.win { position: absolute; overflow: hidden; border-radius: 20px; background: #f1f1f3; display: block;
+  box-shadow: 0 0 0 1px rgb(20 20 40 / 0.06), 0 2px 6px rgb(30 20 60 / 0.06), 0 34px 70px -24px rgb(50 40 100 / 0.38); }
+.win img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+/* an iPhone around a page shot: the page starts under the status bar */
+.phone { position: absolute; box-sizing: border-box; background: #fff; border: 7px solid #121216; border-radius: 48px; overflow: hidden;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.5), 0 40px 70px -22px rgb(40 30 90 / 0.5); }
+.phone .bar { position: absolute; left: 0; right: 0; top: 0; height: 50px; background: #fff; z-index: 1; font: 600 15px/1 Onest, sans-serif; }
+.phone .bar b { position: absolute; left: 30px; top: 18px; font-weight: 600; }
+.phone .bar i { position: absolute; left: 50%; top: 10px; width: 92px; height: 27px; margin-left: -46px; border-radius: 14px; background: #0b0b0d; }
+.phone .bar svg { position: absolute; right: 24px; top: 17px; }
+.phone .page { position: absolute; left: 0; right: 0; top: 50px; bottom: 0; }
+.phone .page img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.phone .home { position: absolute; left: 50%; bottom: 8px; width: 104px; height: 4px; margin-left: -52px; border-radius: 2px; background: #121216; z-index: 2; }

@@ -9,8 +9,12 @@ import os
 import re
 import urllib.parse
 
+from modules.telegram import fmt
+
 MAX_CHARS = 32768
 MAX_MEDIA = 50
+MAX_COLUMNS = 20   # a table's columns
+MAX_BLOCKS = 500   # list items and table rows count one each, nested blocks too
 PHOTO_MAX = 10 * 1024 * 1024   # bigger: Telegram does not take it as a photo, it goes as a document
 
 PHOTOS = (".png", ".jpg", ".jpeg", ".webp")
@@ -165,3 +169,148 @@ def fallback(r):
         text = re.sub(r"==(.+?)==", r"\1", text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return text, [p for _, p, _ in r.files]
+
+
+# A session's words (telegram.rich_results): the bot's Markdown as rich Markdown, looking as the HTML path (fmt) shows it
+TOKEN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)|!?\[[^\]\n]*\]\([^)\s]*\)")   # `code` (any run of ticks), [a](b)
+A_TAG = re.compile(r'<a href="([^"]*)">(.*?)</a>', re.S)
+FENCE_LINE = re.compile(r"\s*(`{3,}|~{3,})")
+TABLE_DELIM = re.compile(r"^\s*\|?[\s:|-]+\|")
+# a line that starts a block of its own under a paragraph line (a numbered list only from 1): no line break before it
+BLOCK_START = re.compile(r"\s*(?:[-*+]\s|1[.)]\s|#{1,6}\s|(?:\*{3,}|_{3,})\s*$)")
+SETEXT = re.compile(r" {0,3}(-+|=+)\s*$")   # under a line of text it would make that line a heading
+BARE_URL = re.compile(r"(https?://[^\s<>]+)")
+
+
+def _text(s):
+    """Plain text: what only rich Markdown reads as markup ($formula$, ==marked==, <tag>) stays text, as fmt shows it;
+    a mark the session escaped itself (\\$ shows as $) and a bare web address (an autolink: no escapes in it) stay."""
+    def one(part):
+        part = re.sub(r"(?<!\\)([$<])", r"\\\1", part)
+        return re.sub(r"(?<!\\)={2,}", lambda m: "\\=" * len(m.group(0)), part)
+    return "".join(p if i % 2 else one(p) for i, p in enumerate(BARE_URL.split(s)))
+
+
+def _url(u):
+    return u.replace(" ", "%20").replace("(", "%28").replace(")", "%29").replace("<", "%3C").replace(">", "%3E")
+
+
+def _from_html(h):
+    """What the HTML link makers gave (escaped text and <a href>) → Markdown: a link around `code` is [`code`](url)."""
+    out, at = [], 0
+    for m in A_TAG.finditer(h):
+        out.append(_text(htmllib.unescape(h[at:m.start()])))
+        code = re.fullmatch(r"<code>(.*)</code>", m.group(2), re.S)
+        shown = f"`{htmllib.unescape(code.group(1))}`" if code else \
+            re.sub(r"([\[\]])", r"\\\1", _text(htmllib.unescape(re.sub(r"<[^>]+>", "", m.group(2)))))
+        out.append(f"[{shown}]({_url(htmllib.unescape(m.group(1)))})")
+        at = m.end()
+    return "".join(out) + _text(htmllib.unescape(h[at:]))
+
+
+def _inline(line, link):
+    out, at = [], 0
+    for m in TOKEN.finditer(line):
+        out.append(_from_html(link(htmllib.escape(line[at:m.start()], quote=False))))
+        if m.group(1) == "`":   # one tick: the HTML path links it (a path, a session, a task key)
+            h = link(f"<code>{htmllib.escape(m.group(2), quote=False)}</code>")
+            a = A_TAG.fullmatch(h)
+            if a and "`" not in m.group(2):   # [`path`](url): it still looks like code
+                out.append(f"[{m.group(0)}]({_url(htmllib.unescape(a.group(1)))})")
+            else:
+                out.append(_from_html(h) if "<a " in h else m.group(0))
+        else:
+            out.append(m.group(0))   # a ``longer`` code span and a [link](url) of the session's own stay as written
+        at = m.end()
+    return "".join(out) + _from_html(link(htmllib.escape(line[at:], quote=False)))
+
+
+def words(md, link=None):
+    """A session's Markdown → rich Markdown. link(html) → html: the HTML link makers of the bot (paths into "Files",
+    session names, task keys); their <a> become Markdown links. Fenced code stays as it is; a line break stays one (a
+    single one joins lines into one paragraph in Markdown) and a table is set apart by blank lines (a line right after
+    it would be its row) — as fmt shows them."""
+    link = link or (lambda h: h)
+    lines, rows, fence, i = (md or "").replace("\r\n", "\n").split("\n"), [], None, 0   # rows: [(kind, line)]
+    while i < len(lines):
+        line, f = lines[i], FENCE_LINE.match(lines[i])
+        if fence:
+            rows.append(("code", line))
+            if f and f.group(1)[0] == fence[0] and len(f.group(1)) >= len(fence) and not line.strip().strip(fence[0]):
+                fence = None
+        elif f:
+            fence = f.group(1)
+            rows.append(("code", line))
+        elif line.strip().startswith("|") and i + 1 < len(lines) and TABLE_DELIM.match(lines[i + 1]):
+            if rows and rows[-1][0]:
+                rows.append(("", ""))
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                rows.append(("table", _inline(lines[i], link)))
+                i += 1
+            if i < len(lines) and lines[i].strip():
+                rows.append(("", ""))
+            continue
+        else:
+            under = SETEXT.match(line) if rows and rows[-1][0] == "text" else None
+            if under and len(under.group(1)) >= 3 and under.group(1)[0] == "-":
+                rows.append(("", ""))   # a rule, as fmt's "—"
+            elif under:
+                line = "\\" + line.lstrip()   # "-" or "=" as typed: not a heading, not an empty list item
+            rows.append(("text", _inline(line, link)) if line.strip() else ("", ""))
+        i += 1
+    out = [line for _, line in rows]
+    for k in range(len(rows) - 1):   # a hard line break (two spaces) where the next line would go on in the same paragraph
+        if rows[k][0] == "text" == rows[k + 1][0] and not BLOCK_START.match(out[k + 1]) \
+                and not re.match(r"\s*#{1,6}\s", out[k]) and not out[k].endswith("  "):
+            out[k] += "  "
+    return "\n".join(out)
+
+
+def head_md(head):
+    """The bot's HTML heading line (<b>name</b>: …) → Markdown: <b> is bold, the rest is text, every mark escaped."""
+    return "".join("**" if p in ("<b>", "</b>") else "" if p.startswith("<") else
+                   re.sub(r"([\\`*_\[\]<>$=~|#!])", r"\\\1", htmllib.unescape(p))
+                   for p in re.split(r"(<[^>]+>)", head or "") if p)
+
+
+def result(md, head="", link=None, more=None):
+    """A session's words (the bot's send()) as one rich message → (Rich, None), or (None, why): it does not fit the
+    Bot API limits (table columns, blocks, characters) — the ordinary HTML path. head — the bot's HTML heading line;
+    more — the label of the fold (telegram.fold_long): a long text keeps its gist, the rest goes under <details>."""
+    size = len((md or "").replace("\r\n", "\n"))
+    if size > MAX_CHARS:   # the conversion only adds: no need to build it
+        return None, f"{size} characters, more than {MAX_CHARS}"   # i18n-ok: operator log
+    if max(fmt.tables(md), default=0) > MAX_COLUMNS:
+        return None, f"a table wider than {MAX_COLUMNS} columns"   # i18n-ok: operator log
+    split = fmt.gist_split(md) if more else None
+    if split and FENCE_LINE.match(split[0]):   # a ~~~ fence (fmt knows ``` only) is not a gist
+        split = None
+    if split:   # the gist stays visible; blank lines around: Markdown is read inside <details>
+        text = (f"{words(split[0], link)}\n\n<details><summary>{htmllib.escape(more)}</summary>\n\n"
+                f"{words(split[1], link)}\n\n</details>")
+    else:
+        text = words(md, link)
+    if head:
+        text = f"{head_md(head)}\n\n{text}"
+    blocks = sum(1 for ln in text.split("\n") if ln.strip())
+    if blocks > MAX_BLOCKS:
+        return None, f"about {blocks} blocks, more than {MAX_BLOCKS}"   # i18n-ok: operator log
+    r = Rich("markdown", text, [], None)
+    why = r.too_big()
+    return (None, why) if why else (r, None)
+
+
+def plain(node):
+    """The text of a received rich message (Message.rich_message) or of a quote from one (TextQuote.rich_texts): its
+    blocks one per line, a table's cells by " | "."""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, list):
+        return "".join(plain(n) for n in node)
+    if not isinstance(node, dict):
+        return ""
+    parts = [plain(node[k]) for k in ("summary", "text") if k in node]
+    parts += ["\n".join(filter(None, (plain(b) for b in node.get(k) or []))) for k in ("blocks", "items")]
+    parts.append("\n".join(" | ".join(plain(c) for c in row) for row in node.get("cells") or []))
+    parts += [plain(node[k]) for k in ("caption", "credit") if k in node]
+    return "\n".join(p for p in parts if p)

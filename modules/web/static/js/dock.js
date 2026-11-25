@@ -76,8 +76,15 @@ function ours(c) {
   const to = (S.snap.sessions || []).find((x) => x.name === c.dataset.to);
   return !!to?.answered?.some((r) => r.request_id === c.dataset.rid && r.client_id === c.dataset.cid);
 }
+// a card that is gone for good lets go of what it held: the files attached to its answer (S.pending: while there, the page
+// counts them unsent and does not reload itself on an update) and the big view of a preview (cards.js askCard __drop)
+function unfreeze(k) {
+  frozen.get(k)?.__drop?.();
+  frozen.delete(k);
+}
 function freeze(s, k, card) {
   card.dataset.frozen = "1";   // askCard/permCard/toolCard: an answer from a frozen card is not sent (cards.js)
+  card.__box?.close();   // the big view of its preview (askbox.js): "Choose this" would pick on a card that takes no answer
   card.classList.add("frozen");
   card.classList.remove("sent");   // collapsed while the answer is in flight: the typed text is visible again
   card.querySelector(".sent-line")?.remove();
@@ -97,15 +104,16 @@ function freeze(s, k, card) {
   const move = el("button", "btn primary small", t("web.cards.frozen_to_input"));
   move.type = "button";
   move.addEventListener("click", () => {
-    const text = typed(card);
+    const text = typed(card), files = card.__files?.() || [];
     S.drafts[s.name] = (S.drafts[s.name] ? S.drafts[s.name] + "\n" : "") + text;
-    frozen.delete(k);
+    if (files.length) S.pending[s.name] = [...(S.pending[s.name] || []), ...files];   // the files attached to that answer go along
+    unfreeze(k);
     render();
     document.getElementById("msg")?.focus();   // this session's field (composerProps, id "msg")
   });
   const close = el("button", "btn small", t("web.cards.frozen_close"));
   close.type = "button";
-  close.addEventListener("click", () => { frozen.delete(k); render(); });
+  close.addEventListener("click", () => { unfreeze(k); render(); });
   bar.append(move, close);
   if (!card.querySelector(".frozen-note")) bar.prepend(el("span", "frozen-note"));   // a card without a header
   card.append(bar);   // at the bottom, where the answer buttons were (they are hidden)
@@ -177,7 +185,8 @@ export function ownerCards(s) {
     // flight (the hub is not responding, it was answered from Telegram), the card freezes with the typed text and goes
     // away when the answer arrives (below); if it is refused, the reason is shown in a strip (cards.js deliver)
     if (ours(c)) c.dataset.got = "1";
-    if (!c.dataset.got && !c.dataset.closing && (typed(c) || dictationIn(c))) frozen.set(k, freeze(s, k, c));
+    if (!c.dataset.got && !c.dataset.closing && (typed(c) || dictationIn(c) || c.__files?.().length)) frozen.set(k, freeze(s, k, c));
+    else c.__drop?.();
     cardCache.delete(k);
   }
   // the question came back (the same request is open again) — a live card instead of the frozen one; our own answer
@@ -186,7 +195,7 @@ export function ownerCards(s) {
     const names = new Set((S.snap.sessions || []).map((x) => x.name)), wanted = new Set(want.map(([w]) => w));
     for (const [k, c] of [...frozen]) {
       if (ours(c)) c.dataset.got = "1";
-      if (wanted.has(k) || c.dataset.got || !names.has(k.split(":")[0])) frozen.delete(k);
+      if (wanted.has(k) || c.dataset.got || !names.has(k.split(":")[0])) unfreeze(k);
     }
   }
   // the answer went out — the card is collapsed into a row with the answer (cards.js deliver) until the core's

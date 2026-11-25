@@ -573,9 +573,12 @@ class Media(unittest.TestCase):
         names = {n for n in os.listdir(MEDIA) if n.endswith(".png")}
         self.assertEqual(names - set(SHOTS), set(), "extra images not on the list")
         self.assertEqual(names, set(SHOTS), "a shot README needs is missing")
-        with open(os.path.join(MEDIA, "logo.svg"), encoding="utf-8") as f, \
-                open(os.path.join(ROOT, "modules", "web", "favicon.svg"), encoding="utf-8") as g:
-            self.assertEqual(f.read(), g.read(), "the README logo is the current hub icon")
+        logo = os.path.join(MEDIA, "brand", "hub-logo.png")   # the README header's picture (a tile, drawn at 44 px: 4x)
+        w, h = struct.unpack(">II", png_chunks(logo)[0][1][:8])
+        self.assertEqual((w, h), (192, 192), "the README logo")
+        self.assertLess(os.path.getsize(logo), 100_000)
+        self.assertIn("media/brand/hub-logo.png", read("README.md"))
+        self.assertFalse(os.path.exists(os.path.join(MEDIA, "logo.svg")), "one logo: the old sign is not left beside the new one")
         total = 0
         for name, size in SHOTS.items():
             path = os.path.join(MEDIA, name)
