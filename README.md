@@ -1,4 +1,4 @@
-<h1 align="center"><img src="media/brand/hub-logo.png" alt="Hub by Icons8 logo" width="44" align="absmiddle">&nbsp;Hub by Icons8</h1>
+<h1 align="center"><img src="media/brand/hub-logo.png" alt="Hub logo" width="44" align="absmiddle">&nbsp;Hub</h1>
 
 <p align="center">
   <b>Run 100 Claude Code or Codex sessions like 5.</b><br>
@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="media/hero.png" alt="Hub by Icons8 in a browser and on an iPhone: a list of agents and sessions on the left; in the chat a question card asks whether to publish a new page subtitle, with three answer buttons" width="900">
+  <img src="media/hero.png" alt="Hub in a browser and on an iPhone: a list of agents and sessions on the left; in the chat a question card asks whether to publish a new page subtitle, with three answer buttons" width="900">
 </p>
 
 > **Experimental, and honest about it.** The hub drives [Claude Code](https://claude.com/claude-code) or
@@ -51,7 +51,7 @@ restarts on Codex and installs its CLI by itself ([Codex](#codex)). See [One pat
 Or ask your agent to do it. Open Claude Code or Codex in any folder and paste:
 
 ```text
-Install Hub by Icons8 for me with its one-line installer. On macOS or Linux run:
+Install Hub for me with its one-line installer. On macOS or Linux run:
 curl -fsSL https://icons8.github.io/hub/install.sh | bash. On Windows, in PowerShell, run:
 irm https://icons8.github.io/hub/install.ps1 | iex. Do not clone the repository and do not run it as root.
 If the command times out, run it again: it continues. When it finishes, open http://127.0.0.1:8787/ and
@@ -429,7 +429,7 @@ With the pull requests, bug reports and ideas of (most first; the whole list wit
 [CONTRIBUTORS.md](CONTRIBUTORS.md)):
 
 - [@visualpharm](https://github.com/visualpharm): 184 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 80 pull requests, 4 reports and ideas
+- [@kalimullin](https://github.com/kalimullin): 83 pull requests, 4 reports and ideas
 - [@Eugenius-S](https://github.com/Eugenius-S): 63 pull requests
 - [@ManyLattice](https://github.com/ManyLattice): 58 pull requests, 5 reports and ideas
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas

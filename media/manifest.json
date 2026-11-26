@@ -1,29 +1,29 @@
 {
- "tool": "page shots of a copy of the demo hub's journal (an invented fleet, paths and the hub's name replaced in the copy), composed with tools/dev/readme_media over the page; tools/dev/readme_demo.py forbidden() over the visible text of each source page and each composed page",
+ "tool": "page shots (2x) of a copy of the demo hub's journal (an invented fleet; paths and the hub's name replaced in the copy), composed by hand with the templates of tools/dev/readme_media over them; tools/dev/readme_demo.py forbidden() over the visible text and attributes of each source page, read at the size it was shot at, and of each composed page (a composed page holds only pictures and the template's own words, so the two window pages hash alike). Not made by `tools/dev/readme_demo.py shots`: that makes the same look from its own invented journal, into another folder",
  "pictures": {
   "hero.png": {
    "sha256": "99f8e91f709c69155ec84dc77b95149c166fe5dcdcac60dbf4544495f85356a3",
    "scan": "clean",
    "pages": {
-    "hub: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
-    "phone: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "hub: waiting question": "b0eeb634f017aa4bbf2063e72e230f34004f3a3bdf3c65e12a6469b58eac91f3",
+    "phone: waiting question": "a468dddd3550a91c120c12aeea8f914ef4fd530483ff082407ece20c35f72ad6",
     "composed: hero.png": "5b408b15d1ab96d67ffe2baf4df777e1b1ddc707f0eb1210f1707d218e9e7cd9"
    }
   },
   "social-preview.png": {
-   "sha256": "cb70a5be943cf935bfadb0133b4b1b687f3c9aee4765e343fc491307e39470a8",
+   "sha256": "511db70f637fc6688be885d7fe057a7b49a40ad555acc9090157ed475562af89",
    "scan": "clean",
    "pages": {
-    "hub: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
-    "phone: waiting question": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
-    "composed: social-preview.png": "6ea297da7aedf53e00c0bf363c458aedb391e3d9dd518b13e5dfb9c948ed4a2b"
+    "hub: waiting question": "b0eeb634f017aa4bbf2063e72e230f34004f3a3bdf3c65e12a6469b58eac91f3",
+    "phone: waiting question": "a468dddd3550a91c120c12aeea8f914ef4fd530483ff082407ece20c35f72ad6",
+    "composed: social-preview.png": "51c1968f18ee3c783d23feaeabbe37f74b00d5e3d9ebb6972adbca547d9978c9"
    }
   },
   "feed.png": {
    "sha256": "6ce479670b5997a29918673e4b9a49444077c558bee39d441e01233526b54dc1",
    "scan": "clean",
    "pages": {
-    "hub: chat with the dispatcher": "2f3ba5e6b54ea3b7a88d04bab67320111f4ea3956b2dca01b55d337e219408b5",
+    "hub: chat with the dispatcher": "7b81e438477fce19334c02ebcf377a83dd12c73921e98169274b68c6bb98c254",
     "composed: feed.png": "5f144acd22d1627bbc15cb11dfa2a0f0f7ed4f507a0e59cc65185851e5a39fd7"
    }
   },
@@ -31,15 +31,15 @@
    "sha256": "ad3ddf704981122f83ee9c08021acb61d0cf0eb023675f965d308951a5511ec2",
    "scan": "clean",
    "pages": {
-    "hub: Now tab": "546b83924195e714653e3ce80fbb14766580572dffab536add1fa26c203d7f35",
+    "hub: Now tab": "087d949491c45149e7d451800007cd2c32ca99751c2e964877561b17f00d8a99",
     "composed: now.png": "5f144acd22d1627bbc15cb11dfa2a0f0f7ed4f507a0e59cc65185851e5a39fd7"
    }
   },
   "telegram.png": {
-   "sha256": "c436f8467d3c562ab5579e166833468bbc43b8feeabdcc4e8bec87b124dd4c49",
+   "sha256": "b198d745e2df4ab7af45b5665d97f5de0b23552a6363017df82d1fd7adaed87a",
    "scan": "clean",
    "pages": {
-    "composed: telegram.png": "0be4da5f14cc2425706be17add5cd28bde19fe6204072fcc1260bebed0bc930e"
+    "composed: telegram.png": "d3384caa144e9d0d90d5f5bed6b035fe1c44a10906eb9dd81ea125c802e5dd59"
    }
   }
  }

@@ -177,15 +177,17 @@ test("the heads are cut out: the plate they were drawn on, #eaeaea, is one token
   assert.match(css, /#list \.srow\[style\*="--clean-face"\] > \.txt::before \{ background-color: var\(--c-head-bg\); \}/, "a row of the list");
 });
 
-test("every head of a/ has the plate of its own color: tint in the light theme, tint_dark in the dark one", async () => {
+test("every head of a/ has the plate of its own color: tint in the light theme, tint_dark in the dark one; the Hub's mark has none", async () => {
   const { PICTURES } = await import(pathToFileURL(path.join(DIR, "faces.js")).href);
   const heads = fs.readdirSync(path.join(DIR, "a"));
   assert.deepEqual(heads.filter((f) => f !== "hub.png").map((f) => "/static/clean/a/" + f).sort(), [...PICTURES].sort());
-  for (const f of heads) {
+  for (const f of heads.filter((x) => x !== "hub.png")) {
     const re = new RegExp(`html\\.th-clean \\[style\\*="/a/${f.replace(".", "\\.")}"\\] \\{ --c-head-bg: light-dark\\(#[0-9a-f]{6}, #[0-9a-f]{6}\\); \\}`);
     assert.match(css, re, "no plate color for " + f);
   }
-  assert.match(css, /\.byline\[data-clean="hub"\]:not\(\[data-clean-hub\]\) \.av \{ --c-head-bg: light-dark\(#[0-9a-f]{6}, #[0-9a-f]{6}\); \}/, "the Hub's head in the byline is drawn by a rule, not by an inline style");
+  // the Hub's mark (a/hub.png) is an opaque square: nothing shows under it, so no color is kept for it (the old head was cut out, on a blue plate)
+  assert.doesNotMatch(css, /a\/hub\.png"\]\s*\{\s*--c-head-bg/, "no plate for the Hub's mark");
+  assert.doesNotMatch(css, /data-clean="hub"\]:not\(\[data-clean-hub\]\) \.av \{ --c-head-bg/, "no plate for the Hub's mark in the byline");
 });
 
 test("the icon picker: characters first, large; the search, the owner's own emoji field and the rest of the page's list stay", () => {

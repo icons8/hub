@@ -776,6 +776,31 @@ class AfterCritic(Route):
         self.assertIsNone(self.set(who=HUB, zone="Everything in maps",
                                    **{"not": "except merging into the core (and billing)", "for": qid}))
 
+    def test_a_bracket_the_owner_wrote_is_not_dropped_from_a_whole_answer(self):
+        qid = self.card_answer("Everything in maps (except the core)")
+        why = self.set(who=HUB, zone="Everything in maps", **{"for": qid})   # more than he gave
+        self.assertIn("is not the owner's words", why or "")
+        self.assertIsNone(self.rec())
+        self.assertIsNone(self.set(who=HUB, zone="Everything in maps (except the core)", **{"for": qid}))
+        qid = self.card_answer("Everything in maps (not recommended for the core)")   # the word in his own bracket
+        why = self.set(who=HUB, zone="Everything in maps", **{"for": qid})
+        self.assertIn("is not the owner's words", why or "")
+
+    def test_the_mark_of_a_recommended_option_goes_in_any_language_with_data(self):
+        for mark in ("(Recommended)", "( recommended )", "(Recommended).",   # the mark as a session writes it
+                     f"({i18n.tr('ru', 'web.voicehelp.role_recommended')})",
+                     f"({i18n.tr('uk', 'web.voicehelp.role_recommended')})"):
+            qid = self.card_answer(f"Everything in maps {mark}")
+            self.assertIsNone(self.set(who=HUB, zone="Everything in maps", **{"for": qid}), mark)
+            self.ev("contact.deputy_off", None, person=ANNA, names=["Anna"], **OWNER)
+
+    def test_only_the_mark_alone_in_its_bracket_goes(self):
+        word = i18n.tr("ru", "web.voicehelp.role_recommended")
+        for said in ("Unrecommended", "Recommended, but not for the core", f"xy{word.lower()}"):
+            qid = self.card_answer(f"Everything in maps ({said})")
+            why = self.set(who=HUB, zone="Everything in maps", **{"for": qid})
+            self.assertIn("is not the owner's words", why or "", said)
+
     def test_a_half_repeated_in_the_answer_is_found_at_the_right_place(self):
         qid = self.card_answer("maps, maps; except the core")
         self.assertIsNone(self.set(who=HUB, zone="maps, maps", **{"not": "except the core", "for": qid}))

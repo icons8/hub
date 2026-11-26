@@ -645,7 +645,7 @@ html.th-clean main > .head .clean-bg:is(:focus-visible)::after { content: attr(d
   html.th-clean main > .head.bus-vhead { flex-wrap: wrap; row-gap: 6px; padding-block: 8px; }   /* a linked hub's header carries a full-width row (the pair code) that has to drop to its own line: without the wrap it shrank to nothing and was drawn over «Unlink» */
   html.th-clean main > .head h2 { flex: 0 0.001 auto; min-width: 2ch; }   /* shrink floor: two letters plus ellipsis; a fixed 48px stretched short titles ("Hub" is 32px) and pushed the status pill away */
   html.th-clean main > .head :is(.pill, .seg, .menu-wrap, .fs-lupa, .btn) { flex: none; }
-  html.th-clean main > .head .clean-bg { flex: 0 100 auto; min-width: 72px; }
+  html.th-clean main > .head .clean-bg { flex: 0 100 auto; min-width: calc(4ch + 8px); }   /* the shrink floor is a few letters and an ellipsis, not a fixed 72px: that was wider than a bare "In background" (49px) and left an empty strip on its right */
   html.th-clean main > .head .spacer { flex: 1 1 0; min-width: 0; }
   html.th-clean main > .head > .chips { flex: 0 100 auto; min-width: 56px; }   /* the schedule chip shrinks with an ellipsis on a par with the note, rather than disappearing first (the core has basis 0) */
   @container hd (max-width: 912px) {
@@ -745,6 +745,8 @@ html.th-clean .mdp-info-path { font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font-
   html.th-clean .app.with-side > .side { margin-inline-start: calc(-1 * var(--gap)); border-inline-start: 1px solid var(--border);
     border-start-start-radius: 0; border-end-start-radius: 0; }
   html.th-clean .app.with-side > .grip.right { inset-inline-end: calc(var(--right-w) + var(--gap) * 2 - 4.5px); }
+  /* the banner is the card's first row: it follows the card's corners, so at the joint with the panel its top end corner is square too */
+  html.th-clean .app.with-side > main > .banner.on { border-start-end-radius: 0; }
 }
 
 /* the "Brief | Detailed" switches and other .seg — like the "All | Now" tabs (DS Tab bar Filled), only 24: a gray r8
@@ -835,9 +837,8 @@ html.th-clean :where(.row > .b > .byline, .row.from > .b > .meta > .byline, .cha
 html.th-clean .byline .av.emoji { font-size: 17px; background-color: var(--c-fill); }   /* a session's icon in the same 32 r6 plate */
 html.th-clean { --c-head-bg: #eaeaea; }   /* under a head of the characters (they are cut out, a/*.png have no background): the plate they were drawn on */
 /* the plate takes the color of the character: tint in the light theme, tint_dark in the dark one (avatars final-25.json). The picture is named in the node's own
-   style (background-image of a kit-img, --clean-av, --clean-face of a list row; custom properties inherit to the row's ::before); the Hub's head in the byline is
-   a rule of the stylesheet, so it gets the color by its selector. The #eaeaea above stays for a picture not named here */
-html.th-clean [style*="/a/hub.png"] { --c-head-bg: light-dark(#cfecff, #1a3b55); }
+   style (background-image of a kit-img, --clean-av, --clean-face of a list row; custom properties inherit to the row's ::before). The Hub's mark (a/hub.png) is an
+   opaque square and has no plate. The #eaeaea above stays for a picture not named here */
 html.th-clean [style*="/a/clay-coral-beanie.png"] { --c-head-bg: light-dark(#ffddd7, #532b25); }
 html.th-clean [style*="/a/clay-mustard-headset.png"] { --c-head-bg: light-dark(#fce3c8, #4c3211); }
 html.th-clean [style*="/a/clay-violet-scarf.png"] { --c-head-bg: light-dark(#f2e0fe, #422e4e); }
@@ -862,7 +863,6 @@ html.th-clean [style*="/a/clay-magenta-cat-ears.png"] { --c-head-bg: light-dark(
 html.th-clean [style*="/a/clay-sand-straw-hat.png"] { --c-head-bg: light-dark(#fbe4c8, #4a3313); }
 html.th-clean [style*="/a/clay-powder-headlamp.png"] { --c-head-bg: light-dark(#d6eaff, #27394f); }
 html.th-clean [style*="/a/clay-cherry-sailor.png"] { --c-head-bg: light-dark(#ffdddb, #472020); }
-html.th-clean .byline[data-clean="hub"]:not([data-clean-hub]) .av { --c-head-bg: light-dark(#cfecff, #1a3b55); }
 html.th-clean .kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }
 html.th-clean .byline .av.emoji.kit-img[style*="/static/clean/a/"] { background-color: var(--c-head-bg); }   /* a session's character in a byline: stronger than the gray plate of .av.emoji above */
 html.th-clean .byline .av.kit-img { background-size: cover; }
@@ -996,6 +996,10 @@ html.th-clean .row:is(:focus-within) .reply-btn-bottom { opacity: 1; }
 html.th-clean .row.mine > .b > .reply-btn { top: 0; inset-inline-end: calc(100% + 4px); }
 html.th-clean .row.answer > .b { position: relative; justify-self: start; padding-inline-end: 28px; }
 html.th-clean .row.answer > .b > .reply-btn { top: -2px; }
+/* a button of a plugin next to "Reply" (the star of the favourites, put right after it) stands 28 further in: the line keeps its
+   room, 28 per button, so the button never sits on "Telegram · 01:27" or on the tick of a short answer */
+html.th-clean .row.answer > .b:has(> .reply-btn ~ button) { padding-inline-end: 56px; }
+html.th-clean .row.answer > .b:has(> .reply-btn ~ button ~ button) { padding-inline-end: 84px; }
 /* your messages: a gray bubble up to 624, corners 20 20 4 20, the time at the top right */
 html.th-clean .row.mine > .b { position: relative; width: min(624px, 85%); max-width: none; box-sizing: border-box; border-radius: 20px 20px 4px 20px; padding: 12px 16px 16px;
   background: var(--muted); display: flex; flex-direction: column; gap: 2px; }
@@ -1174,16 +1178,18 @@ html.th-clean .chat-head .byline { color: var(--c-t2); }
 html.th-clean .chat-head .byline b { font: 500 var(--c-fs)/var(--c-lh) var(--font); color: var(--c-t2); }
 html.th-clean .chat-chev { width: 12px; opacity: .4; color: var(--c-t1); }
 /* expanded in place, like "Show more" in Slack: the same dotted-border block, the preview row goes away, the messages themselves
-   take its place; collapse — a chevron in the top right corner of the block (the same core button, the "Collapse" label — clean.js) */
+   take its place; collapse — a chevron in the top right corner of the block (the same core button, the "Collapse" label — clean.js).
+   It is a corner button like "Reply": 24, a 16 icon, the plate on hover only; its center is where the folded row's chevron was (18 from the edge)
+   and its top is the first message line's (12 padding - 2, as Reply on a row) */
 html.th-clean .chat-group:has(> .b > .chat-head[aria-expanded="true"]) > .b { position: relative; padding: 12px 48px 12px 8px; border-radius: 12px;
   background: no-repeat center / 100% 100% var(--clean-dash); }
-html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"] { position: absolute; z-index: 1; top: 8px; inset-inline-end: 8px; width: 32px; min-height: 0; height: 32px;
+html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"] { position: absolute; z-index: 1; top: 10px; inset-inline-end: 6px; width: 24px; min-height: 0; height: 24px;
   padding: 0; justify-content: center; border-radius: 8px; background: none; }
 html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"] > :not(.chat-chev) { display: none; }
 @media (hover: hover) and (pointer: fine) {
   html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"]:hover { background: var(--c-fill); }
 }
-html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"] > .chat-chev { opacity: 1; color: var(--c-t2); }
+html.th-clean .chat-group > .b > .chat-head[aria-expanded="true"] > .chat-chev { width: 16px; height: 16px; -webkit-mask-size: 16px; mask-size: 16px; opacity: 1; color: var(--c-t2); }
 html.th-clean .chat-body { margin: 0; gap: 24px; }
 
 /* ---- input field (after boardui "Composer Panel"): card r20, a three-layer DS shadow; text 14/20;
@@ -1641,12 +1647,16 @@ html.th-clean .md .code-copy { width: 24px; height: 24px; border: 0; border-radi
 html.th-clean .md .code-box > pre { white-space: pre; overflow-wrap: normal; overflow-x: auto; border-inline-end: 36px solid transparent; }
 /* the core keeps 40 for the button at the end of a touch screen's code (feed.css): here the end border does, the padding goes back */
 @media (hover: none) { html.th-clean .md .code-box > pre { padding-inline-end: var(--space-3); } }
-/* a soft fade where the lines end, under the button: a long line dissolves instead of being cut, so the block reads as
-   scrollable; in the block's own backing — over short lines it is invisible. Only on a code block: an inline code chip
-   (.code-inline) is not positioned, so the fade there escaped to the message and drew a light band over its text */
-html.th-clean .md .code-box:not(.code-inline)::after { content: ""; position: absolute; top: 0; bottom: 0; inset-inline-end: 36px; width: 24px; pointer-events: none;
-  background: linear-gradient(to left, var(--muted), transparent); }
-html[dir="rtl"].th-clean .md .code-box:not(.code-inline)::after { background: linear-gradient(to right, var(--muted), transparent); }
+/* a soft fade where the lines end, before the button's room: a long line dissolves instead of being cut, so the block reads
+   as scrollable. The fade is a mask on the text, not a gradient laid over the block: --muted is translucent, and a plate
+   of it over the block's own backing painted that backing twice — a darker band that ended in a hard seam at the room for
+   the button. So the backing lives on the box (one coat, the same under the button and under the text), the pre has none.
+   Only on a code block: an inline code chip (.code-inline) is not positioned and keeps the core's look */
+html.th-clean .md .code-box:not(.code-inline) { border-radius: 12px; background: var(--muted); }
+html.th-clean .md .code-box:not(.code-inline) > pre { background: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 36px)); mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 36px)); }
+html[dir="rtl"].th-clean .md .code-box:not(.code-inline) > pre {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 60px), transparent calc(100% - 36px)); mask-image: linear-gradient(to left, #000 calc(100% - 60px), transparent calc(100% - 36px)); }
 @media (hover: hover) and (pointer: fine) {
   html.th-clean .md .code-copy:hover { color: var(--c-t1); background-image: linear-gradient(var(--c-fill), var(--c-fill)); }
 }
@@ -1751,8 +1761,8 @@ html.th-clean .dock-inner:not(:has(> form.composer)) .clean-queue { margin-inlin
 html.th-clean .clean-queue .strip-row { position: relative; box-sizing: border-box; min-height: 24px; gap: 8px; padding: 0 12px; border: 0; box-shadow: none; flex-wrap: nowrap;
   font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); letter-spacing: 0; color: var(--c-t2); }
 html.th-clean .clean-queue .strip-row + .strip-row { border: 0; }
-html.th-clean .clean-queue .strip-row::before { content: ""; flex: none; width: 16px; height: 16px; background: var(--c-t2);
-  -webkit-mask: url("queue.svg") center / 16px no-repeat; mask: url("queue.svg") center / 16px no-repeat; }
+html.th-clean .clean-queue .strip-row::before { content: ""; flex: none; width: 12px; height: 12px; background: var(--c-t2);
+  -webkit-mask: url("queue.svg") center / 12px no-repeat; mask: url("queue.svg") center / 12px no-repeat; }
 html.th-clean .clean-queue .strip-row > .k { flex: none; min-width: 0; font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
 html.th-clean .clean-queue .strip-row[data-clean="item"] > .k { display: none; }   /* "In the queue · N" is said by the icon and the plate; the labels "For your information", "Removed from the queue", "Running" stay */
 html.th-clean .clean-queue .strip-row > .t { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--c-t2); }
@@ -1765,8 +1775,8 @@ html.th-clean .clean-queue .strip-row .btn { flex: none; box-sizing: border-box;
   html.th-clean .clean-queue .strip-row .btn:hover:not(:disabled) { background: var(--c-hover); color: var(--c-t1); }
 }
 html.th-clean .clean-queue .strip-row .btn:disabled { color: var(--c-t3); }
-html.th-clean .clean-queue .btn.clean-now::before, html.th-clean .clean-queue .btn.clean-del::before { content: ""; flex: none; width: 16px; height: 16px; background: currentColor;
-  -webkit-mask: var(--clean-i) center / 16px no-repeat; mask: var(--clean-i) center / 16px no-repeat; }
+html.th-clean .clean-queue .btn.clean-now::before, html.th-clean .clean-queue .btn.clean-del::before { content: ""; flex: none; width: 12px; height: 12px; background: currentColor;
+  -webkit-mask: var(--clean-i) center / 12px no-repeat; mask: var(--clean-i) center / 12px no-repeat; }
 html.th-clean .clean-queue .btn.clean-now { --clean-i: url("now.svg"); font-size: 0; }
 html.th-clean .clean-queue .btn.clean-now::after { content: attr(data-short); font: 500 var(--c-fs-s)/var(--c-lh-s) var(--font); }
 html.th-clean .clean-queue .btn.clean-del { --clean-i: url("trash.svg"); width: 24px; padding: 0; justify-content: center; font-size: 0; }
@@ -1777,7 +1787,7 @@ html.th-clean .clean-queue .strip-row[data-k="wait"] > .t { font: 400 var(--c-fs
 html.th-clean .clean-queue .strip-row[data-k="wait"] .btn { font: 500 var(--c-fs-s)/var(--c-lh-s) var(--font); }
 html.th-clean .clean-queue .strip-row.open { align-items: flex-start; padding-block: 4px; }
 html.th-clean .clean-queue .strip-row.open > .t { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--c-t1); }
-html.th-clean .clean-queue .strip-row[data-clean="more"] { padding-inline-start: 36px; }
+html.th-clean .clean-queue .strip-row[data-clean="more"] { padding-inline-start: 32px; }
 html.th-clean .clean-queue .strip-row.strip-more::before { content: none; }
 html.th-clean .clean-queue .strip-toggle { display: inline-flex; align-items: center; height: calc(24px * var(--c-rel)); width: auto; min-height: 0; padding: 0; font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
 html.th-clean .clean-queue .strip-sum .strip-toggle { flex: 1; }
@@ -2940,8 +2950,10 @@ html.th-clean.th-clean-recent #list { overflow-anchor: none; }
   html.th-clean main > .head > .btn.back::before { content: ""; width: 20px; height: 20px; background: currentColor; transform: scaleX(-1);
     -webkit-mask: url("next-page.svg") center / 20px no-repeat; mask: url("next-page.svg") center / 20px no-repeat; }
   html[dir="rtl"].th-clean main > .head > .btn.back::before { transform: none; }
+  /* the status pill keeps its whole word ("asleep", not "as…") and gives only what is past half of the row; a long session name is
+     what ends in an ellipsis. A long pill text ("the clock is not running: …") is cut by its end, never the screen's title */
   html.th-clean main > .head h2 { flex: 0 1 auto; min-width: min(8ch, max-content); }
-  html.th-clean main > .head > .pill { display: block; flex: 0 20 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html.th-clean main > .head > .pill { display: block; flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   html.th-clean main > .head > :is(.chips, .clean-bg) { display: none; }   /* the schedule and background work are in the feed and in "More"; a 390 row has no room for them */
   html.th-clean main > .head .spacer { display: block; flex: 1 1 0; min-width: 0; }
   /* not the Settings burger's own wrapper (.clean-tabs is a menu-wrap too): it would hide the section bar that clean.js tabsFold measures */

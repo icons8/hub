@@ -95,7 +95,7 @@ class Docs(unittest.TestCase):
         # below the fold
         en = read("README.md")
         self.assertIn("<b>Run 100 Claude Code or Codex sessions like 5.</b>", en)
-        head = en.index("Hub by Icons8")
+        head = en.index("&nbsp;Hub</h1>")
         self.assertLess(head, en.index("Run 100 Claude Code or Codex sessions like 5."))
         self.assertLess(head, en.index("media/hero.png"))
         self.assertLess(en.index("media/hero.png"), en.index("## Quick start"))
@@ -104,6 +104,12 @@ class Docs(unittest.TestCase):
         note = en.index("Experimental")
         self.assertLess(note, en.index("## Quick start"))
         self.assertLess(len(en[note:en.index("## Quick start")].splitlines()), 12)
+
+    def test_readme_calls_the_product_just_hub(self):
+        # the product is "Hub"; "Hub by Icons8" stays only as the name of the launcher file
+        en = read("README.md")
+        self.assertIn("&nbsp;Hub</h1>", en)
+        self.assertNotIn("by Icons8", en.replace("Hub by Icons8.app", ""))
 
     def test_links_and_images_resolve_inside_the_snapshot(self):
         for name in DOCS:
@@ -640,6 +646,22 @@ class Demo(unittest.TestCase):
                 self.assertTrue(self.tool.made_elsewhere(d), bad)
         self.assertIsNone(self.tool.made_elsewhere(os.path.join(d, "none")))
         self.assertTrue(self.tool.made_elsewhere(MEDIA))   # the frames in media/ are not this tool's
+
+    def test_a_page_is_scanned_in_the_browser_session_of_its_shot(self):
+        # the window size of a shot ends with its session: a text read by a later call is of the default window, and a phone
+        # page, a scrolled feed and a desktop page of the same chat then "hash alike" with nothing of the shot checked
+        from unittest import mock
+        calls = []
+
+        def steps(cdp, *items):
+            calls.append([next(iter(i)) for i in items])
+            return [{"shot": "x"}, {"eval": "the text of the shot"}]
+        s = self.tool.Shooter.__new__(self.tool.Shooter)
+        s.cdp, s.stage, s.names, s.scanned = 9, "/stage", [], {}
+        with mock.patch.object(self.tool, "steps", steps):
+            s.shoot("phone", "p.png", 390, 780)
+        self.assertEqual(calls, [["shot", "eval"]])   # one call: the shot and the read of its text
+        self.assertEqual(s.scanned["phone"], hashlib.sha256(b"the text of the shot").hexdigest())
 
     def test_scan_flags_private_things(self):
         f = self.tool.forbidden

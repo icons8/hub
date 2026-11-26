@@ -16,7 +16,7 @@ files are named in the "Where" column.
 | Geist Mono | n/a (copyright 2024) | SIL OFL 1.1 | `modules/web/static/fonts/geist-mono-*.woff2` |
 | Material Icons: `dashboard`, `mic` | n/a | Apache-2.0 | symbols `i-board` and `i-mic` in `modules/web/static/icons.svg` |
 | Clean (the page's default theme) | 0.1.0, commit 1861631 | MIT | `modules/web/static/clean/` (`clean.css`, `clean.js`, `rows.js`, `fit.js`, `usage.js`; the license is `LICENSE` there) |
-| Clean characters (AI-generated) | n/a | Apache-2.0 | `modules/web/static/clean/a/*.png` |
+| Clean characters (AI-generated) | n/a | Apache-2.0 | `modules/web/static/clean/a/clay-*.png` |
 | Geist | n/a (copyright 2024) | SIL OFL 1.1 | `modules/web/static/clean/f/GeistVariable.woff2` |
 | Lora (Bold) | n/a (copyright 2011) | SIL OFL 1.1 | `modules/web/static/clean/lora-700-*.woff2` |
 | Emoji names (CLDR annotations) | 49.0.0 | Unicode License v3 | `modules/web/static/emoji/*.json` (the license text is `UNICODE-LICENSE.txt` there) |
@@ -42,8 +42,9 @@ The Clean theme, the default look of the page: Copyright (c) 2026 Ilnur Kalimull
 `modules/web/static/clean/LICENSE`. Changed for the core: comments in English, strings from the hub's catalogs, logical
 CSS properties.
 
-Its characters, the 24 session pictures and the Hub's own head `modules/web/static/clean/a/*.png`, are AI-generated
-images made for the theme by its author, who gives them under the Apache License 2.0, as the hub.
+Its characters, the 24 session pictures `modules/web/static/clean/a/clay-*.png`, are AI-generated images made for the
+theme by its author, who gives them under the Apache License 2.0, as the hub. The Hub's own picture `a/hub.png` is not one
+of them: it is the Hub's mark (see the end of the Icons8 icons section below).
 
 Its fonts: Geist (Copyright 2024 The Geist Project Authors, https://github.com/vercel/geist-font) and Lora (Copyright
 2011 The Lora Project Authors, https://github.com/cyrealtype/Lora-Cyrillic), SIL Open Font License 1.1; the license
@@ -73,7 +74,8 @@ is subject to the Icons8 license terms.
   `sidebar.svg` is drawn by the theme's author in the same style and goes with the theme under MIT.
 
 The hub's mark is not one of them: it is the project's own work under the Apache License 2.0, like the
-code — `modules/web/favicon.svg`, `modules/web/static/favicon/`, `media/brand/hub-logo.png`, the app icons of
+code. It was drawn for Hub in Figma by Icons8, and Icons8 gives it under the repository's licence — `modules/web/favicon.svg`,
+`modules/web/static/favicon/`, `modules/web/static/clean/a/hub.png`, `media/brand/hub-logo.png`, the app icons of
 `modules/web/static/icons/` and the Mac launcher's `logo.icns`.
 
 ## Bundled JavaScript libraries

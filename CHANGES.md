@@ -116,6 +116,33 @@ attaches to each session's next message only what it has not seen yet; the page 
 - The README and the repository's social preview show the new Hub mark, and the pictures in them are shot again in the
   Clean look with the characters' heads. The Hub's own avatar in Clean is the new mark too (reload the page to see it) —
   thanks: @kalimullin
+- Deputy set on your answer to a card: a bracket you wrote at the end of the answer stays part of it. When you answered
+  "everything in maps (except the core)", the core took the area "everything in maps" as a quote of your answer and the
+  deputy got more than you gave; now such an area is refused, and the hub has to give your answer whole. Only the mark a
+  session puts on the option it recommends may be left out, as before: "(Recommended)", or the same word in Russian or
+  Ukrainian (in another language the hub gives the answer with its mark). Nothing to do; needs `hub restart` (the
+  update does it)
+- Clean: seven small things that overlapped or looked off are fixed. The owner's answer to a card ("Telegram · 01:27")
+  no longer has a plugin's button (a favourites star next to "Reply") on its text or on the tick of a short answer: the
+  line keeps 28 px of room per button. On a phone the status pill in the header ("asleep") stays whole, a long session
+  name ends in an ellipsis instead of squeezing it to "as…", and the title of a screen ("Schedule") is no longer cut by
+  a long pill. The "In background" chip no longer has an empty strip on its right. The icons in the strip above the
+  field (queue, "Send now", the trash) are 12, like the folder in the tokens tab. A code block's copy button no longer
+  has a darker band and a hard seam under it: the backing is one coat and a long line fades out before the button. The
+  notice banner at the top of the chat ("No connection", "Hub updated") has a square corner beside the Files / md
+  panel, like the card. The collapse chevron of an opened card is a 24 corner button like "Reply", so it no longer
+  covers a plugin's star beside it. Reload the page (⌘R / Ctrl+R) after the update — thanks: @kalimullin
+- Settings → External hubs says things in plainer words (the first of four changes in #769; the layout and the error
+  messages come next). The field that asked "Whose hub" in three different places now asks what each place means: "Who
+  is the invitation for" when you make one, "Who sent it" when you accept one, "Contact of this hub" on a linked hub's
+  card; its empty choice is "Not sure yet" instead of "— don't know —", and the hint is one short sentence. A pair code
+  has two names instead of three: "Pair code" (the one both pages show) and "This hub's code" (the 20 digits you type
+  when the pair code is not there yet); the button is "Codes match" and the chip says "Code checked" or "Code not
+  checked". No text of the tab has a dash in any of the 13 languages (31 English strings had one, among them "Advanced
+  — the hub card, the relay, commands hub bus …", now "Advanced"). Only texts change: nothing in the protocol, the
+  journal or the settings. Nothing to do: the page gets it with the update — thanks: @kalimullin
+- The README, its two pictures (the social preview, the Telegram frame) and the install prompt call the product "Hub", not
+  "Hub by Icons8"; the launcher file keeps its name. Nothing to do to update — thanks: @kalimullin
 
 ### For sessions
 - Words to another hub without `--thread` go into the thread the core chooses (the one of that hub's words your turn is on,

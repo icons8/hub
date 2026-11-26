@@ -4,6 +4,8 @@ The state folder is temporary, HOME is empty, hub.json is empty: no live hub and
     python3 tools/dev/readme_demo.py serve [port]      # the page on 127.0.0.1:<port> (default 8793)
     python3 tools/dev/readme_demo.py shots [folder]    # shoot into media/, check the page text, write manifest.json
 
+`shots` shoots the pages of this stand (2x) and composes the README frames over them with the templates of tools/dev/readme_media
+(wash, window, iPhone, the mark media/brand/hub-logo.png, Lora): hero, social-preview, feed, now, telegram.
 `shots` puts a mark next to every picture in manifest.json: the page text under the shot (visible text and attributes)
 was checked against the forbidden forms of publication and the names of this machine (user, host, name of the live hub);
 if anything is found, the shots are not written. A folder whose manifest.json names another tool (frames composed by
@@ -228,6 +230,8 @@ class Shooter:
         # template pages, page fonts and the shots lie side by side: that is how file:// finds them
         shutil.copytree(TEMPLATES, self.stage)
         shutil.copytree(os.path.join(REPO, "modules", "web", "static", "fonts"), os.path.join(self.stage, "fonts"))
+        shutil.copy(os.path.join(REPO, "modules", "web", "static", "clean", "lora-700-latin.woff2"), os.path.join(self.stage, "fonts"))
+        shutil.copy(os.path.join(REPO, "media", "brand", "hub-logo.png"), os.path.join(self.stage, "logo.png"))   # the mark the templates show
         self.names = live_names()
         self.scanned = {}   # page -> sha256 of its checked text
         self.procs = []
@@ -270,8 +274,8 @@ class Shooter:
                 p.terminate()
         shutil.rmtree(self.work, ignore_errors=True)
 
-    def scan(self, label):
-        got = steps(self.cdp, {"eval": SCAN})[0]["eval"] or ""
+    def scan(self, label, got):
+        """Check the text `got` of the page as it was shot (see `shoot`) and keep the hash of exactly that text."""
         if label in self.scanned:
             raise SystemExit(f"page \"{label}\" is already checked: each has its own label, otherwise a hash is lost in manifest.json")
         bad = forbidden(got, self.names)
@@ -280,29 +284,45 @@ class Shooter:
         self.scanned[label] = hashlib.sha256(got.encode()).hexdigest()   # what exactly was checked — goes to manifest.json
         return got
 
-    def page(self, label, url, shot, width, height, theme="light", before=(), feed=None):
-        """Open, wait for the page, shoot; check the text at the same window size it was shot at. The look is the hub's default
-        (Clean): `"look": None` keeps the step of the driver from putting the earlier Classic look into the browser."""
-        steps(self.cdp, {"go": url, "feed": feed, "look": None}, {"until": "!!document.querySelector('#list li, .feed')", "ms": 15000},
-              {"sleep": 1500}, *before, {"sleep": 800})
-        steps(self.cdp, {"shot": os.path.join(self.stage, shot), "width": width, "height": height, "theme": theme})
-        self.scan(label)
+    def shoot(self, label, shot, width, height):
+        """A 2x picture of the window and the check of its text in ONE browser session: the window size of a shot ends with the
+        session, so a later read would be of another size (a phone page has other visible text than a desktop one)."""
+        got = steps(self.cdp, {"shot": os.path.join(self.stage, shot), "width": width, "height": height, "theme": "light",
+                               "clip": [0, 0, width, height], "scale": 2}, {"eval": SCAN})[1]["eval"] or ""
+        self.scan(label, got)
         return os.path.join(self.stage, shot)
 
-    def compose(self, template, shot, width, height, label):
-        """A shot from its own template page (tools/dev/readme_media) and the already shot pictures beside it."""
+    def page(self, label, url, shot, width, height, before=(), feed=None):
+        """Open, wait for the page, shoot; check the text at the same window size it was shot at. The look is the hub's default
+        (Clean, detailed list): `"look": None` keeps the step of the driver from putting the earlier Classic look into the browser."""
+        steps(self.cdp, {"local": PAGE_OPTIONS}, {"go": url, "feed": feed, "look": None},
+              {"until": "!!document.querySelector('#list li, .feed')", "ms": 15000}, {"sleep": 3500}, {"eval": NO_SETUP_BAR},
+              *before, {"sleep": 900})
+        return self.shoot(label, shot, width, height)
+
+    def compose(self, template, shot, width, height, label, **inside):
+        """A shot from its own template page (tools/dev/readme_media) and the already shot pictures beside it: `inside` names
+        the page shots the template shows (desk=…, phone=…, as `desk.png` and `phone.png` there)."""
+        for slot, src in inside.items():
+            shutil.copy(os.path.join(self.stage, src), os.path.join(self.stage, slot + ".png"))
         steps(self.cdp, {"go": "file://" + os.path.join(self.stage, template), "feed": None}, {"sleep": 1200})
-        steps(self.cdp, {"shot": os.path.join(self.stage, shot), "width": width, "height": height, "theme": "dark"})
-        self.scan(label)
+        return self.shoot(label, shot, width, height)
 
 
+# the page's options of the look (Settings → Appearance of Clean): the detailed list, counts, no usage bars
+PAGE_OPTIONS = {"hub.opt.core:clean": json.dumps({"detail": True, "counts": True, "usage": False})}
+# a headless browser with an empty HOME has no Claude Code: the bar that offers to install it is not a part of the hub's look
+NO_SETUP_BAR = "document.head.insertAdjacentHTML('beforeend', '<style>.setupbar{display:none!important}</style>'); 1"
+# scroll the feed of the open chat to `top` pixels (0: its start; a big number: its end)
+SCROLL = ("(() => { const f = document.querySelector('.feed'); const s = [f, ...document.querySelectorAll('main, .scroller')]"
+          ".find((e) => e && e.scrollHeight > e.clientHeight + 50); if (s) s.scrollTop = %d; return !!s; })()")
 # which pages stand behind each shot: checking the text of each of them is the condition for writing the shot
-PICTURES = {"hero.png": ["hub: waiting question", "phone: waiting question", "hero"],
-            "social-preview.png": ["hub: waiting question", "phone: waiting question", "social preview"],
-            "feed.png": ["hub: chat with the dispatcher"], "now.png": ["hub: Now tab"],
-            "telegram.png": ["telegram illustration"]}
-# what manifest.json says made the frames; another word there — the frames were composed elsewhere (by hand, over this
-# stand's pages), and shooting over them would bring the older look back
+PICTURES = {"hero.png": ["hub: waiting question", "phone: waiting question", "composed: hero.png"],
+            "social-preview.png": ["hub: waiting question", "phone: waiting question", "composed: social-preview.png"],
+            "feed.png": ["hub: chat with the dispatcher", "composed: feed.png"], "now.png": ["hub: Now tab", "composed: now.png"],
+            "telegram.png": ["composed: telegram.png"]}
+# what manifest.json says made the frames; another word there — the frames were composed elsewhere (by hand, over page shots
+# of another journal), and shooting over them would bring the older look back
 TOOL = "tools/dev/readme_demo.py shots"
 
 
@@ -329,15 +349,19 @@ def shots(out):
     s = Shooter(out)
     try:
         s.start()
-        s.page("hub: waiting question", s.base + "#/s/api", "desk.png", 1440, 900)
-        s.page("phone: waiting question", s.base + "#/s/api", "phone.png", 390, 844)
-        s.compose("hero.html", "hero.png", 1280, 700, "hero")
-        s.compose("social-preview.html", "social-preview.png", 1280, 640, "social preview")
-        s.page("hub: chat with the dispatcher", s.base + "#/s/hub", "feed.png", 1200, 720, feed="full",
+        # the page shots (2x, the window of the card): the source of the pictures composed below
+        s.page("hub: waiting question", s.base + "#/s/api", "desk-ask.png", 1180, 940)
+        s.page("phone: waiting question", s.base + "#/s/api", "phone-ask.png", 390, 780)
+        s.page("hub: chat with the dispatcher", s.base + "#/s/hub", "feed-page.png", 1168, 688, feed="full",
                # this machine's fonts have no "⎿" sign (on a Mac and most systems it exists) — a similar one from DejaVu
-               before=({"eval": "document.querySelectorAll('.elbow').forEach((n) => { n.textContent = '\\u2514'; }); 1"},))
-        s.page("hub: Now tab", s.base + "#/s/api", "now.png", 1440, 900, before=({"click": "Now"},))
-        s.compose("telegram.html", "telegram.png", 760, 760, "telegram illustration")
+               before=({"eval": "document.querySelectorAll('.elbow').forEach((n) => { n.textContent = '\\u2514'; }); 1"},
+                       {"eval": SCROLL % 0}))
+        s.page("hub: Now tab", s.base + "#/s/api", "now-page.png", 1168, 688, before=({"click": "Now"}, {"eval": SCROLL % 9999999}))
+        s.compose("hero.html", "hero.png", 1280, 800, "composed: hero.png", desk="desk-ask.png", phone="phone-ask.png")
+        s.compose("social-preview.html", "social-preview.png", 1280, 640, "composed: social-preview.png", desk="desk-ask.png", phone="phone-ask.png")
+        s.compose("window.html", "feed.png", 1280, 800, "composed: feed.png", desk="feed-page.png")
+        s.compose("window.html", "now.png", 1280, 800, "composed: now.png", desk="now-page.png")
+        s.compose("telegram.html", "telegram.png", 1280, 800, "composed: telegram.png")
         missing = {p for pages in PICTURES.values() for p in pages} - set(s.scanned)
         if missing:   # before writing: the folder is never left half new
             raise SystemExit(f"the frames list pages that were never shot or checked: {sorted(missing)}")

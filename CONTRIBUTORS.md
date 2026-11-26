@@ -6,7 +6,7 @@ With the pull requests, bug reports and ideas of, most first (a pull request cou
 changes thank it):
 
 - [@visualpharm](https://github.com/visualpharm): 184 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 80 pull requests, 4 reports and ideas
+- [@kalimullin](https://github.com/kalimullin): 83 pull requests, 4 reports and ideas
 - [@Eugenius-S](https://github.com/Eugenius-S): 63 pull requests
 - [@ManyLattice](https://github.com/ManyLattice): 58 pull requests, 5 reports and ideas
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas

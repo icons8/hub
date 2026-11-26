@@ -26,11 +26,11 @@ export const PICTURES = [
 export const hash = (t) => { let h = 5381; for (const ch of t) h = ((h << 5) + h + ch.codePointAt(0)) >>> 0; return h; };
 
 // The "Hub" row has a picture of its own, in a file of its own (a/hub.png): a replacement is that file, nothing else changes. It is
-// drawn for a hub with no icon of its own; today the file is a copy of one of the 24 heads
+// drawn for a hub with no icon of its own; the file is the Hub's mark (an opaque square, no plate under it), not one of the 24 heads
 export const HUB_FACE = DIR + "hub.png";
 
 // The heads by role. faces.json says what each head is for: [{"file": "clay-mustard-headset.png", "tags": ["support", "liaison", …]}]
-// (the designer's file, the first tag is the main one; the Hub's own head is in it too, it is not one of the 24). A specialist (role
+// (the designer's file, the first tag is the main one; the Hub's mark is in it too, it is not one of the 24). A specialist (role
 // agent) with no icon of its own and no raiser's gets the head with a tag equal to a word of its name, else of its profile (the title
 // before the first ":" of `about`): the whole name first (a tag may have a hyphen: "agent-dev"), then its words, in order. Of the heads
 // with that tag the one that has it earlier in its list wins, then the first in PICTURES. No tag fits — the head by the name, as for
@@ -98,7 +98,7 @@ export function kitFaces() {
   for (const [e, f] of Object.entries(FACES)) for (const k of [e, `${e}️`]) out[k] = DIR + f;
   return out;
 }
-// the character of the Hub: that of the icon it has (the owner's, else its declared one), else its own head. "" — an emoji with no
+// the character of the Hub: that of the icon it has (the owner's, else its declared one), else its own mark. "" — an emoji with no
 // character (it stays an emoji), or no pictures at all and no icon (the hub's icon is drawn instead). One rule of the Hub's row in
 // the list and of its byline in the feed
 export const hubCharacter = (s) => { const icon = s.own_icon || s.icon; return faceOf(icon) || (icon ? "" : hubFace()); };
@@ -110,7 +110,7 @@ export const hubCharacter = (s) => { const icon = s.own_icon || s.icon; return f
 export function characterOf(s, byName) {
   let x = s;
   for (let i = 0; i < 5; i++) {
-    if (x.kind === "hub") return hubCharacter(x);   // the hub: its icon's character, else its own head, as in the list
+    if (x.kind === "hub") return hubCharacter(x);   // the hub: its icon's character, else its own mark, as in the list
     if (x.own_icon) return faceOf(x.own_icon);   // the owner chose it (the picker): nothing comes before it
     const role = faceByRole(x);   // a specialist's role comes before the emoji its profile declares
     if (role) return role;

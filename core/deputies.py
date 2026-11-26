@@ -20,7 +20,7 @@ the record (the hub reads that his words say so, as it reads the area); set agai
 import re
 import unicodedata
 
-from core import guards, owner, tools
+from core import guards, langdata, owner, tools
 from core.minihub import GONE   # a session that will not take a message
 from core.coretext import T
 
@@ -189,6 +189,11 @@ def _person(data):
 
 
 SIGNS = r"[\s.,;:!?\u2014\u2013-]"   # what may stand between the halves of an answer, or around them
+# the mark a session puts on the option it recommends, at the end of its label: "(Recommended)", or the word of a language
+# with data (core/langdata.py: a stem, its first letter and ending around it) — one word alone in its brackets; any
+# other bracket at the end is the owner's words. A language without data: the hub quotes his answer with the mark
+MARK = re.compile(r"\s*\(\s*(?:recommended|\w?(?:" + langdata.alt("words", "recommended") + r")\w*)\s*\)" + SIGNS + "*$",
+                  re.I)
 
 
 def _carry(answer, texts, at=0):
@@ -229,11 +234,11 @@ def _words(st, ev, data, names, quoted):
         # of one: "production" is not quoted from "everything except production"; files he attached on the page under
         # it (owner.answer_words) are not part of it
         said = [owner.answer_words(v) if isinstance(v, str) else v for v in answers.values()]
-        theirs = {norm(v) for v in said} | {norm(re.sub(r"\s*\([^()]*\)\s*$", "", str(v))) for v in said}
+        theirs = {norm(v) for v in said} | {norm(MARK.sub("", str(v))) for v in said}
         # or the area and "does not decide" are the two halves of one answer ("…; except X"): together they carry all of
         # it, nothing dropped but the signs between them and the option's "(Recommended)" mark — not a bracket he wrote
         if len(quoted) > 1 and any(_carry(norm(w), quoted) for v in said
-                                   for w in {str(v), re.sub(r"\s*\(recommended\)\s*$", "", str(v), flags=re.I)}):
+                                   for w in {str(v), MARK.sub("", str(v))}):
             return ref, msg["id"]
         for text in quoted:
             if norm(text) not in theirs:

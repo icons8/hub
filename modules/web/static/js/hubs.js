@@ -376,11 +376,11 @@ function loadPeople() {
     V.people = r.data?.people || []; V.peopleAsked = false; redraw(true);
   });
 }
-function personField(o, { label, hint } = {}) {
+function personField(o, { label, hint }) {   // one question, one label by its place: who it is for, who sent it, whose hub
   loadPeople();
   const box = el("label", "bus-person-field");
   const sel = el("select", "bus-person");
-  sel.setAttribute("aria-label", t("web.bus.person_title"));
+  sel.setAttribute("aria-label", label);
   sel.append(new Option(t("web.bus.person_nobody"), ""));
   if (V.people === null) { const o = new Option(t("web.bus.loading"), "\u0000loading"); o.disabled = true; sel.append(o); }
   for (const p of V.people || []) sel.append(new Option(p.name + (p.kinds.length ? " · " + p.kinds.join(", ") : ""), p.name));
@@ -396,7 +396,7 @@ function personField(o, { label, hint } = {}) {
   fresh.setAttribute("aria-label", t("web.bus.person_new_ph"));
   sel.addEventListener("change", () => { o.pick = sel.value; fresh.hidden = o.pick !== NEW; if (!fresh.hidden) fresh.focus(); });
   fresh.addEventListener("input", () => { o.fresh = fresh.value; });
-  box.append(el("span", null, label || t("web.bus.person_title")), sel, fresh, el("span", "hint", hint || t("web.bus.person_hint")));
+  box.append(el("span", null, label), sel, fresh, el("span", "hint", hint));
   return box;
 }
 // what the page sends: nothing, an existing record by its name, or a new person
@@ -444,7 +444,7 @@ function linkPanel(v) {
   if (pasteFolded(v)) row.append(button(t("web.bus.paste_title"), "quiet", () => { V.pasteOpen = true; redraw(); focusPaste(); }));
   box.append(row);
   box.append(v.name ? inviteName(v) : el("p", "hint", t("web.bus.need_name")));
-  if (v.name) box.append(personField(V.invitePerson));
+  if (v.name) box.append(personField(V.invitePerson, { label: t("web.bus.person_invite"), hint: t("web.bus.person_hint") }));
   if (!(v.contacts || []).length) box.append(el("p", "hint", t("web.bus.link_hint")));
   // no relay yet: «Link» takes the public one this hub was installed with — said here, with the way to one's own
   if (v.enabled && v.public_relay) box.append(el("p", "hint", t("web.bus.public_relay", { url: v.public_relay })));
@@ -544,7 +544,7 @@ function previewNode(p, v) {
   const join = button(t("web.bus.join"), "primary", () => { if (personBad(V.joinPerson)) return void banner(t("web.bus.person_new_ph")); const text = V.paste, person = personSpec(V.joinPerson); V.paste = ""; V.pasteOpen = false; V.preview = null; V.joinPerson = { pick: "", fresh: "" }; return start({ what: "join", text, person }); });
   if (!v.name) join.disabled = true;   // the pasted text stays while the hub gets its name
   row.append(join, button(t("web.bus.cancel"), "quiet", () => { V.paste = ""; V.pasteOpen = false; V.preview = null; redraw(); }));
-  box.append(dl, ...(invite ? [] : [personField(V.joinPerson)]), row);
+  box.append(dl, ...(invite ? [] : [personField(V.joinPerson, { label: t("web.bus.person_from"), hint: t("web.bus.person_hint") })]), row);
   if (!v.name) box.append(el("p", "hint", t("web.bus.need_name")));
   if (invite) box.append(el("p", "hint", t("web.bus.invite_hint")));
   return box;

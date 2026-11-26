@@ -44,21 +44,19 @@ test("text never slides under the button: the room for it is outside the scrolle
 });
 
 test("a long line fades out before the button, so the block reads as scrollable", () => {
-  // a gradient in the block's own backing, ending where the room for the button starts: over short lines it is invisible
-  const pre = rule("html.th-clean .md .code-box > pre"), fade = rule("html.th-clean .md .code-box:not(.code-inline)::after");
+  // a mask on the text, ending where the room for the button starts: over short lines it is invisible
+  const pre = rule("html.th-clean .md .code-box > pre"), fade = rule("html.th-clean .md .code-box:not(.code-inline) > pre");
   const room = Number((pre.match(/border-inline-end: (\d+)px/) || [])[1]);
-  assert.match(fade, new RegExp(`inset-inline-end: ${room}px`), "the fade ends at the button's room");
-  assert.match(fade, /pointer-events: none/);
-  assert.match(fade, /linear-gradient\(to left, var\(--muted\), transparent\)/);
-  assert.match(rule('html[dir="rtl"].th-clean .md .code-box:not(.code-inline)::after'), /linear-gradient\(to right, var\(--muted\), transparent\)/);
+  assert.match(fade, new RegExp(`mask-image: linear-gradient\\(to right, #000 calc\\(100% - \\d+px\\), transparent calc\\(100% - ${room}px\\)\\)`), "the fade ends at the button's room");
+  assert.match(rule('html[dir="rtl"].th-clean .md .code-box:not(.code-inline) > pre'), /mask-image: linear-gradient\(to left, #000/);
 });
 
-test("the fade stays off inline code: an unpositioned chip let it band the whole message", () => {
-  // an inline code chip (.code-inline) is position: static in the core; a fade there is laid out against the message and
-  // draws a light 24px band over the text, the full height of the bubble
-  const fades = [...css.matchAll(/([^{}\n]*\.code-box[^{}]*::after)\s*\{/g)].map((m) => m[1]);
-  assert.ok(fades.length, "a fade rule exists");
-  for (const sel of fades) assert.match(sel, /\.code-box:not\(\.code-inline\)::after/, sel);
+test("the backing is one coat on the box, under the fade and the button alike: --muted is translucent", () => {
+  // a plate of --muted laid over a pre that is already --muted painted it twice: a darker band ending in a hard seam at the
+  // button's room. The box carries the backing, the pre none, and no gradient of --muted is drawn over the block
+  assert.match(rule("html.th-clean .md .code-box:not(.code-inline)"), /background: var\(--muted\)/);
+  assert.match(rule("html.th-clean .md .code-box:not(.code-inline) > pre"), /background: none/);
+  assert.doesNotMatch(css, /\.code-box[^{}]*::after/);
 });
 
 test("the button shows no word: the check mark takes the icon's place, the word stays for screen readers", () => {

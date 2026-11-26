@@ -21878,7 +21878,7 @@ class PageInChrome(test_web.WebTest):
             {"until": "window.__calls.length === 1", "ms": 5000},
             {"eval": "window.__calls[0]"}))
         self.assertTrue(got[7]["until"], got)
-        self.assertEqual(got[8]["eval"], ["— don't know —", "Person A · Teams", "Person B", "A new person…"])
+        self.assertEqual(got[8]["eval"], ["Not sure yet", "Person A · Teams", "Person B", "A new person…"])
         self.assertEqual(got[-1]["eval"], {"name": "Person A"})
         # a new person: the field for the name appears, the page sends {new}
         got = self.rights_page(init + ";" + spy, (
@@ -21975,7 +21975,7 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "[...document.querySelectorAll('.bus-preview .bus-person option')].map((o) => o.textContent)"},
                         {"eval": "[window.__n.view > 1, window.__n.preview, window.__n.people, window.__seen]"})
         self.assertTrue(got[2]["until"] and got[5]["until"] and got[7]["until"], got)
-        self.assertEqual(got[8]["eval"], ["— don't know —", "Person A · Teams", "Person B", "A new person…"])
+        self.assertEqual(got[8]["eval"], ["Not sure yet", "Person A · Teams", "Person B", "A new person…"])
         self.assertEqual(got[9]["eval"], [True, 2, 3, {"red": 0, "loading": 1}])
 
     def test_when_the_page_server_does_not_answer_the_hubs_tab_and_the_preview_ask_again(self):
@@ -22770,7 +22770,7 @@ class PageInChrome(test_web.WebTest):
         self.assertEqual([(c["waiting"], c["answered"] > 0) for c in self.bus_contacts()],
                          [(0, False), (0, True), (0, False)])
         # answered three days ago (the row says so), and a word of an hour ago
-        self.assertEqual(got[5]["eval"], ["answered you · code compared · 1 new", "not compared"])
+        self.assertEqual(got[5]["eval"], ["Code not checked", "answered you · Code checked · 1 new"])   # sorted as strings: capital first
         self.assertTrue(got[7]["until"], got)
         self.assertEqual(got[10]["eval"], ["hub-0", "hub-1"])
         self.assertTrue(got[14]["until"], got)
@@ -23673,7 +23673,7 @@ class HubBus(PageInChrome):
                         {"eval": "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent)"},
                         {"eval": "[!!document.querySelector('.bus-contact .bus-personrow'), "
                                  "document.querySelectorAll('.bus-contact .bus-rights, .bus-contact details.set-more').length]"})
-        self.assertEqual(got[3]["eval"], ["not compared"])
+        self.assertEqual(got[3]["eval"], ["Code not checked"])
         self.assertEqual(got[4]["eval"], 0)
         self.assertEqual(got[5]["eval"], 0)
         self.assertEqual(got[6]["eval"], ["Make an invitation", "Accept an invitation"])
@@ -23690,7 +23690,7 @@ class HubBus(PageInChrome):
         got = self.page(*self.open_tab(a), {"until": "!!document.querySelector('.bus-contact .bus-code-line.quiet')", "ms": 15000},
                         {"eval": "[document.querySelectorAll('.bus-contact .bus-code').length, [...document.querySelectorAll('.bus-contact .bus-chip')].map((c) => c.textContent)]"})
         self.assertTrue(got[3]["until"], got)
-        self.assertEqual(got[4]["eval"], [0, ["code compared"]])
+        self.assertEqual(got[4]["eval"], [0, ["Code checked"]])
         # «Tell the hub»: A writes, B's liaison gets it (a thread on B's page), B writes back the same way; no model turn here
         turns = self.turns(a) + self.turns(b)
         say = ("(() => { const a = document.querySelector('.bus-dock textarea'); a.focus(); a.value = %s; "
