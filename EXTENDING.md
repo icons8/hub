@@ -27,7 +27,11 @@ with skills, agents, commands). To connect one:
 
 The set's plugins appear in the catalog (`hub tools list`) as `<plugin>@my-skills`; the risk is in the plugin's
 `keywords` (`risk:money`, `risk:prod`, `risk:owner-data`, `risk:external`), and a risky plugin is connected only with your
-"yes". A plugin for all sessions goes in `"base"`, a plugin only for the hub goes in `"hub_tools"`.
+"yes". A set whose manifest is not yours to edit (a vendor's marketplace clone) takes its risk on the record itself:
+`{"name": "azure-tools", "path": "…", "risk": ["prod"]}` — every plugin of the set carries these words on top of its own
+(`hub tools import set <name> --risk r1,r2` writes them, `hub tools risk <set> r1,r2` changes them). `hub tools remove <id>`
+takes an entry out of the catalog: an MCP server, a `<skill>@my-skills` wrapper (the skill stays), or a set by its name.
+A plugin for all sessions goes in `"base"`, a plugin only for the hub goes in `"hub_tools"`.
 
 An **MCP server** is declared as in `.mcp.json`, plus a description and a risk:
 

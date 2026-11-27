@@ -466,9 +466,18 @@ def set_tools(s):
         tools[f"{p['name']}@{s['name']}"] = {
             "kind": "plugin", "path": path,
             "description": p.get("description", ""), **runs,
-            "risk": sorted(set(_risk(p.get("keywords"))) | set(runs.get("risk") or [])),
+            "risk": sorted(set(_risk(p.get("keywords"))) | set(runs.get("risk") or []) | set(set_risk(s))),
             "source": s["name"], "version": ver, **_plugin_name(path), **({"tree": tree} if tree else {})}
     return tools
+
+
+def set_risk(s):
+    """The risk words a set's record gives every plugin of the set (hub.json `sets[].risk`: a list of words, or one
+    word; `hub tools import set --risk`, `hub tools risk <set>`), on top of a plugin's own keywords and what its files
+    run. Anything else there counts as none: a typo in hub.json must not take the catalog down."""
+    r = s.get("risk") if isinstance(s, dict) else None
+    r = [r] if isinstance(r, str) else r if isinstance(r, list) else []
+    return sorted({x for x in r if isinstance(x, str) and x})
 
 
 def _one_plugin(s):
@@ -486,7 +495,8 @@ def _one_plugin(s):
     runs = _runs(path, entry, {}, ver, commit)
     about = man.get("description") if isinstance(man.get("description"), str) else ""
     return {f"{entry}@{s['name']}": {"kind": "plugin", "path": path, "description": about, **runs,
-                                     "risk": runs.get("risk") or [], "source": s["name"], "version": ver,
+                                     "risk": sorted(set(runs.get("risk") or []) | set(set_risk(s))),
+                                     "source": s["name"], "version": ver,
                                      "plugin_name": _plugin_name(path).get("plugin_name") or os.path.basename(path)}}
 
 

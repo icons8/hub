@@ -144,6 +144,130 @@ class Mine(unittest.TestCase):
         with self.assertRaises(ValueError):
             mine.import_mcp(self.state, "nope", "x", [], self.env)
 
+    def test_a_sets_risk_goes_to_every_plugin_and_a_typo_does_not_crash(self):
+        # a set whose manifest is not the owner's (a vendor's marketplace clone) had no place for a risk of its own:
+        # `import set --risk code,prod` dropped the words, and the catalog showed only what the files run
+        market = os.path.join(self.home, ".claude", "plugins", "marketplaces", "team-tools")
+        os.makedirs(os.path.join(market, "deploy", ".claude-plugin"))
+        with open(os.path.join(market, "deploy", ".claude-plugin", "plugin.json"), "w") as f:
+            json.dump({"name": "deploy", "description": "Deploys"}, f)
+        risk = lambda value: catalog.build({**catalog.DEFAULTS, "sets": [   # noqa: E731
+            {"name": "team-tools", "path": market, "risk": value}]})["deploy@team-tools"]["risk"]
+        self.assertEqual(risk(["prod", "code", "prod"]), ["code", "prod"])
+        self.assertEqual(risk("prod"), ["prod"])                      # one word by hand
+        for junk in ("", -1, 0, None, {"a": 1}, [None, "", 3], True):
+            self.assertEqual(risk(junk), [], junk)
+        self.assertEqual(catalog.set_risk({"risk": ["a", "", None, "b"]}), ["a", "b"])
+        self.assertEqual(catalog.set_risk("not a record"), [])
+
+    def test_import_set_with_a_risk_writes_it_and_a_session_only_adds(self):
+        mine.import_set(self.state, "team-tools", self.env, risk=["prod", ""])
+        self.assertEqual(self.cfg()["sets"], [{"name": "team-tools", "path": self.found()["sets"][0]["path"],
+                                               "risk": ["prod"]}])
+        mine.import_set(self.state, "team-tools", self.env, risk=["code"], session=True)
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["code", "prod"])                   # a session only adds
+        mine.import_set(self.state, "team-tools", self.env, session=True)
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["code", "prod"])                   # no words: as it was
+        mine.import_set(self.state, "team-tools", self.env, risk=["external"])
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["external"])                       # the owner: as given
+        mine.import_set(self.state, "team-tools", self.env)
+        self.assertEqual((len(self.cfg()["sets"]), self.cfg()["sets"][0]["risk"]), (1, ["external"]))
+        with self.assertRaises(ValueError):
+            mine.import_set(self.state, "nope", self.env, risk=["prod"])
+
+    def test_the_risk_of_an_mcp_a_skill_and_a_set_and_what_is_refused(self):
+        mine.import_set(self.state, "team-tools", self.env)
+        mine.import_mcp(self.state, "tracker", "Tasks", ["external"], self.env)
+        mine.import_skill(self.state, "release-notes", [], self.env)
+        self.assertEqual(mine.set_risk(self.state, "tracker", ["prod"], self.env), ["prod"])
+        self.assertEqual(self.cfg()["mcp"]["tracker"]["risk"], ["prod"])                   # the owner: as given
+        self.assertEqual(mine.set_risk(self.state, "tracker", ["money"], self.env, session=True), ["money", "prod"])
+        self.assertEqual(self.cfg()["mcp"]["tracker"]["description"], "Tasks")              # the rest stays
+        self.assertEqual(mine.set_risk(self.state, "release-notes@my-skills", ["code"], self.env), ["code"])
+        self.assertEqual(mine.set_risk(self.state, "release-notes@my-skills", ["prod"], self.env, session=True),
+                         ["code", "prod"])
+        self.assertEqual(mine.set_risk(self.state, "team-tools", ["prod"], self.env), ["prod"])
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["prod"])
+        tools = catalog.build({**catalog.DEFAULTS, **self.cfg()})
+        self.assertEqual([tools[t]["risk"] for t in ("tracker", "release-notes@my-skills", "deploy@team-tools")],
+                         [["money", "prod"], ["code", "prod"], ["prod"]])
+        with self.assertRaisesRegex(ValueError, "team-tools"):   # a plugin of a set: the set carries the risk
+            mine.set_risk(self.state, "deploy@team-tools", ["prod"], self.env)
+        for bad in ("nope", "nope@my-skills", "deploy@nope", "@my-skills"):
+            with self.assertRaises(ValueError, msg=bad):
+                mine.set_risk(self.state, bad, ["prod"], self.env)
+        self.assertEqual(mine.set_risk(self.state, "tracker", [], self.env), [])             # the owner takes it off
+
+    def test_remove_takes_an_mcp_a_skill_and_a_set_out_and_leaves_the_skill_itself(self):
+        mine.import_set(self.state, "team-tools", self.env)
+        mine.import_mcp(self.state, "tracker", "Tasks", ["external"], self.env)
+        mine.import_skill(self.state, "release-notes", [], self.env)
+        mine.import_skill(self.state, "folded", [], self.env)
+        before = catalog.build({**catalog.DEFAULTS, **self.cfg()})
+        wrapper = before["release-notes@my-skills"]["path"]
+        with open(os.path.join(wrapper, "skills", "release-notes", "SKILL.md"), encoding="utf-8") as f:
+            text = f.read()
+        for bad in ("deploy@team-tools", "nope", "nope@my-skills"):   # a plugin of a set, nothing the settings hold
+            with self.assertRaises(ValueError, msg=bad):
+                mine.remove(self.state, bad, self.env)
+        mine.remove(self.state, "release-notes@my-skills", self.env)
+        self.assertFalse(os.path.lexists(wrapper))                                          # the wrapper is gone
+        skill = os.path.join(self.home, ".claude", "skills", "release-notes", "SKILL.md")
+        with open(skill, encoding="utf-8") as f:
+            self.assertEqual(f.read(), text)                                                # the skill itself stays
+        self.assertEqual(self.my_skills(), [("folded", "Two lines of text")])
+        mine.remove(self.state, "tracker", self.env)
+        mine.remove(self.state, "team-tools", self.env)
+        cfg = self.cfg()
+        self.assertEqual((cfg["mcp"], cfg["sets"][0]["name"], len(cfg["sets"]), cfg["timezone"]),
+                         ({}, mine.MY_SKILLS, 1, "UTC"))
+        after = catalog.build({**catalog.DEFAULTS, **cfg})
+        self.assertEqual(sorted(set(before) - set(after)), ["deploy@team-tools", "release-notes@my-skills", "tracker"])
+        self.assertIn("folded@my-skills", after)
+        self.assertTrue(os.path.isdir(self.found()["sets"][0]["path"]))                     # the set's folder stays
+        with self.assertRaises(ValueError):
+            mine.remove(self.state, "tracker", self.env)                                     # gone already
+        mine.remove(self.state, mine.MY_SKILLS, self.env)
+        self.assertEqual(self.cfg()["sets"], [])
+
+    def test_the_hubs_cli_removes_and_sets_the_risk_and_imports_a_set_with_it(self):
+        state = os.path.join(self.home, "hub-state")
+        os.makedirs(state)
+        with open(os.path.join(state, "journal.jsonl"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps({"seq": 1, "ts": 1000, "src": "web", "type": "session.requested", "entity": "hub",
+                                "data": {"cwd": self.home, "session_id": "s-hub", "kind": "hub", "channel": "web",
+                                         "owner": True}}) + "\n")
+            f.write(json.dumps({"seq": 2, "ts": 1001, "src": "web", "type": "session.requested", "entity": "docs",
+                                "data": {"cwd": self.home, "session_id": "s-docs", "channel": "web", "owner": True,
+                                         "tools": ["tracker"]}}) + "\n")
+        env = {**os.environ, **self.env, "HUB_STATE_DIR": state, "HUB_CLI_WAIT": "0", "HUB_SESSION": "hub",
+               "HUB_LANG": "en"}
+        env.pop("CLAUDE_CONFIG_DIR", None)
+
+        def hub(*words):
+            return subprocess.run([sys.executable, os.path.join(REPO, "bin", "hub"), "tools", *words], env=env,
+                                  capture_output=True, text=True, encoding="utf-8")
+        r = hub("import", "set", "team-tools", "--risk", "code,prod")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["code", "prod"])                  # the words were dropped before
+        mine.import_mcp(self.state, "tracker", "Tasks", ["external"], self.env)
+        r = hub("risk", "tracker", "prod")
+        self.assertEqual((r.returncode, self.cfg()["mcp"]["tracker"]["risk"]), (0, ["external", "prod"]), r.stderr)
+        self.assertIn("tracker: risk external, prod", r.stdout)
+        r = hub("risk", "deploy@team-tools", "prod")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("team-tools", r.stderr)
+        r = hub("remove", "tracker")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("tracker", self.cfg()["mcp"])
+        self.assertIn("tracker", r.stdout)
+        self.assertIn("docs", r.stdout)                                                     # who holds it still
+        r = hub("remove", "tracker")
+        self.assertNotEqual(r.returncode, 0)
+        r = hub("remove")                                                                   # the form, not a crash
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(self.cfg()["sets"][0]["risk"], ["code", "prod"])
+
     def test_a_skill_name_that_is_a_path_is_refused(self):
         # the name went into the path as is: "../x" took ~/.claude/x for a skill and wrote its plugin outside my-skills
         outside = os.path.join(self.home, ".claude", "x")
