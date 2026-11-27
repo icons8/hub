@@ -655,6 +655,74 @@ class Owner(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("one module by name", r.stdout + r.stderr)
 
+    def test_an_installed_plugin_is_named_by_its_short_name(self):
+        # 26.11: the owner answered "Check and install" on the hub's card about updating an installed plugin; the
+        # hub's `market install <its link> --for qN` was refused as not named — its short name was chosen by the owner
+        # when he installed it, not by its author. A new source keeps naming itself in full.
+        from core import journal
+        with open(self.hub.cfg_path, "w") as f:
+            json.dump({"extensions": {"alice:owl": {"source": "Alice/hub-plugin-owl", "path": "/p/owl", "commit": "a"},
+                                      "alice:barn": {"source": "alice/hub-plugin-farm", "path": "/p/farm",
+                                                     "commit": "b"}}}, f)
+        j = journal.Journal(os.path.join(self.hub.state, "journal.jsonl"))
+        word = "m" + str(j.append("message.received", None, {"to": "hub", "text": "update owl and barn",
+                                                             "channel": "cli", "owner": True})["seq"])
+        q = {"questions": [{"question": "owl 1.0 -> 1.1: update?", "header": "Plugin",
+                            "options": [{"label": "Check and install"}, {"label": "No need"}]}]}
+        j.append("session.started", "w", {})
+        j.append("turn.started", "w", {"marker": None, "prompt_head": "x"})
+        card = "q" + str(j.append("permission.requested", "w", {"request_id": "r9", "tool": "AskUserQuestion",
+                                                                "interactive": True, "input": q})["seq"])
+        j.append("turn.stopped", "w", {})
+        j.append("permission.answered", "w", {"request_id": "r9", "behavior": "allow", "channel": "web", "owner": True,
+                                              "answers": {q["questions"][0]["question"]: "Check and install"}})
+        env = {k: v for k, v in os.environ.items() if k not in ("HUB_SESSION", "HUB_EXTENSION", "HUB_MODULE")}
+        env.update(HUB_STATE_DIR=self.hub.state, HUB_CONFIG=self.hub.cfg_path, HUB_CLI_WAIT="0", HUB_SESSION="hub")
+        for ref in (word, card):
+            for link, named in (("Alice/hub-plugin-owl", True), ("https://github.com/alice/hub-plugin-owl.git", True),
+                                ("alice/hub-plugin-farm", ref == word),   # its key alice:barn, not the repo
+                                ("evil/owl", False), ("evil/hub-plugin-owl", False),   # someone else's, same name
+                                ("bob/hub-plugin-newt", False)):   # new
+                with self.subTest(ref=ref, link=link):
+                    r = subprocess.run([sys.executable, HUB, "market", "install", link, "--reviewed", "--for", ref],
+                                       env=env, capture_output=True, text=True)
+                    out = r.stdout + r.stderr
+                    self.assertNotEqual(r.returncode, 0, out)   # not reviewed: refused past the gate
+                    (self.assertNotIn if named else self.assertIn)("do not name", out)
+
+    def test_a_link_takes_short_names_only_from_what_it_updates(self):
+        # the short names of an update are the installed record's, not the link's (its last part is the requester's
+        # choice); a skill set entry is <entry>@<catalog>, not its catalog's name; a link installs the repo's root, so
+        # a plugin from a folder of that repo (a catalog's entry keeps the catalog's address) is not what it updates
+        from core import journal
+        with open(self.hub.cfg_path, "w") as f:
+            json.dump({"extensions": {"alice:owl": {"source": "alice/hub-plugin-owl", "path": "/p/owl", "commit": "a"},
+                                      "carol:kite": {"source": "carol/plugins", "subdir": "kite", "path": "/p/kite",
+                                                     "commit": "b", "market": "kites", "entry": "kite"}},
+                       "sets": [{"name": "shop", "entry": "lark", "plugin": True, "source": "dave/hub-plugin-lark",
+                                 "market": "shop", "path": "/p/lark", "commit": "c"},
+                                # a plugin of skills only by link: a set under its key; a whole set is no plugin
+                                {"name": "erin:wren", "source": "erin/hub-plugin-wren", "path": "/p/wren", "commit": "d"},
+                                {"name": "birds", "source": "erin/hub-plugin-wren", "path": "/p/birds"}]}, f)
+        j = journal.Journal(os.path.join(self.hub.state, "journal.jsonl"))
+        env = {k: v for k, v in os.environ.items() if k not in ("HUB_SESSION", "HUB_EXTENSION", "HUB_MODULE")}
+        env.update(HUB_STATE_DIR=self.hub.state, HUB_CONFIG=self.hub.cfg_path, HUB_CLI_WAIT="0", HUB_SESSION="hub")
+        status = "https://github.com/alice/hub-plugin-owl/tree/main/status"
+        for text, link, named in (("show me the status", status, False), ("update owl", status, True),
+                                  ("check the shop catalog", "dave/hub-plugin-lark", False),
+                                  ("update lark", "dave/hub-plugin-lark", True),
+                                  ("update kite", "carol/plugins", False),
+                                  ("update wren", "erin/hub-plugin-wren", True),
+                                  ("check the birds set", "erin/hub-plugin-wren", False)):
+            word = "m" + str(j.append("message.received", None, {"to": "hub", "text": text, "channel": "cli",
+                                                                 "owner": True})["seq"])
+            with self.subTest(text=text, link=link):
+                r = subprocess.run([sys.executable, HUB, "market", "install", link, "--reviewed", "--for", word],
+                                   env=env, capture_output=True, text=True)
+                out = r.stdout + r.stderr
+                self.assertNotEqual(r.returncode, 0, out)   # not reviewed: refused past the gate
+                (self.assertNotIn if named else self.assertIn)("do not name", out)
+
     def test_the_owner_and_the_hub_on_his_word(self):
         r = self.run_hub("add", self.src.bare, "--for", self.word, me="hub")
         self.assertEqual(r.returncode, 0, r.stderr + r.stdout)

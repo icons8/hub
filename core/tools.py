@@ -306,10 +306,33 @@ def names_tool(st, words, tool):
 
 
 def names_any(st, words, names):
-    """The owner's message (words of owner_word) has one of these names as a word (lowercase)."""
+    """The owner's message (words of owner_word) has one of these names as a word (lowercase). A separator inside a
+    name (-, _, a dot, a space) is any of them, and none between two parts of 3+ characters: a voice message writes
+    "gpt image" or "gptimage" for gpt-image (name_pattern). A name with / \\ : or @ (a source, a folder, an
+    <account>:<name> key, an entry of a catalog) is said as written."""
     msg = st["messages"].get(words.get("message")) or {}
     text = str(msg.get("text") or words.get("text") or "").lower()
-    return any(re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text) for n in names)
+    return any(re.search(rf"(?<![\w-]){name_pattern(n)}(?![\w-])", text) for n in names)
+
+
+def name_pattern(name):
+    """The name as written, or with each separator between two parts said as any separator. Glued (no separator) only
+    between two parts of 3+ characters and not between two digits: "ai" is no a-i, "api" no a-p-i, "llama370b" no
+    llama3-70b. Between two numbers the separator stays as written: "gpt-41" is no gpt-4.1. A separator at the start or
+    the end stays too: "private" is no _private."""
+    if re.search(r"[/\\:@]", name):
+        return re.escape(name)
+    bits = re.split(r"([-_.\s]+)", name)    # part, separator, part, …
+    out = []
+    for i, bit in enumerate(bits):
+        if i % 2 == 0 or not bits[i - 1] or not bits[i + 1]:
+            out.append(re.escape(bit))
+        elif bits[i - 1].isdigit() and bits[i + 1].isdigit():
+            out.append(re.escape(bit))
+        else:
+            glued = min(len(bits[i - 1]), len(bits[i + 1])) >= 3 and not (bits[i - 1][-1] + bits[i + 1][0]).isdigit()
+            out.append(r"[-_.\s]" + ("?" if glued else ""))
+    return rf"(?:{re.escape(name)}|{''.join(out)})"
 
 
 def name_forms(name, bare=True):

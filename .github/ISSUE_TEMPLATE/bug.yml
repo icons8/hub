@@ -11,8 +11,7 @@ body:
         **A security problem is not a bug report.** Do not open a public issue for it: use "Report a vulnerability" on the
         Security tab (see SECURITY.md).
 
-        Pull requests from outside the maintainers' group are not accepted for now (see CONTRIBUTING.md); a good issue is
-        the most useful contribution.
+        A fix is welcome as a pull request (see CONTRIBUTING.md); a test that fails without it is what we ask for.
   - type: input
     id: version
     attributes:

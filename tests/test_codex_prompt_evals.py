@@ -239,8 +239,9 @@ class PromptEvals(Fake, unittest.TestCase):
     def test_the_limits_before_and_after_are_in_the_output(self):
         out = self.prompts(self.case(), "--host", "codex", "--codex-model", "gpt-x")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("Codex quota before: week 7%", out.stdout)
-        self.assertIn("Codex quota after: week 7%", out.stdout)
+        # the line of `hub codex limits`: the share left, as Codex's own /status
+        self.assertIn("Codex quota before: week 93% left", out.stdout)
+        self.assertIn("Codex quota after: week 93% left", out.stdout)
 
     def test_the_run_has_a_sessions_settings_and_its_shell(self):
         out = self.prompts(self.case(), "--host", "codex", "--codex-model", "gpt-x")

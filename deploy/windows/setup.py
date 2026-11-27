@@ -177,7 +177,9 @@ def scripts(repo, state, python, encoding=None, app=None, instance=None, config=
     would not be found; a name outside it goes through a variable (cmd_text). The log is opened
     by hub-up itself (--log), not by cmd's `>>`: that does not open the file while someone else is writing to it — and hub-up did not start.
     app: both set the app's environment (env_lines); the launcher runs app.py launch before hub-up (its own log) —
-    shell: start.py --prepare of the environment (the one-line install)."""
+    shell: start.py --prepare of the environment (the one-line install). The app's hub.cmd sets this hub's HUB_STATE_DIR
+    over the caller's: from a session of another hub of the computer (a second hub's Codex session found it in the user's
+    PATH, 2026-11-26) it refuses, as hub-<name>.cmd of an instance does (guard)."""
     encoding = encoding or _oem()
     for d in ("bin", "logs"):
         os.makedirs(os.path.join(state, d), exist_ok=True)
@@ -195,7 +197,7 @@ def scripts(repo, state, python, encoding=None, app=None, instance=None, config=
         held = ntpath.join(state, HELD)
         prepare = (f'"{python}" -I -B "{ntpath.join(app, "start.py")}" --prepare' if shell
                    else f'"{python}" "{ntpath.join(app, "app.py")}" launch')
-        files = {hub_cmd: f'@echo off\r\nsetlocal\r\n{env}"{python}" "{hub}" %*\r\n',
+        files = {hub_cmd: f'@echo off\r\nsetlocal\r\n{guard(state, unset=True)}{env}"{python}" "{hub}" %*\r\n',
                  launcher: (f'@echo off\r\nif exist "{held}" exit /b 0\r\n{env}'
                             f'{prepare}\r\ncd /d "{repo}"\r\n'
                             f'"{python}" "{hub_up}" --scheduled --log "{log}"\r\n')}
@@ -211,16 +213,24 @@ def scripts(repo, state, python, encoding=None, app=None, instance=None, config=
         files = {hub_cmd: f'@echo off\r\nsetlocal\r\n{env}"{python}" "{hub}" %*\r\n',
                  # from a session of another hub — refused: this hub's core would take it for the owner
                  os.path.join(state, "cmd", f"hub-{instance}.cmd"): (
-                     f'@echo off\r\nsetlocal\r\nif not defined HUB_SESSION goto hub\r\n'
-                     f'if /i "%HUB_STATE_DIR%"=="{state}" goto hub\r\n'
-                     f'echo this is another hub of this computer: its sessions are reached through the bus (hub bus) 1>&2\r\n'
-                     f'exit /b 2\r\n:hub\r\n{env}"{python}" "{hub}" %*\r\n'),
+                     f'@echo off\r\nsetlocal\r\n{guard(state)}{env}"{python}" "{hub}" %*\r\n'),
                  launcher: (f'@echo off\r\n{held}{env}{prepare}cd /d "{repo}"\r\n'
                             f'"{python}" "{hub_up}" --scheduled --log "{log}"\r\n')}
     for path, text in files.items():
         with open(path, "wb") as f:
             f.write(cmd_text(text, encoding, environ))
     return hub_cmd, launcher
+
+
+def guard(state, unset=False):
+    """The lines of a .cmd that end it with code 2 when a session (HUB_SESSION) of another hub runs it: the caller's
+    HUB_STATE_DIR is not this hub's. unset: a session without HUB_STATE_DIR is this hub's (the main one, whose state
+    folder is the default)."""
+    return ('if not defined HUB_SESSION goto hub\r\n'
+            + ('if not defined HUB_STATE_DIR goto hub\r\n' if unset else '')
+            + f'if /i "%HUB_STATE_DIR%"=="{state}" goto hub\r\n'
+            'echo this is another hub of this computer: its sessions are reached through the bus (hub bus) 1>&2\r\n'
+            'exit /b 2\r\n:hub\r\n')
 
 
 # the user's folders a .cmd may name through their variables (cmd expands them itself, in any letters)

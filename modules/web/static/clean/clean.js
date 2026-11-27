@@ -32,6 +32,7 @@ import { clock } from "../js/clock.js";
 import { mountFit } from "./fit.js";
 import { AGO, byRecent, detailOf, liveLine, sessionIndex } from "./rows.js";
 import { WORDS as USAGE_WORDS, emailSteps, usageModel } from "./usage.js";
+import { countsDown, pctNum, pctText } from "../js/limitpct.js";
 import { characterOf, faceByName, hubCharacter, loadTags } from "./faces.js";
 
 const on = () => document.documentElement.classList.contains("th-clean");
@@ -947,18 +948,20 @@ export default function register(hub) {
     // otherwise 95%+ and "not working" (limits.status = rejected) — red, 80–95% — orange, the rest — gray
     const stopped = snap?.limits?.status === "rejected", eco = snap?.budget?.mode === "economy";
     const tone = (u) => eco ? "eco" : stopped || u >= 95 ? "high" : u >= 80 ? "warn" : "ok";
+    // Codex counts down, as its /status: the line says "47%", the tooltip "47% left" (the colour still follows the share used)
+    const down = countsDown(snap?.limits), left = T("web.limits.left", USAGE_WORDS.left);
     for (const [name, w] of wins) {
       const used = w.resets && w.resets < now ? 0 : Math.round(w.used * 100);
       const seg = hub.el("span", "limseg");
       seg.dataset.tone = tone(used);
       const reset = w.resets && w.resets > now ? clock(w.resets, hub.locale, { day: "numeric", month: "short" }) : "";
-      seg.dataset.full = T(...FULL[name]);
+      seg.dataset.full = `${T(...FULL[name])} ${pctText(used, down, left)}`;
       seg.title = seg.dataset.full + (reset ? ` · ${reset}` : "");   // short names in the line; the full name and reset — in the tooltip
       const [k, fb] = SHORT[name];
-      seg.append(hub.el("span", "limname", T(k, fb)), hub.el("span", "limpct", `${used}%`));
+      seg.append(hub.el("span", "limname", T(k, fb)), hub.el("span", "limpct", pctNum(used, down)));
       line.append(seg);
     }
-    line.title = [...line.querySelectorAll(".limseg[data-full]")].map((x) => `${x.dataset.full} ${x.querySelector(".limpct").textContent}`).join(" · ");
+    line.title = [...line.querySelectorAll(".limseg[data-full]")].map((x) => x.dataset.full).join(" · ");
     if (acc) {   // accounts are on: a click shows the limits of all accounts
       line.classList.add("limlink");
       line.tabIndex = 0;
@@ -992,7 +995,7 @@ export default function register(hub) {
     mark: T("web.clean.usage_mark", USAGE_WORDS.mark), lapsed: T("web.clean.usage_lapsed", USAGE_WORDS.lapsed),
     compact: T("web.clean.usage_compact", USAGE_WORDS.compact), expanded: T("web.clean.usage_expanded", USAGE_WORDS.expanded),
     accounts: T("web.settings.tab.accounts", USAGE_WORDS.accounts), active: T("web.clean.usage_active", USAGE_WORDS.active),
-    soon: T("web.clean.usage_soon", USAGE_WORDS.soon), resets: T("web.clean.usage_resets", USAGE_WORDS.resets, { when: "{when}" }),
+    soon: T("web.clean.usage_soon", USAGE_WORDS.soon), left: T("web.limits.left", USAGE_WORDS.left), resets: T("web.clean.usage_resets", USAGE_WORDS.resets, { when: "{when}" }),
     at: T("web.clean.usage_at", USAGE_WORDS.at, { time: "{time}" }), link: T("web.clean.usage_link", USAGE_WORDS.link, { time: "{time}" }),
     cache: T("web.clean.usage_cache", USAGE_WORDS.cache), idle: T("web.clean.usage_idle", USAGE_WORDS.idle), rest: T("web.clean.usage_rest", USAGE_WORDS.rest),
   });
@@ -1003,7 +1006,7 @@ export default function register(hub) {
     const half = Math.max(tip.offsetWidth / 2, 1);
     tip.style.insetInlineStart = `${Math.min(Math.max(x, half), Math.max(half, w - half))}px`;
   };
-  const captionText = (m, w) => w.lapsed ? m.words.lapsed : usage.mark === w.id ? m.words.mark : `${w.pct}%`;
+  const captionText = (m, w) => w.lapsed ? m.words.lapsed : usage.mark === w.id ? m.words.mark : w.text;
   // applies hover, tap, keyboard and the hint of an old reading to the nodes that are already on the page
   function usageShow() {
     const { box, m } = usage;
@@ -1019,7 +1022,7 @@ export default function register(hub) {
       if (!host.classList.contains("cu-bar")) continue;
       // placed after layout: over the filled part or over the mark, measured from the bar's start edge
       const r = host.querySelector(".cu-track").getBoundingClientRect(), base = tip.offsetParent?.getBoundingClientRect() || r;
-      const x = usage.mark === w.id && w.even != null ? r.width * w.even : w.lapsed ? r.width / 2 : r.width * w.used / 2;
+      const x = usage.mark === w.id && w.even != null ? r.width * w.even : w.lapsed ? r.width / 2 : w.down ? r.width * (1 + w.used) / 2 : r.width * w.used / 2;
       captionAt(tip, base.width, (rtl() ? base.right - r.right : r.left - base.left) + x);
     }
     for (const b of box.querySelectorAll(".cu-clock")) {
@@ -1207,7 +1210,7 @@ export default function register(hub) {
       name.append(peek);
       line.append(name);
       if (w.lapsed) line.append(hub.el("span", "cu-val", m.words.lapsed));
-      else if (old) line.append(hub.el("span", "cu-val cu-pct", `${w.pct}%`));
+      else if (old) line.append(hub.el("span", "cu-val cu-pct", w.text));
       else if (w.reset) line.append(hub.el("span", "cu-val", w.reset));
       row.append(line, usageBar(w, old && !m.broken));
       wirePeek(row, w, !old);

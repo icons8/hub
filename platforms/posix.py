@@ -1022,6 +1022,12 @@ def nested(shim, state_dir):
     return os.path.dirname(shim), {}
 
 
+def own_hub(state_dir):
+    """Nothing to add (windows.own_hub): the hub's start puts <state>/bin with this hub's `hub` first in PATH
+    (app/start.py), and a session inherits it."""
+    return None, {}
+
+
 def nested_args():
     """Nothing to put back: no Git Bash wrapper here (windows.nested_args)."""
 

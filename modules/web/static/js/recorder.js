@@ -274,12 +274,14 @@ async function start(target) {
     const insert = V.insert;
     V.insert = false;
     if (V.cancelled || !chunks.length) return redraw();
-    // "send" is pressed (or the silence stopped it): the voice message is addressed now — the field it was recorded in, its
-    // reply, cards and files of this moment (composer.js lock), also when the stop was pressed on another session's page
-    const send = insert ? null : target.lock?.() || null;
     const took = V.took = Date.now() - V.since;   // before the strip of "recognizing" is drawn: it is not redrawn for the same mode
     const mine = ++V.job;   // "Cancel" while the recording is being read (before it is sent for recognition) makes this stale too
     V.busy = true;
+    // "send" is pressed (or the silence stopped it): the voice message is addressed now — the field it was recorded in, its
+    // reply, cards and files of this moment (composer.js lock), also when the stop was pressed on another session's page.
+    // busy goes first: lock() may repaint the field, and with neither a recording nor busy it showed the idle microphone for
+    // a few ms between the strip of the recording and the strip of "recognizing"
+    const send = insert ? null : target.lock?.() || null;
     redraw();
     const blob = new Blob(chunks, { type: mime });
     const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.readAsDataURL(blob); });

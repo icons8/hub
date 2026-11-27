@@ -10,6 +10,7 @@ Seams the host calls:
   the session's environment (gets CLAUDE_PROJECT_DIR when there are hooks); trust_at — the hooks' trust key path;
 - args(enabled) — extra arguments of the session's `codex app-server` command line; enabled — the features the session
   turns on (`--enable`);
+- compact_args(limit) — the hub's compaction threshold as Codex's own auto-compaction limit, on the same command line;
 - thread_config(mcp, env, **extra) — the `config` of thread/start | thread/resume (empty — no `config`).
 
 Plugins and the repo (slice J, probes 2026-11-05 on codex 0.162.1 with a fake Responses API):
@@ -184,6 +185,13 @@ def args(enabled=()):
     (`--enable`, a slice's own decision) is not pinned off."""
     return [x for f, on in PINNED.items() if on or f not in enabled
             for x in ("-c", f"features.{f}={'true' if on else 'false'}")]
+
+
+def compact_args(limit):
+    """The hub's compaction threshold (compact_idle.min_tokens, hubd sets the host's compact_limit) as Codex's own
+    auto-compaction limit on the session's command line: Codex takes min(it, 90% of the model's window) and compacts
+    at it mid-turn too (codex-rs ModelInfo.auto_compact_token_limit, 0.172.0); none — Codex's own 90%."""
+    return ["-c", f"model_auto_compact_token_limit={int(limit)}"] if limit else []
 
 
 def core_model_args():
@@ -571,11 +579,11 @@ def _edit_hook(h, matchers):
     hook = platforms.current.hook_command(sys.executable, EDIT_HOOK)
     words = [edit_hooks.b64(json.dumps(matchers)), edit_hooks.b64(h["command"]), str(h["timeout"])]
     if hook.get("args"):   # Claude Code's exec form (Windows): Codex runs a line
-        from hosts.codex_rules import _hook_line
-        line = _hook_line([hook["command"], *hook["args"], *words])
+        from hosts.codex_rules import _line
+        line, why = _line([hook["command"], *hook["args"], *words])
         if not line:
-            print(f"codex: the repo edit hook cannot be put before `{h['command']}` (the path cannot be written as a line) — it "
-                  "gets Codex's patch as is", file=sys.stderr, flush=True)
+            print(f"codex: the repo edit hook cannot be put before `{h['command']}` ({why}) — it gets Codex's patch as "
+                  "is", file=sys.stderr, flush=True)
             return None
     else:
         line = " ".join([hook["command"], *words])

@@ -42,6 +42,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 
 from core import langdata
 from core.coretext import T
@@ -78,37 +79,96 @@ def hooks_json():
     """The core's hook on every tool call: Bash and apply_patch come with tool_input.command. Matcher ".*", as in the
     probe of 2026-10-19: what Codex does with a regular expression in matcher was not checked live — an extra hook run
     is cheaper than a silently disabled ban."""
+    hook, why = _hook()
+    if why:
+        print(f"codex: {why} — Codex sessions will not start", file=sys.stderr, flush=True)
+    return {"hooks": {"PreToolUse": [{"matcher": ".*", "hooks": [hook]}] if hook else []}}
+
+
+def _hook():
+    """The core's hook as Codex runs it, and why there is none: (hook, None) | (None, why)."""
     import platforms
     hook = platforms.current.hook_command(sys.executable, HOOK)
     if hook.get("args"):   # Claude Code's exec form (Windows) — Codex does not know args
-        line = _hook_line([hook["command"], *hook["args"]])
-        if not line:
-            print(f"codex: the core's hook cannot be written as a line without spaces ({sys.executable}, {HOOK}) — Codex "
-                  "sessions will not start", file=sys.stderr, flush=True)
-            return {"hooks": {"PreToolUse": []}}
-        hook = {"type": "command", "command": line}
-    return {"hooks": {"PreToolUse": [{"matcher": ".*", "hooks": [hook]}]}}
+        line, why = _line([hook["command"], *hook["args"]])
+        return ({"type": "command", "command": line}, None) if line else (None, why)
+    return hook, None
 
 
 # a word of a hook line that both cmd /C "…" and PowerShell -Command "…" read as itself (Codex runs the line in the
 # session's shell, PowerShell on Windows, or cmd /C when it has none; command_runner.rs); "~" — inside a word only (an 8.3
-# name, PROGRA~1): at the start PowerShell reads it as the home folder
-PLAIN = re.compile(r"[A-Za-z0-9_\-.:\\/][A-Za-z0-9_\-.:\\/~]*")
+# name, PROGRA~1): at the start PowerShell reads it as the home folder; "+" — inside a word only (a hub's own build runs
+# from a layer <release>+local.<sha>, core/appcode.OWN, and such a folder has no 8.3 name on a volume without them); "@"
+# — inside a word only (a user folder named after a mail address): at the start PowerShell reads @( @{ @name. A letter,
+# digit or mark of any alphabet stands for "a" here (_ascii): both shells read it as itself (live 2026-11-26)
+PLAIN = re.compile(r"[A-Za-z0-9_\-.:\\/][A-Za-z0-9_\-.:\\/~+@]*")
+
+
+# letters that look like a quote, an apostrophe or a caret, which a conversion to a code page may make ' " ^ (Windows'
+# "best fit"): none such on Codex's way to the hook (CreateProcessW, cmd, PowerShell and python read UTF-16), kept out all
+# the same — the modifier letters (Lm: U+02B9 U+02BA U+02BC U+0374 U+0559 U+07F4…) but the marks of repetition and length
+# that names of these alphabets carry (KANA_MARKS: Japanese U+3005 U+30FC, Thai U+0E46, Lao U+0EC6), and the saltillo
+# (U+A78B U+A78C)
+KANA_MARKS = {0x0E46, 0x0EC6, 0x3005, 0x3031, 0x3032, 0x3033, 0x3034, 0x3035, 0x309D, 0x309E, 0x30FC, 0x30FD, 0x30FE,
+              0xFF70}
+SALTILLO = {0xA78B, 0xA78C}
+
+
+def _letter(c):
+    """A non-ASCII character both shells read as a part of a word: a letter, a mark or a digit of any alphabet, not
+    a quote-like one (Lm but KANA_MARKS, SALTILLO) and not one whose compatibility form has ASCII punctuation (a
+    parenthesized digit's is "(1)"; the fullwidth letters' is plain ASCII). PowerShell's own quotes and dashes
+    (U+2018–U+201E, U+2013–U+2015) and the Unicode spaces are punctuation and separators — not letters."""
+    cat = unicodedata.category(c)
+    if cat[0] not in "LMN" or cat == "Lm" and ord(c) not in KANA_MARKS or ord(c) in SALTILLO:
+        return False
+    return all(x >= "\x80" or x.isalnum() for x in unicodedata.normalize("NFKC", c))
+
+
+def _ascii(word):
+    """The word with every non-ASCII letter as "a" (PLAIN's own alphabet), any other non-ASCII character as "\\0"."""
+    return "".join(c if c < "\x80" else "a" if _letter(c) else "\0" for c in word)
+
+
+def _plain(word):
+    return bool(word) and bool(PLAIN.fullmatch(_ascii(word)))
 
 
 def _hook_line(words):
-    """The hook as one command line for Codex on Windows, or None. Codex ignores Claude Code's `args` and ran the bare
-    program — the hook "completed", the denied command ran (probe 2026-11-05). A quoted path does not parse in both
-    shells (PowerShell needs `& "…"`, cmd does not), so every word is plain: a path with a space goes as its short 8.3
-    name; if there is none — no line."""
+    """The hook as one command line for Codex on Windows, or None (_line)."""
+    return _line(words)[0]
+
+
+def _line(words):
+    """The hook as one command line for Codex on Windows: (line, None) | (None, why). Codex ignores Claude Code's `args`
+    and ran the bare program — the hook "completed", the denied command ran (probe 2026-11-05). A quoted path does not
+    parse in both shells (PowerShell needs `& "…"`, cmd does not), so every word is plain (_plain). A word of ASCII only
+    goes as it is; any other goes by its short 8.3 name when that one is plain (as it went before), else as it is when
+    it is plain (a letter of another alphabet); a space, "(", "&"… with no plain 8.3 name — no line."""
     out = []
     for w in words:
-        if not PLAIN.fullmatch(w):
-            w = _short(w)
-        if not w or not PLAIN.fullmatch(w):
-            return None
+        if not (w.isascii() and _plain(w)):
+            short = _short(w)
+            if short and _plain(short):
+                w = short
+            elif not _plain(w):
+                return None, _why(w, short)
         out.append(w)
-    return " ".join(out)
+    return " ".join(out), None
+
+
+def _why(word, short):
+    """Why a word cannot go into the hook line: its characters, and its 8.3 name."""
+    if not word:
+        return "the core's hook has an empty word"
+    bad = sorted({c for c in word if not PLAIN.fullmatch(_ascii("a" + c))})
+    shown = [("a space" if c == " " else repr(c)) for c in bad]
+    if word[0] not in bad and not PLAIN.match(_ascii(word[0])):   # fine inside a word, not first: "~" "+" "@"
+        shown.append(f"{word[0]!r} at the start")
+    shown = ", ".join(shown)
+    named = f"its 8.3 short name {short} is not plain either" if short else "it has no 8.3 short name"
+    return (f"the core's hook path {word} has {shown}, which cmd and PowerShell do not both read as a part of a path, "
+            f"and {named}: the hub (and its Python) need a folder without it")
 
 
 def _short(path):
@@ -365,6 +425,9 @@ def features(default, **session):
     if session.get("mode") not in MODES:
         raise RuntimeError(MODE_UNKNOWN.format(mode=session["mode"]))
     if not trusted(session.get("state_dir"), home=session.get("home")):
+        why = _hook()[1]   # no hook line at all (Windows): its reason, not a mere "not trusted"
+        if why:
+            raise RuntimeError(f"the bans do not hold: {why} — the session does not start")
         raise RuntimeError("the bans do not hold: Codex does not trust the core's hook — the session does not start "
                            "(hubd log)")
     # the liaison's thread is workspace-write (hosts/codex_liaison.thread), a mode's — its pair in MODES

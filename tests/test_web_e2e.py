@@ -110,7 +110,7 @@ class PageInChrome(test_web.WebTest):
         if self.zone:   # its step goes first and is not among the results: the steps keep their numbers
             steps = ({"tz": self.zone}, *steps)
         r = subprocess.run(["node", CDP, str(self.cdp), json.dumps(list(steps))], capture_output=True, text=True,
-                           timeout=60)
+                           encoding="utf-8", timeout=60)   # node writes UTF-8; Windows' default code page garbles the page's text
         self.assertEqual(r.returncode, 0, f"step failed: {r.stdout}\nscreen:\n{r.stderr[:1500]}")
         got = json.loads(r.stdout)
         return got[1:] if self.zone else got
@@ -4857,7 +4857,7 @@ class PageInChrome(test_web.WebTest):
         slow = ("navigator.permissions.query = () => new Promise(() => {}); window.__gum = 0; "
                 "const g = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices); "
                 "navigator.mediaDevices.getUserMedia = (c) => { window.__gum++; return g(c); }; 1")
-        fake = ("window.MediaRecorder = class { constructor() { this.mimeType = ''; } start() {} "
+        fake = ("window.__obs.disconnect(); window.MediaRecorder = class { constructor() { this.mimeType = ''; } start() {} "
                 "stop() { this.ondataavailable({data: new Blob([new Uint8Array([0, 0, 0, 28, 102, 116, 121, 112])], {type: 'audio/mp4'})}); this.onstop(); } }; "
                 "window.__sent = null; const f = window.fetch; "
                 "window.fetch = (u, o) => { if (String(u).includes('/api/voice')) window.__sent = JSON.parse(o.body); return f(u, o); }; 1")
@@ -4881,19 +4881,23 @@ class PageInChrome(test_web.WebTest):
                             {"eval": down + ", window.__gum"},
                             {"until": "!!document.querySelector('[data-rec-clock]')", "ms": 3000},
                             # 4. a long press interrupted by the system (pointercancel): the recording ends instead of hanging
-                            {"eval": "new Promise((r) => setTimeout(r, 500)).then(() => document.dispatchEvent(new PointerEvent('pointercancel', {bubbles: true}))), 1"},
+                            # the strip must go away once: with the recording stopped the field passes straight to "recognizing", with no
+                            # idle moment between (a press taken for the finished recording used to land in it)
+                            {"eval": "window.__gone = 0; let had = true; window.__obs = new MutationObserver(() => { const now = !!document.querySelector('form.composer.rec'); if (had && !now) window.__gone++; had = now; }); window.__obs.observe(document.body, {subtree: true, childList: true, attributes: true}); "
+                                     "new Promise((r) => setTimeout(r, 500)).then(() => document.dispatchEvent(new PointerEvent('pointercancel', {bubbles: true}))), 1"},
                             {"until": "!document.querySelector('form.composer.rec')", "ms": 5000},
                             # 5. mimeType is empty (Safari-like recording): the type is taken from the recording, not invented
                             {"eval": fake}, {"eval": down + ", " + up + ", 1"},
                             {"until": "!!document.querySelector('[data-rec-clock]')", "ms": 3000},
                             {"eval": "document.querySelector('form.composer .btn.round.stop').click(), 1"},
-                            {"until": "window.__sent !== null", "ms": 5000}, {"eval": "window.__sent.mime"})
+                            {"until": "window.__sent !== null", "ms": 5000}, {"eval": "window.__sent.mime"}, {"eval": "window.__gone"})
         self.assertEqual(got[5]["eval"], 1)
         self.assertTrue(got[6]["until"])
         self.assertTrue(got[8]["until"])
         self.assertTrue(got[11]["until"])
         self.assertTrue(got[13]["until"])
-        self.assertEqual(got[-1]["eval"], "audio/mp4")
+        self.assertEqual(got[-2]["eval"], "audio/mp4")
+        self.assertEqual(got[-1]["eval"], 1)   # the strip went away once, not twice
 
     def test_autostop_decides_from_the_level_and_a_clock_the_test_feeds_in(self):
         # a recording stops by itself: 20 s of quiet in a row after sound — use it; no sound at all — "nosound" (the page
@@ -5407,6 +5411,37 @@ class PageInChrome(test_web.WebTest):
         self.assertIsNone(got[at["taken2"]]["eval"])
         self.assertEqual(got[at["back"]]["eval"], "the next one")   # failed: the reply of its press is back
         self.assertEqual(got[at["posts"]]["eval"], 2)
+
+    def test_a_voice_message_the_field_fails_to_address_at_send_still_goes(self):
+        # the field's lock() throws when "send" is pressed (here: reading the reply target): the voice message was lost
+        # and the field stayed on "recognizing" with no recognition behind it, refusing every press until Cancel. Now it
+        # goes the old way, addressed when it is transcribed, and the field is free after it
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w")
+        self.ev("session.started", "a", session_id="s-a")
+        # non-enumerable: the drafts' storage and the reply's copies do not read it, only the message's body does
+        target = ("import('/static/js/state.js').then((m) => { const v = {session: 'a', view: 'a', quote: 'q'}; "
+                  "Object.defineProperty(v, 'delegation', {get() { if (window.__boom) throw new Error('lock failed'); }}); "
+                  "m.S.replyTarget = v; window.__set = 1; }), 1")
+        record = [{"eval": self.VP_CLICK}, {"until": self.VP_RECORDING, "ms": 3000}]
+        free = f"!!document.querySelector('{self.VP_MIC}') && !document.querySelector('form.composer.rec')"
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"VOICE_CMD": "true"}):
+            got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"until": f"!!document.querySelector('{self.VP_MIC}')", "ms": 5000},
+                            {"eval": self.VP_FAKES}, {"eval": target}, {"until": "window.__set === 1", "ms": 3000},
+                            *record, {"eval": "window.__boom = true, 1"},
+                            {"eval": f"document.querySelector('{self.VP_STOP}').click(), 1"},
+                            {"until": "window.__voice === 1", "ms": 3000},   # sent for recognition
+                            {"eval": "window.__boom = false, window.__go({text: 'hello'}), 1"},
+                            {"until": "window.__posts.length === 1", "ms": 5000},
+                            {"eval": "window.__posts.map((p) => [p.session, p.quote || null, p.text])"},
+                            {"until": free, "ms": 3000}, *record)
+        self.assertTrue(got[6]["until"])    # it was recording
+        self.assertTrue(got[9]["until"])    # the recording went to recognition, not lost
+        self.assertTrue(got[11]["until"])
+        # addressed when transcribed: with the reply the field has then
+        self.assertEqual(got[12]["eval"], [["a", "q", f"🎤 {i18n.t('web.voice.head')}: hello"]])
+        self.assertTrue(got[13]["until"])   # the field is free
+        self.assertTrue(got[-1]["until"])   # and the next press records
 
     def test_a_voice_message_carries_the_board_cards_picked_when_send_was_pressed(self):
         # the same for the cards picked on a direction's board: the ones under the field when "send" was pressed leave
@@ -12883,7 +12918,7 @@ class PageInChrome(test_web.WebTest):
                         {"until": f"!!{row}", "ms": 8000},
                         {"eval": f"(() => {{ const x = {row}.querySelector('.mcpwait-x'); x.focus(); x.click(); return 1; }})()"},
                         {"until": f"!!({row} || document).querySelector('.mcpwait-err')", "ms": 8000},
-                        {"eval": f"[{row}.querySelector('.mcpwait-err').title, document.activeElement.className,"
+                        {"eval": f"[{row}.querySelector('.mcpwait-why')?.innerText, document.activeElement.className,"
                                  f" [...{row}.querySelectorAll('button')].map((b) => b.textContent || b.getAttribute('aria-label'))]"})
         self.assertTrue(got[4]["until"], got[4])
         title, focused, buttons = got[-1]["eval"]
@@ -12904,6 +12939,60 @@ class PageInChrome(test_web.WebTest):
                         {"until": f"!!{row}?.querySelector('a[target=_blank]')", "ms": 12000})
         self.assertTrue(got[4]["until"], got[4])
         self.assertTrue(got[-1]["until"], got[-1])
+
+    def test_a_refused_press_says_why_in_words(self):
+        # a refusal of "Sign in" read only "did not work", the reason was in a tooltip (none on a phone, none to notice):
+        # the reason is a line of its own under the row
+        self.mcp_hub()
+        stub = self.web.decide
+        self.web.decide = lambda type, entity, data: ((None, "docs cannot sign in right now", None)
+                                                      if type == "mcp.login_requested" else stub(type, entity, data))
+        row = "document.querySelector('.mcpwait-row[data-server=\"docs\"]')"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"errors": 1500},
+                        {"until": f"!!{row}", "ms": 8000},
+                        {"eval": f"{row}.querySelector('button').click(), 1"},
+                        {"until": f"!!{row}?.querySelector('.mcpwait-why')", "ms": 8000},
+                        {"eval": f"(() => {{ const w = {row}.querySelector('.mcpwait-why'), b = w.getBoundingClientRect(),"
+                                 f" r = {row}.getBoundingClientRect(); return [w.innerText, b.height > 0, b.bottom <= r.bottom + 1,"
+                                 f" [...{row}.querySelectorAll('button')].map((x) => x.textContent || x.getAttribute('aria-label')),"
+                                 f" [...{row}.querySelectorAll('[title], [aria-label]')].map((x) => (x.title || '') + ' ' +"
+                                 f" (x.getAttribute('aria-label') || '')).filter((x) => x.includes('cannot sign in')),"
+                                 f" w.getAttribute('role')]; }})()"})
+        self.assertTrue(got[4]["until"], got[4])
+        text, shown, inside, buttons, again, role = got[-1]["eval"]
+        self.assertIn("docs cannot sign in right now", text)
+        self.assertTrue(shown and inside, got[-1])
+        self.assertEqual(buttons, ["Sign in", "Dismiss"])
+        # a screen reader reads the reason once: the line, not also the label or the tooltip of "did not work"
+        self.assertEqual((again, role), ([], "status"))
+
+    def test_a_sleeping_codex_holder_reads_as_waking_it(self):
+        # a hub on Codex: the session that holds the wait sleeps (every one does after a restart of the hub) and has no
+        # old way — the press was refused; the core wakes it now, and the row says whom it wakes, not silence
+        def decide(type, entity, data):
+            return self.j.append(type, entity, {**data, "channel": "web", "owner": True})["seq"], None, None
+        self.web.decide = decide
+        self.web.MCP_LINK_WAIT = 0
+        self.ev("session.requested", "a", session_id="s-a", cwd="/w", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.j.append("session.info", "a", {"mcp": ["docs"], "mcp_login_pty": False}, src="host")
+        self.j.append("session.mcp", "a", {"servers": {"docs": "needs-auth"}}, src="host")
+        self.ev("session.ended", "a")
+        row = "document.querySelector('.mcpwait-row[data-server=\"docs\"]')"
+        got = self.page({"go": f"http://127.0.0.1:{self.port}/#/s/a"}, {"errors": 1500},
+                        {"until": f"!!{row}?.querySelector('button')", "ms": 8000},
+                        {"eval": f"{row}.querySelector('button').click(), 1"},
+                        {"until": f"({row}?.textContent || '').includes('waking a…')", "ms": 8000},
+                        {"eval": f"!!{row}.querySelector('.mcpwait-err')"},
+                        # a wake longer than an attempt's life (LIFE): the life counts from the start, not the press
+                        {"eval": "(() => { const n = Date.now.bind(Date); Date.now = () => n() + 400000; return 1; })()"},
+                        {"until": f"!!{row}?.querySelector('.mcpwait-err')", "ms": 4500},
+                        {"eval": f"({row}?.textContent || '').includes('waking a…')"})
+        self.assertTrue(got[2]["until"], got[2])
+        self.assertTrue(got[4]["until"], got[4])
+        self.assertFalse(got[5]["eval"])
+        self.assertFalse(got[7]["until"], got[7])
+        self.assertTrue(got[8]["eval"], got[8])
 
     def test_a_server_from_the_confirm_list_asks_the_owner_before_the_sign_in(self):
         # money and production (hub.json mcp_login_confirm): one press would give every session that has the server
@@ -21805,14 +21894,16 @@ class PageInChrome(test_web.WebTest):
                         {"eval": "document.querySelectorAll('.gpop .gi-l')[1].click(), 1"}, {"sleep": 400}, {"eval": "location.hash"})
         self.assertEqual(got[-1]["eval"], "#/settings")
 
-    def rights_page(self, init, extra=()):
-        """The hub's card in Settings (the row's menu «Link to a contact»), the page's own fetches left alone."""
+    def rights_page(self, init, extra=(), theme=None):
+        """The hub's card in Settings (the row's menu «Link to a contact»), the page's own fetches left alone; `theme`:
+        the id of a theme the browser starts with (the default one otherwise)."""
         row = "#list li[data-hub] .srow"
-        return self.page({"go": "about:blank"}, {"go": f"http://127.0.0.1:{self.port}/#/sessions", "init": init},
+        pick = [{"go": "about:blank", "look": None}, {"local": {"hub.theme": json.dumps({"id": theme})}}] if theme else [{"go": "about:blank"}]
+        return self.page(*pick, {"go": f"http://127.0.0.1:{self.port}/#/sessions", "init": init},
                          {"until": "!!document.querySelector('%s')" % row, "ms": 10000}, {"rclick": row},
                          {"until": "!!document.querySelector('.gpop')", "ms": 3000},
                          {"eval": "document.querySelectorAll('.gpop .gi-l')[1].click(), 1"},
-                         {"until": "!!document.querySelector('.bus-tab .bus-hubname')", "ms": 8000}, *extra)
+                         {"until": "!!document.querySelector('.bus-tab [data-part=name]')", "ms": 8000}, *extra)
 
     def test_the_liaisons_mode_is_one_switch_and_the_linked_hubs_are_owners_in_it(self):
         # spec d2505378, part D: a hub nobody sits at is run from the linked hubs — one switch at the top of «External
@@ -21825,15 +21916,17 @@ class PageInChrome(test_web.WebTest):
                "new Response(JSON.stringify({ok: true}), {status: 200})); } return of(u, o); }; })()")
         got = self.rights_page(init + ";" + spy, extra=(
             {"until": "!!document.querySelector('.bus-mode input')", "ms": 8000},
-            {"eval": "document.querySelector('.bus-mode input').checked"},
+            {"eval": "[document.querySelector('.bus-mode input').checked, !!document.querySelector('details.set-more .bus-mode'), "
+                     "document.querySelector('.bus-mode').closest('details').open]"},
             {"eval": "[...document.querySelectorAll('.bus-contact .bus-chead')].map((c) => c.textContent).join('|')"},
-            {"eval": "document.querySelector('.bus-mode input').scrollIntoView({block: 'center'}), 1"},
+            {"eval": "document.querySelector('.bus-mode').closest('details').open = true, "
+                     "document.querySelector('.bus-mode input').scrollIntoView({block: 'center'}), 1"},
             {"until": "!document.documentElement.classList.contains('vt-pane')", "ms": 3000},
             {"mclick": ".bus-mode input"},
             {"until": "window.__modes.length === 1", "ms": 3000},
             {"eval": "window.__modes"}))
         self.assertTrue(got[7]["until"], got)
-        self.assertTrue(got[8]["eval"])
+        self.assertEqual(got[8]["eval"], [True, True, False])   # a switch of «Advanced»: folded until the owner opens it
         self.assertIn("owner", got[9]["eval"])
         self.assertTrue(got[13]["until"], got)
         self.assertEqual(got[14]["eval"], ["secretary"])
@@ -21857,6 +21950,403 @@ class PageInChrome(test_web.WebTest):
         self.assertIn("unset", got[9]["eval"])                  # the field comes right under the title, marked
         self.assertIn("Give this hub a name", got[10]["eval"])
         self.assertEqual(got[11]["eval"], [True, False, True])  # no invitation button, no field, a word why
+
+    def test_the_tab_is_two_cards_with_the_fields_before_the_button_and_the_name_is_one_line(self):
+        # #769 change 2: «Invite a hub» and «Accept an invitation» are two cards that are always there; in the first the
+        # fields come before the button (the tab order follows the picture), «Valid for» has a visible label, the name of
+        # this invitation is folded under «Sign with another name»; the hub's name is one line, «Hub name · Change»
+        init = self.feed_stand(rows=[])
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        order = ("[...document.querySelector('.bus-invite').querySelectorAll('select, input, button, summary')]"
+                 ".map((e) => e.className.split(' ')[0] || e.tagName)")
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('.bus-invite') && !!document.querySelector('.bus-accept')", "ms": 8000},
+            {"eval": "(() => { const a = document.querySelector('.bus-invite'), b = document.querySelector('.bus-accept'); "
+                     "return [a.tagName, a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? 1 : 0, "
+                     "!!b.querySelector('textarea.bus-paste'), a.querySelector('h4').textContent, b.querySelector('h4').textContent]; })()"},
+            {"eval": order},
+            {"eval": "document.querySelector('.bus-ttl-pick').closest('label').innerText"},
+            {"eval": "[document.querySelectorAll('.bus-hubname-in').length, !!document.querySelector('details.bus-sign .bus-invite-name'), "
+                     "document.querySelector('details.bus-sign').open, document.querySelector('details.bus-sign > summary').textContent]"},
+            {"eval": "document.querySelector('.bus-name-line').innerText"},
+            {"eval": "document.querySelector('.bus-name-line .btn').click(), document.activeElement.className"},
+            {"eval": "[document.querySelector('.bus-hubname-in').value, !!document.querySelector('.bus-name-line')]"},
+            {"key": "Escape"},
+            {"until": "!!document.querySelector('.bus-name-line')", "ms": 4000}))
+        self.assertEqual(got[8]["eval"][:3], ["SECTION", 1, True])
+        self.assertEqual(got[8]["eval"][3:], ["Invite a hub", "Accept an invitation"])
+        names = got[9]["eval"]
+        self.assertEqual(names[-1], "btn")                                              # the button is the last
+        self.assertLess(names.index("bus-person"), names.index("bus-ttl-pick"))
+        self.assertLess(names.index("bus-ttl-pick"), names.index("bus-invite-name"))
+        self.assertLess(names.index("bus-invite-name"), len(names) - 1)
+        self.assertIn("Valid for", got[10]["eval"])
+        self.assertEqual(got[11]["eval"], [0, True, False, "Sign with another name"])
+        self.assertIn("Hub name", got[12]["eval"])
+        self.assertIn("Render box", got[12]["eval"])
+        self.assertIn("Change", got[12]["eval"])
+        self.assertEqual(got[13]["eval"], "bus-hubname-in")                               # «Change» opens the field, focused
+        self.assertEqual(got[14]["eval"], ["Render box", False])
+        self.assertTrue(got[16]["until"], got)                                           # Escape: the line again
+
+    def test_a_field_label_is_not_bigger_than_the_title_of_its_card_in_either_theme(self):
+        # #775 review: the labels took the page's small size (14.93 px), the card's title is 14 px in Clean; in Classic
+        # both are the page's own size, so the old CSS passes there and only Clean tells the two apart
+        init = self.feed_stand(rows=[])
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        sizes = ("(() => { const px = (e) => parseFloat(getComputedStyle(e).fontSize); const a = document.querySelector('.bus-invite'); "
+                 "return [document.documentElement.classList.contains('th-clean'), px(a.querySelector(':scope > h4')), "
+                 "...[...a.querySelectorAll('label > span:first-child')].map(px)]; })()")
+        for theme in ("core:classic", "core:clean"):
+            got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-invite .bus-ttl-pick')", "ms": 8000},
+                                          {"eval": sizes}), theme=theme)
+            clean, title, *labels = got[-1]["eval"]
+            self.assertEqual(clean, theme == "core:clean", (theme, got[-1]))             # the theme is the one asked for
+            self.assertGreaterEqual(len(labels), 3, (theme, got[-1]))
+            for size in labels:                                                          # a label is not bigger than the card's title
+                self.assertLessEqual(size, title, (theme, got[-1]))
+
+    THEMES = (("core:classic", "classic"), ("core:clean-light", "clean light"), ("core:clean-dark", "clean dark"))
+
+    def test_the_hubs_card_says_unlink_as_quiet_text_in_the_contact_line_and_still_asks_to_confirm(self):
+        # #769 change 5: «Write» and «Unlink» were two buttons 8 px apart (on a phone both dropped under the name); «Write»
+        # is the one button now and «Unlink» is quiet text at the end of the contact line, and still asks first
+        init = self.feed_stand(rows=[])
+        look = ("(() => { const c = document.querySelector('.bus-contact'); const u = c.querySelector('.bus-unlink'); "
+                "return [[...c.querySelectorAll('.bus-acts > *')].map((b) => b.textContent), "
+                "u && u.textContent, u && !!u.closest('.bus-personrow'), u && getComputedStyle(u).backgroundColor, "
+                "c.querySelectorAll('.btn.danger').length]; })()")
+        for theme, name in self.THEMES:
+            got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-contact .bus-unlink')", "ms": 8000},
+                                          {"eval": look},
+                                          {"eval": "document.querySelector('.bus-contact .bus-unlink').click(), 1"},
+                                          {"until": "document.getElementById('confirm-dlg').open", "ms": 3000},
+                                          {"eval": "document.getElementById('confirm-title').textContent"}), theme=theme)
+            self.assertTrue(got[8]["until"], (name, got))
+            self.assertEqual(got[9]["eval"], [["Write"], "Unlink", True, "rgba(0, 0, 0, 0)", 1], (name, got[9]))   # no plate
+            self.assertTrue(got[11]["until"], (name, got))
+            self.assertIn("Maps hub", got[12]["eval"], name)
+
+    def test_the_checked_chip_and_the_unlink_text_keep_4_5_to_1_in_classic_and_in_both_clean_themes(self):
+        # #769 change 5 (colours): the «Code checked» chip was 2.56:1 in light Clean, «Unlink» on its soft red plate 4.2:1 in
+        # dark Clean; the colour of the text on what it stands on, composed from the page's own backgrounds
+        init = self.feed_stand(rows=[])
+        ratios = (r"""(() => { const x = document.createElement('canvas').getContext('2d', {willReadFrequently: true}); """
+                  r"""x.canvas.width = x.canvas.height = 1; const paint = (list) => { x.clearRect(0, 0, 1, 1); """
+                  r"""for (const c of list) { x.fillStyle = c; x.fillRect(0, 0, 1, 1); } return [...x.getImageData(0, 0, 1, 1).data]; }; """
+                  r"""const lum = ([r, g, b]) => { const f = (u) => { u /= 255; return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4; }; """
+                  r"""return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); }; const ratio = (e) => { const chain = []; """
+                  r"""for (let n = e; n; n = n.parentElement) chain.unshift(getComputedStyle(n).backgroundColor); """
+                  r"""const a = lum(paint(['#ffffff', ...chain])), b = lum(paint(['#ffffff', ...chain, getComputedStyle(e).color])); """
+                  r"""return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }; """
+                  r"""const q = (css) => document.querySelector('.bus-contact ' + css); """
+                  r"""return [ratio(q('.bus-chip.ok')), ratio(q('.btn.danger'))]; })()""")
+        for theme, name in self.THEMES:
+            got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-contact .bus-chip.ok')", "ms": 8000},
+                                          {"eval": ratios}), theme=theme)
+            self.assertTrue(got[8]["until"], (name, got))
+            chip, unlink = got[9]["eval"]
+            self.assertGreaterEqual(chip, 4.5, (name, "the chip", got[9]))
+            self.assertGreaterEqual(unlink, 4.5, (name, "«Unlink»", got[9]))
+
+    ACCEPT_STUB = ("(() => { const of = window.fetch; window.fetch = (u, o) => { const b = o && o.body && JSON.parse(o.body); "
+                   "if (u === '/api/bus/act' && b.op === 'preview') { const ok = b.text.includes('hub-link-1:'); "
+                   "return Promise.resolve(new Response(JSON.stringify(ok ? {kind: 'invite', relay: 'https://relay.example.test', "
+                   "needs: []} : {error: 'core words', code: 'not_a_link'}), {status: ok ? 200 : 409})); } return of(u, o); }; })()")
+
+    @staticmethod
+    def paste_text(text):
+        return {"eval": "(() => { const a = document.querySelector('.bus-paste'); a.focus(); a.value = %s; "
+                        "a.dispatchEvent(new Event('input', {bubbles: true})); return true; })()" % json.dumps(text)}
+
+    def test_the_accept_preview_has_room_between_its_blocks_in_classic_and_in_clean(self):
+        # #769 change 7: the question touched the field, the next label touched the table (the block had no rule of its own)
+        init = self.bus_job_stand() + ";" + self.ACCEPT_STUB
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        gaps = ("(() => { const k = [...document.querySelectorAll('.bus-accept .bus-preview > *')]; "
+                "return k.slice(1).map((n, i) => Math.round(n.getBoundingClientRect().top - k[i].getBoundingClientRect().bottom)); })()")
+        for theme, name in self.THEMES[:2]:
+            got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-paste')", "ms": 8000},
+                                          self.paste_text("hub-link-1:abc"),
+                                          {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 8000},
+                                          {"eval": gaps}), theme=theme)
+            self.assertTrue(got[10]["until"], (name, got))
+            self.assertGreaterEqual(len(got[11]["eval"]), 3, (name, got[11]))
+            self.assertGreaterEqual(min(got[11]["eval"]), 8, (name, "the blocks of the preview touch", got[11]))
+
+    def test_an_old_refusal_under_the_accept_field_goes_when_the_text_in_the_field_is_changed(self):
+        # #784 review: after an accepted invitation was refused, editing the text left the old refusal under the field next to
+        # the new preview's error: the press the server refused (V.fails.paste) and an invitation that failed as a job
+        init = self.bus_job_stand() + ";" + self.ACCEPT_STUB
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        alerts = "[...document.querySelectorAll('.bus-accept [role=alert] > p:first-child')].map((x) => x.textContent)"
+        accept = {"eval": "document.querySelector('.bus-preview .btn.primary').click(), 1"}
+        ready = {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 8000}
+        used = self.bus_job({"code": "used", "text": "core words"}, what="join", steps=[], n=2, ts=2)
+        for theme, name in self.THEMES[:2]:
+            got = self.rights_page(init, (
+                {"until": "!!document.querySelector('.bus-paste')", "ms": 8000},
+                self.paste_text("hub-link-1:abc"), ready,
+                {"eval": "window.__start = {status: 409, body: {error: 'core words', code: 'used'}}, 1"}, accept,
+                {"until": "!!document.querySelector('.bus-accept [role=alert]')", "ms": 8000}, {"eval": alerts},
+                self.paste_text("words that are no invitation"),
+                {"until": "document.querySelector('.bus-accept .bus-preview [role=alert]')", "ms": 8000}, {"sleep": 300}, {"eval": alerts},
+                # the same for an invitation that failed as a job
+                {"eval": "window.__start = null, window.__job = %s, 1" % json.dumps(used)},
+                self.paste_text("hub-link-1:abc"), ready, accept,
+                {"until": "[...document.querySelectorAll('.bus-accept [role=alert]')].length > 0", "ms": 8000}, {"eval": alerts},
+                self.paste_text("words that are no invitation"),
+                {"until": "document.querySelector('.bus-accept .bus-preview [role=alert]')", "ms": 8000}, {"sleep": 300}, {"eval": alerts}),
+                theme=theme)
+            self.assertTrue(got[13]["until"], (name, got))
+            self.assertEqual(len(got[14]["eval"]), 1, (name, got[14]))
+            self.assertIn("already used", got[14]["eval"][0], (name, got[14]))
+            self.assertEqual(len(got[18]["eval"]), 1, (name, "a refusal of the server stays next to the new one", got[18]))
+            self.assertIn("No invitation in this text", got[18]["eval"][0], (name, got[18]))
+            self.assertEqual(len(got[28]["eval"]), 1, (name, "a failed job stays next to the new refusal", got[28]))
+            self.assertIn("No invitation in this text", got[28]["eval"][0], (name, got[28]))
+
+    def test_the_code_button_of_a_linked_hubs_page_stays_on_one_line_on_a_phone_in_any_language(self):
+        # #784 review: «Codes match» wrapped onto two lines at 500 px (in Russian too): in Clean the header of a phone is one
+        # row, and the pair code row, which has to be a row of its own, shrank into a narrow column on the right
+        init = self.feed_stand(verified=False, rows=[])
+        ru = json.loads((pathlib.Path(__file__).resolve().parent.parent / "i18n" / "ru.json").read_text(encoding="utf-8"))["web.bus.matches"]
+        look = ("(() => { const b = document.querySelector('main > .head .bus-code .btn'); b.textContent = %s; "
+                "const r = b.getBoundingClientRect(), row = b.closest('.bus-code').getBoundingClientRect(); "
+                "return [Math.round(r.height), Math.round(row.width), getComputedStyle(b).whiteSpace]; })()" % json.dumps(ru))
+        for look_ in ("clean", "classic"):
+            got = self.page({"go": "about:blank", "look": None},
+                            {"go": f"http://127.0.0.1:{self.port}/#/hub/maps", "init": init, **({"look": None} if look_ == "clean" else {})},
+                            {"until": "!!document.querySelector('main > .head .bus-code .btn')", "ms": 10000},
+                            {"shot": os.path.join(self.state, f"hub-head-{look_}-500.png"), "width": 500, "height": 700},
+                            {"sleep": 300}, {"eval": look})
+            self.assertTrue(got[2]["until"], (look_, got))
+            height, width, white = got[-1]["eval"]
+            self.assertLess(height, 32, (look_, "the button is on two lines", got[-1]))
+            self.assertGreater(width, 400, (look_, "the code row is a narrow column", got[-1]))
+            self.assertEqual(white, "nowrap", (look_, got[-1]))
+
+    def test_the_cores_caption_under_a_hub_message_wraps_inside_the_message_when_the_thread_name_is_long(self):
+        # #784 review: «Went into the thread «…»: the core chose it» (web.bus.thread_auto) on the page of a linked hub, with a
+        # thread named by a long unbroken word, widened the message past the screen edge (and cut its time off)
+        head = "catalog-schema-" + "w" * 150
+        row = {"id": "o1", "ts": 1000, "way": "out", "kind": "thread", "thread": "t1", "source": "maps-dev", "agent": "qa",
+               "status": "held", "text": "A second question in the same thread", "auto": True, "head": head}
+        init = self.feed_stand(rows=[row])
+        look = ("(() => { const m = document.querySelector('.bus-m'), h = m.querySelector('.bus-foot .hint').getBoundingClientRect(); "
+                "const r = m.getBoundingClientRect(); return [Math.round(h.right - r.right), Math.round(r.right - innerWidth), "
+                "m.querySelector('.bus-foot .hint').textContent.includes(%s)]; })()" % json.dumps(head[:20]))
+        for look_ in ("clean", "classic"):
+            got = self.page({"go": "about:blank", "look": None},
+                            {"go": f"http://127.0.0.1:{self.port}/#/hub/maps", "init": init, **({"look": None} if look_ == "clean" else {})},
+                            {"until": "!!document.querySelector('.bus-m .bus-foot .hint')", "ms": 10000},
+                            {"shot": os.path.join(self.state, f"hub-caption-{look_}-500.png"), "width": 500, "height": 700},
+                            {"sleep": 300}, {"eval": look})
+            self.assertTrue(got[2]["until"], (look_, got))
+            over, edge, said = got[-1]["eval"]
+            self.assertTrue(said, (look_, got[-1]))
+            self.assertLessEqual(over, 1, (look_, "the caption is wider than its message", got[-1]))
+            self.assertLessEqual(edge, 0, (look_, "the message is past the screen's edge", got[-1]))
+
+    def test_the_mode_on_is_said_next_to_the_name_while_the_switch_is_folded(self):
+        # #775 review: «Let linked hubs run this hub» is folded in «Advanced»; while it is on, the line of the hub's name
+        # says so (a chip), and when it is off there is no chip
+        init = self.feed_stand(rows=[])
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        self.ev("bus.mode_requested", None, mode="remote", channel="cli", owner=True)
+        chip = "[...document.querySelectorAll('.bus-name-line .bus-chip')].map((c) => c.textContent)"
+        look = "[...document.querySelectorAll('.bus-name-line .bus-chip')].map((c) => [c.className, c.title])"
+        got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-name-line')", "ms": 8000},
+                                      {"eval": chip},
+                                      {"eval": "document.querySelector('.bus-mode').closest('details').open"},
+                                      {"eval": look}))
+        self.assertTrue(got[7]["until"], got)
+        self.assertEqual(got[8]["eval"], ["Run by linked hubs"])
+        self.assertFalse(got[9]["eval"])                                                 # the switch itself stays folded
+        # the owner turned the mode on on purpose: a neutral chip (not the warning one), and the tooltip says what it does
+        (klass, tip), = got[10]["eval"]
+        self.assertIn("mute", klass.split())
+        self.assertNotIn("warn", klass.split())
+        self.assertTrue(tip.startswith("The words of every linked hub with the pair code checked"), tip)
+        self.ev("bus.mode_requested", None, mode="secretary", channel="cli", owner=True)
+        got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-name-line')", "ms": 8000},
+                                      {"sleep": 800}, {"eval": chip}))
+        self.assertEqual(got[-1]["eval"], [])
+
+    def bus_job_stand(self):
+        """feed_stand with the bus jobs in the test's hand: /api/bus/start answers window.__start ({status, body}) or, with
+        none, the job window.__job; /api/bus/job answers the job. The page's own answers of everything else stay."""
+        spy = ("(() => { const of = window.fetch; window.__job = null; window.__start = null; window.fetch = (u, o) => { "
+               "if (u === '/api/bus/start') { const s = window.__start; return Promise.resolve(new Response(JSON.stringify("
+               "s ? s.body : {ok: true, job: window.__job}), {status: s ? s.status : 202})); } "
+               "if (u === '/api/bus/job') return Promise.resolve(new Response(JSON.stringify({job: window.__job}), {status: 200})); "
+               "return of(u, o); }; })()")
+        return self.feed_stand(rows=[]) + ";" + spy
+
+    @staticmethod
+    def bus_job(done=None, what="link", steps=None, **more):
+        return {"n": 1, "what": what, "steps": steps or [{"step": "keys", "state": "run", "text": ""}], "done": done, "ts": 0, **more}
+
+    def test_a_refusal_stands_under_its_button_as_an_alert_in_the_pages_words_chosen_by_its_code(self):
+        # #769 change 3: before, a refusal was a red line at the very end of the tab (or above the field) with the core's
+        # words, written for a terminal; now it stands under the button that caused it, role alert, in the page's words by
+        # the refusal's code; a code the page has no words for keeps the core's text (and a failed install its command)
+        init = self.bus_job_stand()
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        make = "[data-part=link] .btn.primary"
+        press = lambda: {"eval": "document.querySelector(%s).click(), 1" % json.dumps(make)}   # noqa: E731
+        set_job = lambda job: {"eval": "window.__job = %s, window.__start = null, 1" % json.dumps(job)}   # noqa: E731
+        measure = ("(() => { const a = [...document.querySelectorAll('.bus-tab [role=alert]')]; const b = document.querySelector(%s); "
+                   "return [a.map((x) => x.closest('[data-part]')?.dataset.part + ': ' + x.querySelector('p')?.textContent), "
+                   "a.length && !!(b.compareDocumentPosition(a[0]) & Node.DOCUMENT_POSITION_FOLLOWING), "
+                   "document.querySelectorAll('.bus-err').length, (document.querySelector('.bus-fail .bus-cmd') || {}).textContent]; })()"
+                   % json.dumps(make))
+        steps = "(document.querySelector('.bus-invite .bus-steps') || {getAttribute: () => null}).getAttribute('role')"
+        failed = lambda code, text, **more: [set_job(self.bus_job(   # noqa: E731
+            {"code": code, "text": text, **more}, steps=[{"step": "relay", "state": "fail", "text": text}])), press()]
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('%s')" % make, "ms": 8000},
+            set_job(self.bus_job()), press(),
+            {"until": "!!document.querySelector('.bus-invite .bus-steps')", "ms": 5000},
+            {"eval": steps},
+            *failed("network", "the relay is unreachable"),
+            {"until": "!!document.querySelector('.bus-invite [role=alert]')", "ms": 8000},
+            {"eval": measure},
+            *failed("no_pip", "this Python has no pip", command="python3 -m ensurepip"),
+            {"until": "document.querySelector('.bus-invite [role=alert]')?.textContent.includes('no pip')", "ms": 8000},
+            {"eval": measure},
+            *failed("card", "a hub card, the advanced way", command="hub bus contact add"),
+            {"until": "document.querySelector('.bus-invite [role=alert]')?.textContent.includes('hub card, not')", "ms": 8000},
+            {"eval": measure}))
+        self.assertEqual(got[11]["eval"], "status")                                      # the steps are a live region
+        self.assertTrue(got[14]["until"], got)
+        said, below, old_line, command = got[15]["eval"]
+        self.assertEqual(said, ["link: The connection server did not answer. Nothing was lost. Try again in a minute"])
+        self.assertTrue(below)                                                           # after the button, not before it
+        self.assertEqual((old_line, command), (0, None))                                 # no red line at the end of the tab
+        self.assertTrue(got[18]["until"], got)
+        said, _, _, command = got[19]["eval"]
+        self.assertEqual(said, ["link: this Python has no pip"])                         # no words for it: the core's
+        self.assertEqual(command, "python3 -m ensurepip")                                # and the remedy stays
+        self.assertTrue(got[22]["until"], got)
+        said, _, _, command = got[23]["eval"]
+        self.assertEqual(said, ["link: This is a hub card, not an invitation. Ask the other owner for an invitation"])
+        self.assertIsNone(command)                                                       # the page's words need no terminal
+
+    def test_a_refusal_of_the_press_the_preview_and_the_accept_stands_in_its_card(self):
+        # #769 change 3: the press that the server refused (the answer came at once, with no job) says so under the
+        # button; the pasted text that is no invitation says so under the field; an accepted invitation that failed says
+        # why under the field of its card, not above it
+        init = self.bus_job_stand()
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        make = "[data-part=link] .btn.primary"
+        alerts = ("[...document.querySelectorAll('.bus-tab [role=alert]')].map((x) => x.closest('[data-part]')?.dataset.part + ': ' "
+                  "+ x.querySelector('p')?.textContent)")
+        refuse = lambda body: {"eval": "window.__start = {status: 409, body: %s}, document.querySelector(%s).click(), 1"   # noqa: E731
+                                       % (json.dumps(body), json.dumps(make))}
+        paste = ("(() => { const a = document.querySelector('.bus-paste'); a.focus(); a.value = 'nothing of the kind here'; "
+                 "a.dispatchEvent(new Event('input', {bubbles: true})); return true; })()")
+        join = self.bus_job({"code": "used", "text": "the invitation is already used or revoked"}, what="join", steps=[])
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('%s')" % make, "ms": 8000},
+            refuse({"error": "core words of a refusal", "code": "network"}),
+            {"until": "!!document.querySelector('.bus-invite [role=alert]')", "ms": 5000},
+            {"eval": alerts},
+            refuse({"error": "the server said no"}),
+            {"until": "document.querySelector('.bus-invite [role=alert]')?.textContent.includes('the server said no')", "ms": 5000},
+            {"eval": alerts},
+            {"eval": "document.querySelectorAll('.bus-err').length"},
+            {"eval": paste},
+            {"until": "!!document.querySelector('.bus-accept [role=alert]')", "ms": 8000},
+            {"eval": alerts},
+            {"eval": "window.__job = %s, window.__start = null, document.querySelector(%s).click(), 1" % (json.dumps(join), json.dumps(make))},
+            {"until": "[...document.querySelectorAll('.bus-accept [role=alert]')].some((a) => a.textContent.includes('already used'))", "ms": 8000},
+            {"eval": "[...document.querySelectorAll('.bus-accept > *')].map((n) => n.matches('[role=alert]') ? 'alert' : n.className || n.tagName)"}))
+        self.assertTrue(got[9]["until"], got)
+        self.assertEqual(got[10]["eval"], ["link: The connection server did not answer. Nothing was lost. Try again in a minute"])
+        self.assertTrue(got[12]["until"], got)
+        self.assertEqual(got[13]["eval"], ["link: the server said no"])                   # no code: the core's text, at the button too
+        self.assertEqual(got[14]["eval"], 0)
+        self.assertTrue(got[16]["until"], got)
+        # the refusal of the other card's button stays where it was said until that button is pressed again
+        self.assertEqual(got[17]["eval"], ["link: the server said no", "paste: No invitation in this text. Paste the whole invitation"])
+        self.assertTrue(got[19]["until"], got)
+        order = got[20]["eval"]
+        self.assertEqual(order[-1], "alert", order)                                      # under the field, last in its card
+        self.assertLess(order.index("bus-paste"), order.index("alert"), order)
+
+    def test_a_refusal_of_the_name_the_mode_and_the_code_stands_under_its_own_control(self):
+        # #769 change 3: the refused press of «Save» (a name), of the mode switch and of «Codes match» says so right under
+        # the control, not in a toast that is gone in a few seconds
+        init = self.feed_stand(verified=False, rows=[]) + (
+            ";(() => { const of = window.fetch; window.fetch = (u, o) => { if (u === '/api/bus/act') { const b = JSON.parse(o.body); "
+            "if (b.op === 'mode' || b.op === 'verify') return Promise.resolve(new Response(JSON.stringify("
+            "{error: 'core words of ' + b.op, code: 'other'}), {status: 409})); } return of(u, o); }; })()")
+        alerts = ("[...document.querySelectorAll('.bus-tab [role=alert]')].map((x) => (x.closest('.bus-contact') ? 'contact' : "
+                  "x.closest('.bus-mode') ? 'mode' : x.closest('.bus-hubname') ? 'name' : '?') + ': ' + x.textContent)")
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('.bus-hubname .btn')", "ms": 8000},
+            {"eval": "document.querySelector('.bus-hubname .btn').click(), 1"},
+            {"until": "!!document.querySelector('.bus-hubname [role=alert]')", "ms": 5000},
+            {"eval": alerts}))
+        self.assertTrue(got[9]["until"], got)
+        self.assertEqual(got[10]["eval"], ["name: Type the hub's name in the field"])   # the empty name, at «Save»
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('.bus-contact .bus-code .btn.primary')", "ms": 8000},
+            {"eval": "document.querySelector('.bus-contact .bus-code .btn.primary').click(), 1"},
+            {"until": "!!document.querySelector('.bus-contact [role=alert]')", "ms": 5000},
+            {"eval": "document.querySelector('.bus-mode').closest('details').open = true, document.querySelector('.bus-mode input').click(), 1"},
+            {"until": "!!document.querySelector('.bus-mode [role=alert]')", "ms": 5000},
+            {"eval": alerts},
+            {"eval": "document.querySelector('.bus-mode input').checked"}))
+        self.assertTrue(got[9]["until"] and got[11]["until"], got)
+        self.assertEqual(got[12]["eval"], ["contact: core words of verify", "mode: core words of mode"])
+        self.assertFalse(got[13]["eval"])                                            # the switch is back where it was
+
+    def test_the_tab_names_its_live_regions_its_switches_and_its_card_titles_for_a_screen_reader(self):
+        # #769 change 3: the steps and the waiting line are a status, the turn-off control and the mode are switches (the
+        # control says what it turns off), the titles of the cards are headings
+        init = self.bus_job_stand()
+        titles = "[...document.querySelectorAll('.bus-tab .bus-panel > h4')].map((h) => h.textContent)"
+        got = self.rights_page(init, ({"until": "!!document.querySelector('.bus-hubname')", "ms": 8000}, {"eval": titles}))
+        self.assertTrue(got[7]["until"], got)
+        self.assertEqual(got[8]["eval"], ["This hub's name", "Invite a hub", "Accept an invitation"])   # the name card too, until it has a name
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        ready = self.bus_job({"code": "ok", "id": "a" * 32, "exp": time.time() + 3600}, steps=[], value="hub-link-1:" + "x" * 40)
+        got = self.rights_page(init, (
+            {"until": "!!document.querySelector('.bus-mode input')", "ms": 8000},
+            {"eval": "(() => { const b = document.querySelector('.bus-head > .btn'); return [b.getAttribute('role'), "
+                     "b.getAttribute('aria-checked'), b.getAttribute('aria-label'), b.textContent]; })()"},
+            {"eval": "document.querySelector('.bus-mode input').getAttribute('role')"},
+            {"eval": titles},
+            {"eval": "window.__job = %s, document.querySelector('[data-part=link] .btn.primary').click(), 1" % json.dumps(ready)},
+            {"until": "!!document.querySelector('.bus-invite .bus-wait')", "ms": 8000},
+            {"eval": "[document.querySelector('.bus-invite .bus-wait').getAttribute('role'), "
+                     "document.querySelector('.bus-invite > h4').textContent]"}))
+        self.assertEqual(got[8]["eval"], ["switch", "true", "Turn off external hubs", "Turn off"])   # the visible words stay
+        self.assertEqual(got[9]["eval"], "switch")
+        self.assertEqual(got[10]["eval"], ["Invite a hub", "Accept an invitation"])
+        self.assertTrue(got[12]["until"], got)
+        self.assertEqual(got[13]["eval"], ["status", "Invite a hub"])
+
+    def test_a_name_typed_under_a_folded_sign_with_another_name_does_not_stay_in_force(self):
+        # #775 review: the name for one invitation is dropped when its section is folded, so that nothing unseen signs
+        # the next invitation: the field is the hub's own name again
+        init = self.feed_stand(rows=[])
+        self.ev("bus.name_requested", None, name="Render box", channel="cli", owner=True)
+        field = "document.querySelector('details.bus-sign .bus-invite-name')"
+        got = self.rights_page(init, (
+            {"until": "!!" + field, "ms": 8000},
+            {"eval": "(() => { const d = document.querySelector('details.bus-sign'); d.open = true; const f = %s; "
+                     "f.value = 'Other name'; f.dispatchEvent(new Event('input', {bubbles: true})); return f.value; })()" % field},
+            {"sleep": 400},
+            {"eval": "document.querySelector('details.bus-sign').open = false, 1"},
+            {"sleep": 600},
+            {"eval": "[%s.value, document.querySelector('details.bus-sign').open]" % field}))
+        self.assertTrue(got[7]["until"], got)
+        self.assertEqual(got[8]["eval"], "Other name")
+        self.assertEqual(got[-1]["eval"], ["Render box", False])
 
     def test_a_hub_is_linked_to_a_person_of_the_book_from_the_menu(self):
         # owner 02.11: an external hub is one more path of a person of the contacts book; linked at the hub's card (the
@@ -23321,6 +23811,58 @@ class CodexModels(PageInChrome):
                                  ".map(c.need); }); 1"}, {"until": "window.__n"}, {"eval": "window.__n"})
         self.assertEqual(got[-1]["eval"], [True, True, False, False, False])
 
+    def codex_line(self, lang, classic):
+        """PR #783 review: Codex's windows said "80% left" + "47% left" in the line; Clean's sidebar footer is one line of
+        176 px with overflow hidden, so the week (the number the PR is about) wrapped out of sight in en, ru and de, and in
+        Classic at 390 px the longer line squeezed the folder and the context. The line says the number, the word left is
+        in the tooltip. One page per test: a second load in the same Chrome keeps the first one's language and theme."""
+        self.ev("session.requested", "a", session_id="s-a", cwd="/home/x/work/apps/routes", channel="cli", owner=True)
+        self.ev("session.started", "a", session_id="s-a")
+        self.ev("session.info", "a", model="gpt-a", effort="low", host="codex", mode="bypassPermissions")
+        self.ev("turn.result", "a", text="ok", context=150000)
+        self.ev("codex.host", None, channel="core", on=True, whole=True)
+        self.ev("account.limits", None, engine="codex", status="allowed",
+                windows={"five_hour": {"used": 0.2, "resets": time.time() + 3600},
+                         "seven_day": {"used": 0.53, "resets": time.time() + 3 * 86400}})
+        self.web.config = lambda: {"host": "codex", "language": lang}
+        shots = os.environ.get("HUB_TEST_SHOTS")   # a folder: the line as a picture
+        box = ".status .limline" if classic else ".aside-foot .slot-sidebar-footer .clean-lim"
+        # every segment of the line is inside the line's box (the footer clips what wraps); the percent and the tooltip
+        fits = ("(() => { const l = document.querySelector('%s'); const b = l.getBoundingClientRect();"
+                " return [...l.querySelectorAll('.limseg:not(.limacc)')].map((s) => { const r = s.getBoundingClientRect();"
+                " return [s.querySelector('.limpct').textContent, r.bottom <= b.bottom + 1 && r.top >= b.top - 1"
+                " && r.right <= b.right + 1 && r.left >= b.left - 1 && r.width > 0]; }).concat([[l.title || "
+                "[...l.querySelectorAll('.limseg')].map((s) => s.title).join(' · ')]]); })()") % box
+        size = {"width": 390, "height": 844} if classic else {"width": 1300, "height": 900}
+        got = self.page(*([{"local": {"hub.theme": '{"id":"core:classic"}'}}] if classic else []),
+                        {"go": f"http://127.0.0.1:{self.port}/" + ("#/s/a" if classic else "#/"), "look": None},
+                        {"until": f"document.querySelectorAll('{box} .limpct').length === 2"},
+                        {"shot": os.path.join(shots or self.state, f"codex-line-{'classic' if classic else 'clean'}-{lang}.png"), **size},
+                        {"eval": fits},
+                        {"eval": "['.stat-dir', '.stat-ctx'].map((q) => Math.round(document.querySelector(q)?.getBoundingClientRect().width || 0))"})
+        *segs, (title,) = got[-2]["eval"]
+        self.assertEqual(segs, [["80%", True], ["47%", True]], got)
+        self.assertIn(i18n.tr(lang, "web.limits.left", pct=47), title)   # the word is in the tooltip
+        if classic:
+            self.assertGreater(min(got[-1]["eval"]), 20, got[-1])   # the folder and the context stay
+
+    def test_codex_windows_fit_clean_en(self):
+        self.codex_line("en", False)
+
+    def test_codex_windows_fit_clean_ru(self):
+        self.codex_line("ru", False)
+
+    def test_codex_windows_fit_clean_de(self):
+        self.codex_line("de", False)
+
+    def test_codex_windows_fit_classic_en(self):
+        self.codex_line("en", True)
+
+    def test_codex_windows_fit_classic_ru(self):
+        self.codex_line("ru", True)
+
+    def test_codex_windows_fit_classic_de(self):
+        self.codex_line("de", True)
 
 class RightToLeft(PageInChrome):
     """An Arabic page (slice L11): the server gives it dir="rtl" and the styles use logical properties, so the layout
@@ -23632,12 +24174,12 @@ class HubBus(PageInChrome):
         # A: «Make an invitation» — one press: the bus is on, the invitation and its steps; by http no «Copy»
         got = self.page(self.press("[data-part=link] .btn.primary"),
                         {"until": "(document.querySelector('.bus-link') || {}).value", "ms": 60000},
-                        {"eval": "[...document.querySelectorAll('[data-part=links] button')].map((b) => b.textContent)"},
-                        {"eval": "document.querySelector('[data-part=links]').innerText"})
+                        {"eval": "[...document.querySelectorAll('[data-part=link] button, [data-part=links] button')].map((b) => b.textContent)"},
+                        {"eval": "document.querySelector('[data-part=link]').innerText"})
         link = got[1]["until"]
         self.assertTrue(str(link).startswith("hub-link-1:"), got)
         self.assertNotIn("Copy", got[2]["eval"])
-        self.assertIn("Tap the invitation", got[3]["eval"])
+        self.assertIn("Tap the invitation", got[3]["eval"])         # the ready invitation is in its card
         self.assertNotRegex(got[3]["eval"], "(?i)relay")
         # B: the invitation pasted with words around it — the preview names A, then «Accept»
         got = self.page(*self.open_tab(b), self.paste("here is the invitation: " + link + " - take it"),
@@ -23665,7 +24207,7 @@ class HubBus(PageInChrome):
         name_a = got[5]["eval"]
         self.assertEqual(got[6]["eval"], "Hub B")
         # the card of a linked hub is quiet: one status (not «linked» + «compared» twice), no banner and no rules line, the
-        # field of «Accept an invitation» folded into a button, «Whose hub» a line of the card
+        # field of «Accept an invitation» in its own card, «Whose hub» a line of the card
         got = self.page(*self.open_tab(a),
                         {"eval": "[...document.querySelectorAll('.bus-contact .bus-chip')].map((c) => c.textContent)"},
                         {"eval": "document.querySelectorAll('.bus-contact .bus-banner, .bus-contact .bus-rule').length"},
@@ -23675,12 +24217,9 @@ class HubBus(PageInChrome):
                                  "document.querySelectorAll('.bus-contact .bus-rights, .bus-contact details.set-more').length]"})
         self.assertEqual(got[3]["eval"], ["Code not checked"])
         self.assertEqual(got[4]["eval"], 0)
-        self.assertEqual(got[5]["eval"], 0)
-        self.assertEqual(got[6]["eval"], ["Make an invitation", "Accept an invitation"])
+        self.assertEqual(got[5]["eval"], 1)                # the field of the second card is always there
+        self.assertEqual(got[6]["eval"], ["Make an invitation"])   # the invitation of before the reload was accepted: no card of it
         self.assertEqual(got[7]["eval"], [True, 0])        # whose hub, no rights table
-        got = self.page(self.press("[data-part=link] .btn.quiet"), {"until": "!!document.querySelector('.bus-paste')", "ms": 5000},
-                        {"eval": "document.querySelector('.bus-paste').rows"})
-        self.assertTrue(got[1]["until"], got)
         # «Matches» on each side
         for hub in (a, b):
             got = self.page(*self.open_tab(hub), self.press(".bus-contact .bus-code .btn.primary"),
@@ -23813,65 +24352,106 @@ class HubBus(PageInChrome):
         self.assertNotIn("hub bus join", got[8]["eval"])
         self.assertIn("Keys of this hub", got[8]["eval"])
 
-    def test_invitations_live_in_one_list_each_opens_in_its_own_line_and_the_form_above_stays(self):
-        # the form (Make / Accept) is the same before and after an invitation is made; a made one is in «Open invitations»,
-        # opened; «Show» / «Hide» of any open invitation open and fold it in its own line — no row moves, nothing is
-        # brought up into the form; a reload does not bring a folded one back open
+    def test_the_made_invitation_stays_in_its_card_and_the_list_below_shows_any_open_one_in_its_own_line(self):
+        # #769 change 2: the invitation just made stays in the card it was made in, where the button was (the strip, the
+        # link, «Make another»); «Open invitations» below lists it folded, and «Show» / «Hide» of any open invitation open
+        # and fold it in its own line — no row moves; «Make another» brings the form back, a second invitation takes the
+        # card in its turn; a reload does not bring a folded one back open
         a = self.stand("Hub A")
-        ready = "(document.querySelector('.bus-link') || {}).value"
-        form = "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent).join('|')"
+        ready = "(document.querySelector('[data-part=link] .bus-link') || {}).value"
+        card = "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent).join('|')"
         got = self.page(*self.open_tab(a), self.paste(self.relay.invite()),
                         {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 10000},
                         self.press(".bus-preview .btn.primary"),
                         {"until": "!!document.querySelector('[data-part=link] .bus-banner')", "ms": 60000},
-                        {"eval": form},
+                        {"eval": card},
                         self.press("[data-part=link] .btn.primary"),
                         {"until": ready, "ms": 60000},
                         {"eval": ready},
-                        {"eval": form},
-                        {"eval": "!!document.querySelector('[data-part=link] .bus-link')"},
-                        {"eval": "[...document.querySelectorAll('[data-part=links] .bus-row .btn')].map((b) => b.textContent)"})
+                        {"eval": card},
+                        {"eval": "[...document.querySelectorAll('[data-part=link] .bus-banner')].map((b) => b.textContent).join('|')"},
+                        {"eval": "[...document.querySelectorAll('[data-part=links] .bus-row .btn')].map((b) => b.textContent)"},
+                        {"eval": "[!!document.querySelector('[data-part=link] .bus-person'), "
+                                 "document.querySelectorAll('[data-part=links] .bus-link').length]"})
         self.assertTrue(got[9]["until"], got)
         first = got[10]["eval"]
-        self.assertEqual(got[11]["eval"], got[7]["eval"])   # the form above is what it was
-        self.assertFalse(got[12]["eval"])                   # the invitation is not brought up into it
-        self.assertEqual(got[13]["eval"], ["Hide", "Revoke", "Copy"])
-        # a second one: the first stays where it is, the new one is opened too
+        self.assertEqual(got[11]["eval"], "Copy|Make another")  # the form's button is gone: the card is the invitation's
+        self.assertEqual(got[12]["eval"], "Invitation ready. Send it to the owner of the other hub")
+        # the list has it for withdrawing; «Show» is not there while its text is in the card above (it would draw the link
+        # and «Copy» a second time)
+        self.assertEqual(got[13]["eval"], ["Revoke"])
+        self.assertEqual(got[14]["eval"], [False, 0])
+        # «Make another»: the form is back (the person is empty again), the first is still in the list
+        got = self.page(self.press("[data-part=link] .btn.quiet"),
+                        {"until": "!!document.querySelector('[data-part=link] .bus-person')", "ms": 5000},
+                        {"eval": card},
+                        {"eval": "document.querySelector('[data-part=link] .bus-person').value + '|' + "
+                                 "document.querySelectorAll('.bus-tab [data-link]').length + '|' + document.activeElement.className"})
+        self.assertTrue(got[1]["until"], got)
+        self.assertEqual(got[2]["eval"], "Make an invitation")
+        self.assertEqual(got[3]["eval"], "|1|bus-person")
+        self.assertEqual(self.page({"eval": "[...document.querySelectorAll('[data-part=links] .bus-row .btn')].map((b) => b.textContent)"})[0]["eval"],
+                         ["Show", "Revoke"])                    # the card is the form again: the first one can be shown in the list
+        # a second one takes the card; the first stays in the list
         got = self.page(self.press("[data-part=link] .btn.primary"),
-                        {"until": "document.querySelectorAll('.bus-tab [data-link]').length === 2", "ms": 60000},
-                        {"eval": "[...document.querySelectorAll('.bus-link')].map((x) => x.value)"},
+                        {"until": "document.querySelectorAll('.bus-tab [data-link]').length === 2 && " + ready, "ms": 60000},
+                        {"eval": ready},
                         {"eval": "[...document.querySelectorAll('.bus-tab [data-link]')].map((r) => r.dataset.link)"})
         self.assertTrue(got[1]["until"], got)
-        self.assertEqual(len(got[2]["eval"]), 2)
-        self.assertIn(first, got[2]["eval"])
+        self.assertNotEqual(got[2]["eval"], first)
         ids = got[3]["eval"]
-        # «Hide» folds the invitation on top in its line; «Show» opens it again in the same line, the row does not move
+        # «Show» opens an invitation of the list in its own line, «Hide» folds it; the row does not move, nor does the card
+        # (the first one is the older line: the newest is in the card and has no «Show»)
         tops = ("[...document.querySelectorAll('.bus-tab [data-link]')].map((r) => Math.round(r.getBoundingClientRect().top))"
                 ".concat([document.querySelector('[data-part=link]').getBoundingClientRect().height])")
         row_btn = "document.querySelector('.bus-tab [data-link=\"%s\"] .btn')"
-        got = self.page({"eval": "document.querySelectorAll('.bus-link').length"},
-                        {"eval": "(" + row_btn % ids[0] + ".click(), 1)"},
-                        {"until": "document.querySelectorAll('.bus-link').length === 1", "ms": 5000},
-                        {"eval": "[" + row_btn % ids[0] + ".textContent, document.querySelectorAll('.bus-tab [data-link]').length]"},
-                        {"eval": form})
-        self.assertEqual(got[0]["eval"], 2)
-        self.assertTrue(got[2]["until"], got)
-        self.assertEqual(got[3]["eval"], ["Show", 2])
-        self.assertEqual(got[4]["eval"], "Make an invitation")
         before = self.page({"eval": tops})[0]["eval"]
-        got = self.page({"eval": "(" + row_btn % ids[0] + ".click(), 1)"},
-                        {"until": "document.querySelectorAll('.bus-link').length === 2", "ms": 10000},
-                        {"eval": tops})
-        self.assertTrue(got[1]["until"], got)
-        self.assertEqual(got[2]["eval"][0], before[0])   # the line that was opened has not moved
-        self.assertEqual(got[2]["eval"][-1], before[-1])  # nor has the form above
-        # a reload: nothing is opened that the owner folded (the text of the last one made is brought once)
+        got = self.page({"eval": "(" + row_btn % ids[1] + ".click(), 1)"},
+                        {"until": "document.querySelectorAll('[data-part=links] .bus-link').length === 1", "ms": 10000},
+                        {"eval": tops},
+                        {"eval": "[" + row_btn % ids[1] + ".textContent, document.querySelectorAll('.bus-tab [data-link]').length]"},
+                        {"eval": "[...document.querySelectorAll('.bus-tab .bus-link')].map((a) => a.value)"},
+                        {"eval": "(" + row_btn % ids[1] + ".click(), 1)"},
+                        {"until": "document.querySelectorAll('[data-part=links] .bus-link').length === 0", "ms": 5000})
+        self.assertTrue(got[1]["until"] and got[6]["until"], got)
+        self.assertEqual(got[2]["eval"][:2], before[:2])  # the line that was opened has not moved
+        self.assertEqual(got[2]["eval"][-1], before[-1])  # nor has the card
+        self.assertEqual(got[3]["eval"], ["Hide", 2])
+        self.assertEqual(len(set(got[4]["eval"])), 2, got[4])   # two links on the tab, two invitations: none drawn twice
+        # a reload: nothing is opened in the list (the text of the last one made comes once, into its card)
         got = self.page(*self.open_tab(a), {"until": "document.querySelectorAll('.bus-tab [data-link]').length === 2", "ms": 10000},
-                        {"sleep": 1500}, {"eval": "document.querySelectorAll('.bus-link').length"},
-                        {"eval": "[...document.querySelectorAll('.bus-tab [data-link] .btn')].filter((b) => b.textContent === 'Show' "
-                                 "|| b.textContent === 'Hide').length"})
-        self.assertLessEqual(got[5]["eval"], 1)
-        self.assertEqual(got[6]["eval"], 2)
+                        {"sleep": 1500}, {"eval": "document.querySelectorAll('[data-part=links] .bus-link').length"})
+        self.assertEqual(got[-1]["eval"], 0)
+
+    def test_the_ready_invitation_stays_when_another_hubs_invitation_is_accepted_before_it_is_sent(self):
+        # #775 review: the card «Invitation ready» is the last invitation made, not the page's latest job: accepting
+        # another hub's invitation (a job of its own) before this one is sent does not take the card away
+        a, c = self.stand("Hub A"), self.stand("Hub C")
+        got = self.page(*self.open_tab(c), self.paste(self.relay.invite()),
+                        {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 10000},
+                        self.press(".bus-preview .btn.primary"),
+                        {"until": "!!document.querySelector('[data-part=link] .bus-banner')", "ms": 60000},
+                        self.press("[data-part=link] .btn.primary"),
+                        {"until": "(document.querySelector('.bus-link') || {}).value", "ms": 60000})
+        other = got[-1]["until"]
+        self.assertTrue(str(other).startswith("hub-link-1:"), got)
+        got = self.page(*self.open_tab(a), self.paste(self.relay.invite()),
+                        {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 10000},
+                        self.press(".bus-preview .btn.primary"),
+                        {"until": "!!document.querySelector('[data-part=link] .bus-banner')", "ms": 60000},
+                        self.press("[data-part=link] .btn.primary"),
+                        {"until": "(document.querySelector('.bus-link') || {}).value", "ms": 60000})
+        mine = got[-1]["until"]
+        self.assertTrue(str(mine).startswith("hub-link-1:"), got)
+        got = self.page(self.paste(other),
+                        {"until": "!!document.querySelector('.bus-preview .btn.primary')", "ms": 10000},
+                        self.press(".bus-preview .btn.primary"),
+                        {"until": "!!document.querySelector('.bus-contact .bus-code-line')", "ms": 60000},
+                        {"sleep": 1500},
+                        {"eval": "[(document.querySelector('[data-part=link] .bus-link') || {}).value, "
+                                 "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent)]"})
+        self.assertTrue(got[3]["until"], got)
+        self.assertEqual(got[-1]["eval"], [mine, ["Copy", "Make another"]])
 
     def test_an_open_invitation_is_named_by_whose_hub_it_is_made_for(self):
         # owner 02.11: «what hub it is for, so that it is clear whose it is» — the person chosen at the making (a new one
@@ -23897,35 +24477,35 @@ class HubBus(PageInChrome):
         # nobody chosen: «Invitation», the newest on top
         nobody = ("(() => { const s = document.querySelector('[data-part=link] .bus-person'); s.value = ''; "
                   "s.dispatchEvent(new Event('change', {bubbles: true})); return true; })()")
-        got = self.page({"eval": nobody}, self.press("[data-part=link] .btn.primary"),
+        got = self.page(self.press("[data-part=link] .btn.quiet"),   # «Make another»: the form is back
+                        {"until": "!!document.querySelector('[data-part=link] .bus-person')", "ms": 5000},
+                        {"eval": nobody}, self.press("[data-part=link] .btn.primary"),
                         {"until": "document.querySelectorAll('.bus-tab [data-part=links] [data-link]').length === 2", "ms": 60000},
                         {"eval": line})
-        self.assertTrue(got[2]["until"], got)
-        self.assertEqual([x[0] for x in got[3]["eval"]], ["Invitation", "New contact"])
+        self.assertTrue(got[4]["until"], got)
+        self.assertEqual([x[0] for x in got[5]["eval"]], ["Invitation", "New contact"])
 
-    def test_accept_an_invitation_stays_at_hand_beside_a_ready_invitation(self):
-        # «Accept an invitation» is a button of the form while a hub is linked; the form is the same while an
-        # invitation is ready: no hiding it behind the made one
+    def test_accept_an_invitation_is_its_own_card_beside_a_ready_invitation(self):
+        # #769 change 2: «Accept an invitation» is a card of its own, its field there at once (no button to open it) while
+        # a hub is linked and while an invitation is ready; the card of the invitation holds only its own buttons
         a, b = self.stand("Hub A"), self.stand("Hub B")
         self.link_pair(a, b)
-        got = self.page(*self.open_tab(a), {"until": "!!document.querySelector('[data-part=link] .btn.quiet')", "ms": 10000},
+        got = self.page(*self.open_tab(a), {"until": "!!document.querySelector('.bus-accept .bus-paste')", "ms": 10000},
                         {"eval": "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent)"},
                         self.press("[data-part=link] .btn.primary"),
                         {"until": "(document.querySelector('.bus-link') || {}).value", "ms": 60000},
                         {"eval": "[...document.querySelectorAll('[data-part=link] .btn')].map((b) => b.textContent)"},
-                        self.press("[data-part=link] .btn.quiet"),
-                        {"until": "!!document.querySelector('.bus-paste')", "ms": 5000},
-                        {"eval": "!!document.querySelector('.bus-link')"})
-        self.assertEqual(got[4]["eval"], ["Make an invitation", "Accept an invitation"])
-        self.assertEqual(got[7]["eval"], ["Make an invitation", "Accept an invitation"])
-        self.assertTrue(got[9]["until"], got)
-        self.assertTrue(got[10]["eval"])   # the field is open and the ready invitation is where it was
+                        {"eval": "[...document.querySelectorAll('.bus-accept .btn')].length + '|' + !!document.querySelector('.bus-accept .bus-paste')"})
+        self.assertEqual(got[4]["eval"], ["Make an invitation"])
+        self.assertEqual(got[7]["eval"], ["Copy", "Make another"])
+        self.assertEqual(got[8]["eval"], "0|true")   # the field, nothing to open; its button comes with the preview
 
-    def test_the_ready_invitation_has_copy_and_revoke_in_its_line_and_revoke_takes_this_one(self):
-        # «Revoke» sits in the invitation's line, the size of the Settings' own buttons (not the 16 px ones of the tab's
-        # old look); «Revoke» asks first and takes exactly this invitation, not another one open on the hub
+    def test_the_ready_invitation_has_copy_in_its_card_and_revoke_in_its_line_and_revoke_takes_this_one(self):
+        # «Copy» is in the card of the ready invitation and «Revoke» in its line of the list, both the size of the
+        # Settings' own buttons (not the 16 px ones of the tab's old look); «Revoke» asks first and takes exactly this
+        # invitation, not another one open on the hub
         a = self.stand("Hub A")
-        rects = ("[...document.querySelectorAll('[data-part=links] .bus-row .btn')].map((b) => { const r = b.getBoundingClientRect(); "
+        rects = ("[...document.querySelectorAll('[data-part=link] .btn, [data-part=links] .bus-row .btn')].map((b) => { const r = b.getBoundingClientRect(); "
                  "return [b.textContent, Math.round(r.top), Math.round(r.height), parseFloat(getComputedStyle(b).fontSize)]; })")
         other = ("(async () => { const r = await fetch('/api/bus/start', {method: 'POST', headers: {'Content-Type': 'application/json', "
                  "'X-Hub': '1'}, body: JSON.stringify({what: 'link', ttl: '24h'})}); return r.status; })().then((s) => { window.__other = s; })")
@@ -23939,8 +24519,7 @@ class HubBus(PageInChrome):
                         {"eval": "document.querySelector('.bus-link').value.length > 20"})
         self.assertTrue(got[8]["until"], got)
         buttons = got[9]["eval"]
-        self.assertEqual([b[0] for b in buttons], ["Hide", "Revoke", "Copy"])
-        self.assertLessEqual(abs(buttons[0][1] - buttons[1][1]), 2, buttons)   # one line
+        self.assertEqual([b[0] for b in buttons], ["Copy", "Make another", "Revoke"])   # no «Show»: its text is in the card
         for b in buttons:
             self.assertLessEqual(b[2], 30, buttons)   # not the height of a field
             self.assertLessEqual(b[3], 14, buttons)   # the Settings' button text, not 16 px

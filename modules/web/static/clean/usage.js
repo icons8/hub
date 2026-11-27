@@ -7,6 +7,7 @@
 // without a browser. The weekly Opus and Sonnet windows, when the core sends them, are extra rows of the expanded view.
 
 import { clock } from "../js/clock.js";
+import { countsDown, pctText } from "../js/limitpct.js";
 
 export const SPAN = { five_hour: 5 * 3600, seven_day: 7 * 86400, seven_day_opus: 7 * 86400, seven_day_sonnet: 7 * 86400 };
 export const ORDER = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet"];
@@ -16,7 +17,7 @@ const HOUR = 3600;
 // the English words — what clean.js falls back to when a catalog has no string; {time} is filled in here
 export const WORDS = {
   five_hour: "5 hours", seven_day: "Week", seven_day_opus: "Week · Opus", seven_day_sonnet: "Week · Sonnet",
-  mark: "even pace", lapsed: "limit reset, no fresh reading", compact: "Compact", expanded: "Expanded", accounts: "Accounts",
+  left: "{pct}% left", mark: "even pace", lapsed: "limit reset, no fresh reading", compact: "Compact", expanded: "Expanded", accounts: "Accounts",
   active: "active", soon: "soon", resets: "resets {when}", at: "Measured at {time}",
   link: "No connection to the hub since {time} — showing the last measurement received. It updates by itself once the connection is back",
   cache: "This is a saved copy — the hub has not answered since the page opened. It updates by itself once the connection is back",
@@ -70,6 +71,7 @@ export function usageModel(snap, { now, words = WORDS, locale, linkDown = false,
   const old = measured != null && now - measured > HOUR;
   const broken = limits.status === "rejected";   // the hub refused the account
   const active = !acc.active || current === acc.active;
+  const down = countsDown(limits);   // a Codex reading: the percent is the share left, as Codex says it (the bar stays the share used)
   const windows = ids.map((id) => {
     const w = limits.windows[id], used = w.used, resets = w.resets ?? w.reset ?? null;
     const lapsed = typeof resets === "number" && resets <= now;
@@ -79,8 +81,9 @@ export function usageModel(snap, { now, words = WORDS, locale, linkDown = false,
     // and never covers red or orange. A window whose reset has passed has no colour.
     const tone = lapsed ? "ok" : broken || pct >= 95 ? "high" : pct >= 80 ? "warn" : eco ? "eco" : "ok";
     const reset = lapsed ? "" : typeof resets === "number" ? fill(words.resets, { when: left(resets, now, locale, words) }) : "";
-    const spoken = lapsed ? `${words[id]}, ${words.lapsed}` : `${words[id]} ${pct}%${reset ? `, ${reset}` : ""}`;
-    return { id, name: words[id], pct, used: clamp(used), even, lapsed, tone, reset, spoken, extra: !MAIN.includes(id) };
+    const text = pctText(pct, down, words.left ?? WORDS.left);
+    const spoken = lapsed ? `${words[id]}, ${words.lapsed}` : `${words[id]} ${text}${reset ? `, ${reset}` : ""}`;
+    return { id, name: words[id], pct, text, down, used: clamp(used), even, lapsed, tone, reset, spoken, extra: !MAIN.includes(id) };
   });
   const pool = Array.isArray(accounts.pool) ? accounts.pool : [];
   const mail = pool.find((p) => p?.name === current)?.email;

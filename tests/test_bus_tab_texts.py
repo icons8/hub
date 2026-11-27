@@ -52,7 +52,8 @@ class BusTabTexts(unittest.TestCase):
     def test_the_empty_choice_of_a_contact_is_a_phrase_not_a_dash(self):
         self.assertEqual(catalog("en")["web.bus.person_nobody"], "Not sure yet")
         self.assertEqual(catalog("en")["web.bus.person_hint"],
-                         "Pick a person from your contacts, so your liaison knows who writes. You can skip it")
+                         "Pick a person from your contacts, so your liaison knows who writes. If you skip it, the liaison "
+                         "treats the hub as a new person")
 
     def test_every_form_of_the_page_names_its_contact_field_by_its_place(self):
         with open(SOURCE, encoding="utf-8") as f:

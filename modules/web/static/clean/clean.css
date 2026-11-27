@@ -2118,6 +2118,7 @@ html.th-clean .mcpwait-row > :is(.mcpwait-wait, .mcpwait-ok) { flex: 1; min-widt
 html.th-clean .mcpwait-wait::before { display: none; }
 html.th-clean .mcpwait-link .mcpwait-wait { font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
 html.th-clean .mcpwait-err { font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--destructive); }
+html.th-clean .mcpwait-why { margin-top: -10px; padding-inline-start: 28px; font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); color: var(--c-t2); }
 html.th-clean .mcpwait-row .btn { box-sizing: border-box; flex: none; }
 @media (hover: hover) and (pointer: fine) {
   html.th-clean .mcpwait-row .btn.primary:hover { background: color-mix(in oklch, var(--foreground) 85%, var(--background)); }
@@ -2780,10 +2781,10 @@ html.th-clean .bus-m .bus-t { font: 400 var(--c-fs)/var(--c-lh) var(--font); let
    gray; errors red, commands a --muted r8 plate ---- */
 html.th-clean .bus-panel { max-width: 820px; box-sizing: border-box; padding: 14px 16px; border-color: var(--c-line); border-radius: 8px; background: var(--background); }
 html.th-clean .bus-ex { border-color: var(--c-line); border-radius: 12px; background: var(--background); }
-html.th-clean .bus-hubname > b { font: 400 var(--c-fs)/var(--c-lh) var(--font); color: var(--c-t1); }
+html.th-clean .bus-hubname > h4 { font: 400 var(--c-fs)/var(--c-lh) var(--font); color: var(--c-t1); }
 html.th-clean .bus-name { font: 400 calc(16px * var(--c-rel))/var(--c-lh) var(--font); color: var(--c-t1); }
 html.th-clean .bus-chip { padding: 0 4px; border-radius: 4px; font: 400 var(--c-fs-s)/var(--c-lh-s) var(--font); }
-html.th-clean .bus-chip.ok { background: var(--c-free-bg); color: var(--c-free); }
+html.th-clean .bus-chip.ok { background: var(--c-free-bg); color: light-dark(#147a2c, var(--c-free)); }   /* --c-free on its plate is 2.56:1 in the light theme; #147a2c is 4.93:1 */
 html.th-clean .bus-chip.warn { background: var(--c-busy-bg); color: var(--c-busy); }
 html.th-clean .bus-chip.bad { background: var(--c-alert-soft); color: var(--destructive); }
 html.th-clean .bus-chip.mute { background: var(--c-fill); color: var(--c-t2); }
@@ -2797,12 +2798,12 @@ html.th-clean :is(.bus-hubname-in, .bus-invite-name, .bus-person, .bus-person-ne
   box-shadow: 0 0 0 1px var(--c-line-strong); }
 html.th-clean :is(.bus-code-line.quiet, .bus-person-name, .bus-personrow > .bus-row > span) { color: var(--c-t2); }
 html.th-clean .bus-code-line.quiet { font-size: var(--c-fs-s); line-height: var(--c-lh-s); }
-html.th-clean .bus-err { color: var(--destructive); font: 400 var(--c-fs)/var(--c-lh) var(--font); }
+html.th-clean :is(.bus-err, .bus-fail[role="alert"] > p:first-child) { color: var(--destructive); font: 400 var(--c-fs)/var(--c-lh) var(--font); }
 html.th-clean .bus-wait { border-top-color: var(--c-line-soft); color: var(--c-t2); font: 400 var(--c-fs)/var(--c-lh) var(--font); }
 html.th-clean .bus-cmd { border-radius: 8px; background: var(--muted); color: var(--c-t1); font: 400 var(--c-fs-s)/calc(18px * var(--c-rel)) var(--font-mono); }
 
 /* ---- a linked hub card ("External hubs"): on the left the name, the state and the code on the first line, "Person's hub: …" and
-   "Change contact" on the second; on the right "Rename", "Write" (primary), "Unlink" (Danger: soft red) — centered on the card. The
+   "Change contact" on the second; on the right "Rename" and "Write" (primary), centered on the card; "Unlink" is quiet red text at the end of the second line. The
    core puts "Rename" right after the name and "Person's hub" as its own block under the head: the head (.bus-chead) takes both rows of
    the grid, its left items pinned to the first row, its right ones centered; the person block goes into the second row on the left.
    The " · person's name" of the first line is not shown — the second line names them. While the hub is not checked (the code field)
@@ -2811,10 +2812,6 @@ html.th-clean .bus-contact .bus-chead > .btn.quiet:not(.bus-acts > *) { order: 1
 html.th-clean .bus-contact .bus-chead > .bus-acts { order: 11; margin-inline-start: 0; gap: 8px; }
 html.th-clean .bus-contact .bus-chead > .bus-person-name { display: none; }
 html.th-clean .bus-contact .bus-chead > .bus-code-line.quiet { padding: 0; }   /* the checked code — a 12/16 line, without the plate's padding */
-html.th-clean .bus-contact .bus-acts > .btn.danger { background: var(--c-alert-soft); color: var(--destructive); }
-@media (hover: hover) and (pointer: fine) {
-  html.th-clean .bus-contact .bus-acts > .btn.danger:hover { background: var(--c-alert-soft-hover); color: var(--destructive); }
-}
 @media (min-width: 761px) {
   html.th-clean .bus-contact:not(:has(> .bus-code, > .bus-personrow > :nth-child(2))) { grid-template-columns: minmax(0, 1fr);
     grid-template-rows: calc(24px * var(--c-rel)) auto; row-gap: 4px; }
@@ -2824,7 +2821,7 @@ html.th-clean .bus-contact .bus-acts > .btn.danger { background: var(--c-alert-s
     align-self: flex-start; margin-top: calc((24px * var(--c-rel) - 1lh) / 2); white-space: nowrap; }
   html.th-clean .bus-contact:not(:has(> .bus-code, > .bus-personrow > :nth-child(2))) > .bus-chead > .bus-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   html.th-clean .bus-contact:not(:has(> .bus-code, > .bus-personrow > :nth-child(2))) > .bus-personrow { grid-row: 2; grid-column: 1; justify-self: start;
-    max-width: calc(100% - 280px); }   /* three buttons on the right */
+    max-width: calc(100% - 200px); }   /* two buttons on the right */
 }
 
 /* ---- feed search: a 36 gray r8 field with a 16 icon and the "3 of 12" count inside, as the left panel's search, no border of the
@@ -2942,6 +2939,11 @@ html.th-clean.th-clean-recent #list { overflow-anchor: none; }
    a switch would have nowhere to go). The title outranks the status: a long status shrinks first with an ellipsis, the title keeps 8 characters ---- */
 @media (max-width: 760px) {
   html.th-clean main > .head { flex-wrap: nowrap; min-height: 52px; padding-block: 0; padding-inline: 4px 8px; gap: 4px; }
+  /* a linked hub's header carries the pair code row, which drops to a line of its own as on a computer (in one row it was squeezed into a narrow
+     column at the end of the header, and "Codes match" took two lines) and runs edge to edge */
+  html.th-clean main > .head.bus-vhead:has(> .bus-code) { flex-wrap: wrap; row-gap: 0; }
+  html.th-clean main > .head.bus-vhead:has(> .bus-code) > h2 { flex: 1 1 0; min-width: 8ch; }   /* the title still shrinks with an ellipsis in the first row, it does not push its neighbours down */
+  html.th-clean main > .head.bus-vhead > .bus-code { flex-basis: calc(100% + 12px); margin-inline: -4px -8px; padding-inline: 16px; }
   /* no container: with it the fixed "More" sheet would be placed from the header, not from the screen; the Settings header has no "More",
      and keeps its container: the section bar folds into "☰" by it (clean.js tabsFold), as it did before the one-row header */
   html.th-clean main > .head:not(:has(> .seg.tabs)) { container: none; }

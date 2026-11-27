@@ -252,6 +252,7 @@ def _detached(message):
 
 class CodexHost(StreamHost):
     kind = "stream"   # for the core — like stream-json: the same actions
+    compact_limit = None   # the hub's compaction threshold, set by hubd (load_catalog): Codex's own limit (codex_set)
     codex_models = True   # codex/… models are known to the fold (core/daemon.codex_tick -> codex.host)
     liaison_settings = codex_liaison.SETTINGS   # the liaison is raised on Codex too (daemon.ensure_dev checks it is callable)
 
@@ -403,13 +404,17 @@ class CodexHost(StreamHost):
 
     def _env(self, name, agent_file, info, home=None):
         """The process environment: as claude's (owner's environment, the hub's variables, the modules' launch.env —
-        secrets by folder and the like), without Claude's sign-in, gateway and the claude wrapper, with the hub's CODEX_HOME.
+        secrets by folder and the like), without Claude's sign-in, gateway and the claude wrapper, with the hub's CODEX_HOME and
+        this hub's own `hub` first in PATH (platforms own_hub).
         A Claude sign-in module (account, session_providers) has nothing to give Codex — not asked."""
         from core import modlaunch
         added = modlaunch.adds(self.modules, {"session": name, **info}) if self.modules else []
         self.note_missing(name, modlaunch.missing(self.modules, added) if self.modules else [])
-        env = self._launch_env(name, None, agent_file, added)
-        return {**codex_env(env), "CODEX_HOME": home or self.home, **ON_CODEX_ENV}
+        env = codex_env(self._launch_env(name, None, agent_file, added))
+        folder, extra = platforms.current.own_hub(self.state_dir)   # this hub's `hub` first (windows.own_hub)
+        if folder:
+            env.update(extra, PATH=folder + os.pathsep + env.get("PATH", ""))
+        return {**env, "CODEX_HOME": home or self.home, **ON_CODEX_ENV}
 
     def spawn(self, name, session_id, resume=False, cwd=None, mode=None, tools=(), project="all", kind="work",
               profile=None, about=None, agents=(), effort=None, model=None, executor_of=None, lang=None,
@@ -439,7 +444,7 @@ class CodexHost(StreamHost):
                        sources=codex_set.setting_sources(flags), home=where)
         enabled = codex_rules.features(FEATURES + tuple(codex_items.features(**session)), **session)
         cmd = self.codex + ["app-server", *codexcli.args(self.state_dir, where), *codex_set.args(enabled),
-                            *[x for f in enabled for x in ("--enable", f)]]
+                            *codex_set.compact_args(self.compact_limit), *[x for f in enabled for x in ("--enable", f)]]
         err = open(os.path.join(self.logs, f"{name}.stderr.log"), "a")
         # session files in projects get the user's umask, not the hub's closed one (core/perms.py)
         popen = subprocess.Popen(platforms.current.below_hub(cmd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -579,8 +584,10 @@ class CodexHost(StreamHost):
             # compaction is over — like Claude Code's answer to /compact: no turn, only the fact
             proc.compacts -= 1
             proc.turn = proc.compacting = None
-            facts.append(("session.compacted", name, {"ok": (p.get("turn") or {}).get("status") == "completed",
-                                                      "before": proc.compact_before, "after": None}))
+            ok = (p.get("turn") or {}).get("status") == "completed"
+            if ok:
+                proc.usage = None   # the last model call measured the conversation before it
+            facts.append(("session.compacted", name, {"ok": ok, "before": proc.compact_before, "after": None}))
             facts += [f for done in seams("compacted") for f in done(proc, name)]
             self._flush(proc)
         elif method == "turn/completed":
@@ -603,6 +610,7 @@ class CodexHost(StreamHost):
         elif method == "thread/compacted" and proc.compacts and not proc.compacting:
             # without a compaction turn; with one, its turn/completed above gives the fact (not both)
             proc.compacts -= 1
+            proc.usage = None
             facts.append(("session.compacted", name, {"ok": True, "before": None, "after": None}))
             facts += [f for done in seams("compacted") for f in done(proc, name)]
         elif method == "error" and not p.get("willRetry"):

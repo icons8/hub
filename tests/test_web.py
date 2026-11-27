@@ -895,9 +895,29 @@ class WebTest(unittest.TestCase):
         self.assertIn("default", snap["commands"]["models"])
         self.assertIn("xhigh", snap["commands"]["efforts"])
 
+    def at_clock(self, hour, minute=0):
+        """The clock of the process (the page, the journal, the core's fold) is today's hour:minute UTC from now on."""
+        real = time.time
+        day = real() // 86400 * 86400
+        shift = day + hour * 3600 + minute * 60 - real()
+        patcher = mock.patch("time.time", lambda: real() + shift)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_away_from_the_page_answers_with_what_telegram_says_and_a_repeat_says_it_is_already_away(self):
+        self.away_answers(12)
+
+    def test_away_for_an_hour_across_midnight_says_the_day_of_its_end(self):
+        # 23:30 + 1 hour is tomorrow: the line carries the date, as the repeat's does ("a date when it is not today")
+        self.away_answers(23, 30)
+
+    def away_answers(self, hour, minute=0):
         # owner report: /away deputies typed four times, the page showed nothing. The core decides (core_decides), the answer is
         # the line Telegram sends — until when — and the deputies' lines; a repeat while away says so, with the new end
+        self.at_clock(hour, minute)   # the owner's zone is UTC: seed sets none
+
+        def dated(hours):   # an away of `hours` from now ends on another day: its end carries the date
+            return r"\d\d\.\d\d " if hour * 60 + minute + hours * 60 >= 24 * 60 else ""
         self.seed()
         self.core_decides()
         code, out = self.req("POST", "/api/away", {"deputies": True})
@@ -908,13 +928,13 @@ class WebTest(unittest.TestCase):
         code, out = self.req("POST", "/api/away", {"deputies": True, "hours": 2})
         again = json.loads(out)["text"].split("\n")
         self.assertEqual(code, 202)
-        self.assertRegex(again[0], r"^Already away \(since (\d\d\.\d\d )?\d\d:\d\d\), now until (\d\d\.\d\d )?\d\d:\d\d$")   # a date when it is not today
+        self.assertRegex(again[0], rf"^Already away \(since \d\d:\d\d\), now until {dated(2)}\d\d:\d\d$")
         self.assertIn("No deputy is active for this away", again[1])
         self.assertEqual(self.req("POST", "/api/owner/back", {})[0], 202)
         self.settle()   # the page's reader folds the return
         code, out = self.req("POST", "/api/away", {"hours": 1})   # a new away, no deputies asked: the line alone
         text = json.loads(out)["text"]
-        self.assertRegex(text, r"you are away until \d\d:\d\d\.")
+        self.assertRegex(text, rf"you are away until {dated(1)}\d\d:\d\d\.")   # the date when the end is not today
         self.assertNotIn("\n", text)
         self.assertNotIn("Already", text)
 

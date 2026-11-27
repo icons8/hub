@@ -101,7 +101,7 @@ class CodexLogin(unittest.TestCase):
         r = self.hub("status", replies={"account/read": ACCOUNT, "account/rateLimits/read": read})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("signed in as a@example.com, plan prolite", r.stdout)
-        self.assertIn("week 7%", r.stdout)
+        self.assertIn("week 93% left", r.stdout)   # the share left, as Codex's /status
         r = self.hub("status", replies={"account/read": NONE})
         self.assertEqual(r.returncode, 1)
         self.assertIn("not signed in", r.stdout)
@@ -123,7 +123,7 @@ class CodexLogin(unittest.TestCase):
                            env=env, timeout=60, stdin=subprocess.DEVNULL)
         self.assertIn("Codex sign-in", r.stdout)
         self.assertIn("a@example.com, plan prolite", r.stdout)
-        self.assertIn("week 7%", r.stdout)
+        self.assertIn("week 93% left", r.stdout)   # the share left, as Codex's /status
         self.assertNotIn("install Claude Code", r.stdout)
         with open(self.replies, "w") as f:
             json.dump({"account/read": NONE}, f)
@@ -262,6 +262,26 @@ class SpawnWaitsForCodexLogin(unittest.TestCase):
         self.assertEqual(self.spawned(), ["maps"])
         self.assertIn("hub-core", self.hub.waiting())
 
+
+
+class CodexLimitsLine(unittest.TestCase):
+    """hub codex limits says a window as Codex's own /status does — the share left ("47% left"): the owner compares the
+    two, and the share used ("53%") read as a stale or wrong number (2026-11-26)."""
+
+    def test_the_share_left(self):
+        res = {"rateLimits": {"primary": {"usedPercent": 53, "windowDurationMins": 10080, "resetsAt": None}},
+               "ordinaryUsageAllowed": True}
+        self.assertEqual(codexcli.windows_line(res), i18n.t("cli.codex.window_seven_day") + " 47% left")
+        i18n.use("ru")
+        self.addCleanup(i18n.use, "en")
+        self.assertEqual(codexcli.windows_line(res), i18n.t("cli.codex.window_seven_day") + " " + i18n.tr("ru", "web.limits.left", pct=47))
+
+    def test_never_below_zero(self):
+        # PR #783 review: a reading over the limit (usedPercent 120) said "-20% left"; the page clamps at 0 (limitpct.js)
+        res = {"rateLimits": {"primary": {"usedPercent": 120, "windowDurationMins": 10080, "resetsAt": None}},
+               "ordinaryUsageAllowed": False}
+        self.assertTrue(codexcli.windows_line(res).startswith(i18n.t("cli.codex.window_seven_day") + " 0% left"),
+                        codexcli.windows_line(res))
 
 if __name__ == "__main__":
     unittest.main()

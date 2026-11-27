@@ -2272,7 +2272,7 @@ class Web:
     def plugins(self, lang=None):
         """All extensions and plugins for Settings -> Plugins: source, version, compatibility, themes, whether disabled."""
         from core.version import compat
-        out = []
+        out, exits = [], self.plugin_exits()
         for name, ext in self.ext_config().items():
             if not re.fullmatch(EXT_NAME, name):
                 continue
@@ -2301,8 +2301,24 @@ class Web:
                         "compat": st, "warning": self.t("web.srv.plugin_in_core") if name in IN_CORE else why,
                         # page code has full access to the page whether page_access is declared or not (there is no isolation)
                         "page_access": "full" if ext.get("web") else None,
+                        # its process keeps exiting by itself: {code, count, at} from hub-up, otherwise None
+                        "exits": exits.get(f"ext:{name}"),
                         **({"market": ext["market"]} if isinstance(ext.get("market"), str) else {})})
         return out
+
+    def plugin_exits(self):
+        """Plugin processes in a crash loop, as hub-up keeps them in hub-up.json: {"ext:<name>": {code, count, at}};
+        an odd record is skipped (the file is hub-up's, this hub's own state folder)."""
+        from core.restart import UP
+        try:
+            with open(os.path.join(self.state_dir, UP), encoding="utf-8") as f:
+                got = json.load(f).get("exits")
+        except (OSError, ValueError, AttributeError):
+            return {}
+        if not isinstance(got, dict):
+            return {}
+        return {n: {"code": e["code"], "count": e["count"], "at": e.get("at")} for n, e in got.items()
+                if isinstance(e, dict) and isinstance(e.get("code"), int) and isinstance(e.get("count"), int)}
 
     def manifest_text(self, name, ext, man, field, lang=None, most=300):
         """What a plugin does and why: for a bundled one — from the catalog in the page language (web.<name>.manifest_*),

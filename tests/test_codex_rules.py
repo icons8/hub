@@ -3,6 +3,8 @@ PreToolUse hook (hooks/deny_hint.py) in hooks.json of the hub's Codex folder, tr
 Codex subagents of its own; a mini-hub gets no apply_patch edits in its own folder, no git commit and push; a mini-hub
 executor gets no tool to ask the owner. If the hook did not become trusted, the session is not started."""
 import tests  # noqa: F401 — do not see the machine's settings (~/.config/hub-core), see tests/__init__.py
+import io
+import ntpath
 import json
 import os
 import shutil
@@ -115,6 +117,99 @@ class HomeTest(unittest.TestCase):
             (hook,) = json.load(f)["hooks"]["PreToolUse"][0]["hooks"]
         self.assertEqual(hook["command"], "C:\\PROGRA~1\\Py\\python.exe C:\\hub\\deny_hint.py")
         self.assertIsNone(codex_rules._hook_line(["~\\py\\python.exe", "x"]))   # PowerShell: "~" first is the home
+
+    def test_a_hub_s_own_build_keeps_its_hook(self):
+        # a hub's own build runs from a layer named <release>+local.<sha> (core/appcode.OWN); a folder with "+" has no
+        # 8.3 name on a volume without them, and the hook went empty — no Codex session started. Both shells read "+"
+        # inside a word as itself (cmd /C, PowerShell 5 and 7 -Command, live 2026-11-26)
+        from unittest import mock
+        import platforms
+        hook = "C:\\hub\\layers\\1.10.1+local.1e3b3c15e\\hooks\\deny_hint.py"
+        exe = {"type": "command", "command": "C:\\Py314\\python.exe", "args": [hook]}
+        with mock.patch.object(platforms.current, "hook_command", return_value=exe), \
+                mock.patch.object(codex_rules, "_short", lambda path: None):
+            self.prepare()
+        with open(os.path.join(self.home, "hooks.json")) as f:
+            (hook_entry,) = json.load(f)["hooks"]["PreToolUse"][0]["hooks"]
+        self.assertEqual(hook_entry["command"], "C:\\Py314\\python.exe " + hook)
+        self.assertIsNone(codex_rules._hook_line(["+x", "y"]))   # PowerShell: "+" first may read as a number's sign
+
+    def test_a_user_folder_of_any_alphabet_keeps_its_hook(self):
+        # a Windows profile with a non-Latin user name, or one named after a mail address ("@"), on a volume without 8.3
+        # names: the hook line went empty, Codex did not trust it and no Codex session started. Both shells read a letter
+        # of any alphabet, and "@" inside a word, as itself (cmd /C, PowerShell 5 and 7 -Command, live 2026-11-26)
+        from unittest import mock
+        import platforms
+        cyrillic = "".join(chr(0x430 + i) for i in range(4))   # a Cyrillic name, made here: the tests are not in Russian
+        for user in ("Ελένη", cyrillic, "maps@example", "Ελένη.maps-1", "Zoë",
+                     "".join(map(chr, (0x4E2D, 0x3005, 0x30FC)))):   # CJK with the marks of repetition and length
+            with self.subTest(user=user):
+                home = ntpath.join("C:\\", "Users", user)
+                py = ntpath.join(home, "AppData", "Local", "Hub", "python", "python.exe")
+                hook = ntpath.join(home, "AppData", "Local", "Hub", "layers", "1.10.1", "hooks", "deny_hint.py")
+                exe = {"type": "command", "command": py, "args": ["-X", "utf8", hook]}
+                with mock.patch.object(platforms.current, "hook_command", return_value=exe), \
+                        mock.patch.object(codex_rules, "_short", lambda path: None):
+                    self.prepare()
+                with open(os.path.join(self.home, "hooks.json"), encoding="utf-8") as f:
+                    (entry,) = json.load(f)["hooks"]["PreToolUse"][0]["hooks"]
+                self.assertEqual(entry["command"], f"{py} -X utf8 {hook}")
+                self.assertTrue(codex_rules.trusted(self.state))
+        self.assertIsNone(codex_rules._hook_line(["@x", "y"]))   # PowerShell: "@" first is an array or a splat
+
+    def test_a_non_ascii_path_with_a_plain_short_name_goes_by_it_as_before(self):
+        # a volume with 8.3 names: such a path went by its ASCII short name before, and still does
+        from unittest import mock
+        path = ntpath.join("C:\\", "Users", "Ελένη", "deny_hint.py")
+        with mock.patch.object(codex_rules, "_short", lambda p: "C:\\Users\\5C4A~1\\DENY_H~1.PY"):
+            self.assertEqual(codex_rules._hook_line(["C:\\Py314\\python.exe", path]),
+                             "C:\\Py314\\python.exe C:\\Users\\5C4A~1\\DENY_H~1.PY")
+        # a short name that is not plain (8.3 keeps "(" and drops the letters: "(2)~1", winstand): the long one, plain
+        with mock.patch.object(codex_rules, "_short", lambda p: "C:\\Users\\(2)~1\\DENY_H~1.PY"):
+            self.assertEqual(codex_rules._hook_line(["C:\\Py314\\python.exe", path]), "C:\\Py314\\python.exe " + path)
+
+    def test_a_character_that_breaks_out_of_a_word_is_no_line(self):
+        # what either shell reads as more than a part of a path never goes into the line unquoted: a separator, a
+        # quote, an escape, a variable or a group of cmd or PowerShell — and PowerShell's own Unicode quotes, dashes and
+        # spaces; a letter that looks like a quote, an apostrophe or a caret (a code page may turn it into one), a
+        # fullwidth quote. With no 8.3 name such a path is no line
+        from unittest import mock
+        with mock.patch.object(codex_rules, "_short", lambda path: None):
+            for c in (" ", "&", "|", "^", "%", "!", '"', "'", "`", "$", ";", ",", "<", ">", "(", ")", "{", "}", "[",
+                      "]", "#", "=", "*", "?", "\t", "\n", "\u201c", "\u2018", "\u2013", "\u2014", "\u00a0", "\u3000",
+                      "\u02ba", "\u02b9", "\u02c6", "\u02bc", "\u0374", "\ua788", "\ua78b", "\ua78c", "\uff02",
+                      "\uff06", "\u2474", chr(0x0559), chr(0x07F4)):
+                with self.subTest(c=c):
+                    path = f"C:\\hub\\a{c}b\\deny_hint.py"
+                    line, why = codex_rules._line(["C:\\Py314\\python.exe", path])
+                    self.assertIsNone(line)
+                    self.assertIn(path, why)
+
+    def test_no_line_says_which_path_and_character_in_the_session_start(self):
+        # «no hook line → no Codex session» says why: the path and its characters, in the log and the refused start —
+        # not a mere "Codex does not trust the core's hook"
+        from unittest import mock
+        import platforms
+        hook = "C:\\hub (2)\\deny_hint.py"
+        exe = {"type": "command", "command": "C:\\Py314\\python.exe", "args": [hook]}
+        with mock.patch.object(platforms.current, "hook_command", return_value=exe), \
+                mock.patch.object(codex_rules, "_short", lambda path: None):
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                self.prepare()
+            with self.assertRaises(RuntimeError) as got:
+                codex_rules.features((), name="maps", mode=None, state_dir=self.state)
+        self.assertIn(f"the core's hook path {hook} has a space, '(', ')', which cmd and PowerShell do not both read as "
+                      "a part of a path, and it has no 8.3 short name", err.getvalue())
+        self.assertNotIn("without spaces", err.getvalue())
+        self.assertIn(f"the bans do not hold: the core's hook path {hook} has a space", str(got.exception))
+        self.assertEqual(codex_rules._line(["C:\\hub\\py.exe", "~x"])[1],
+                         "the core's hook path ~x has '~' at the start, which cmd and PowerShell do not both read as a "
+                         "part of a path, and it has no 8.3 short name: the hub (and its Python) need a folder without it")
+        self.assertIn("a space, '+' at the start", codex_rules._line(["C:\\hub\\py.exe", "+hub x"])[1])
+        # the short name is there, but not plain either: said so, not "no 8.3 short name"
+        with mock.patch.object(codex_rules, "_short", lambda path: "C:\\HUB(2)~1\\DENY_H~1.PY"):
+            self.assertIn("its 8.3 short name C:\\HUB(2)~1\\DENY_H~1.PY is not plain either",
+                          codex_rules._line(["C:\\Py314\\python.exe", hook])[1])
 
     def test_a_hook_path_that_cannot_be_a_plain_word_means_no_session(self):
         # a space in the path and no 8.3 name (here, off Windows, there is none): no line that both shells read —

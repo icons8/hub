@@ -1,8 +1,7 @@
-<!-- If a maintainer invited you to contribute, or asked you for this very change, carry on: the template below is for you. -->
-<!-- Anyone else: pull requests from outside the maintainers' group are not accepted for now (see CONTRIBUTING.md). Please open an issue
-instead: a good issue is the most useful contribution. -->
-<!-- The core takes only what every hub needs; anything else is a module or a plugin (see EXTENDING.md). Before you open this,
-go through "Before you open a pull request" in CONTRIBUTING.md: most pull requests that come back fail one of its checks. -->
+<!-- Thank you for the pull request. Before you open it, go through "Pull requests are welcome" and "Before you open a pull
+request" in CONTRIBUTING.md: a change larger than a small fix starts with an issue, one change per pull request, and
+`tools/test.py` is green. -->
+<!-- The core takes only what every hub needs; anything else is a module or a plugin (see EXTENDING.md). -->
 
 ## What problem does this solve?
 

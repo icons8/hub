@@ -11,13 +11,14 @@ const ROOT = path.join(import.meta.dirname, "..", "..");
 const DIR = path.join(ROOT, "modules", "web", "static", "clean");
 const { usageModel, emailSteps, left, WORDS } = await import(pathToFileURL(path.join(DIR, "usage.js")).href);
 const { clock } = await import(pathToFileURL(path.join(DIR, "..", "js", "clock.js")).href);
+const { countsDown, pctNum, pctText } = await import(pathToFileURL(path.join(DIR, "..", "js", "limitpct.js")).href);
 const css = fs.readFileSync(path.join(DIR, "clean.css"), "utf8").replace(/\r\n/g, "\n");   // a Windows checkout: CRLF
 const main = fs.readFileSync(path.join(DIR, "clean.js"), "utf8");
 // the page's words come from the catalogs (web.clean.usage_*, web.limits.name_*): here the Russian ones, as clean.js builds them
 const ru = JSON.parse(fs.readFileSync(path.join(ROOT, "i18n", "ru.json"), "utf8"));
 // the catalog key of each word: the window names are the limits' own, "accounts" is the settings tab's
 const keyOf = (k) => ({ five_hour: "web.limits.name_five_hour", seven_day: "web.limits.name_week", seven_day_opus: "web.limits.name_week_opus",
-  seven_day_sonnet: "web.limits.name_week_sonnet", accounts: "web.settings.tab.accounts" })[k] || `web.clean.usage_${k}`;
+  seven_day_sonnet: "web.limits.name_week_sonnet", accounts: "web.settings.tab.accounts", left: "web.limits.left" })[k] || `web.clean.usage_${k}`;
 const RU = Object.fromEntries(Object.keys(WORDS).map((k) => [k, ru[keyOf(k)]]));
 const words = RU;
 
@@ -34,6 +35,24 @@ const snap = ({ five = 0.4, week = 0.5, status = "allowed", eco = false, ts = NO
   budget: eco ? { mode: "economy" } : null,   // limit saving: the core's budget.view, no key in normal mode
 });
 const tones = (m) => m.windows.filter((w) => !w.extra).map((w) => w.tone);
+
+test("a Codex reading says the share left, as Codex's /status; a Claude one the share used", () => {
+  const cx = snap({ five: 0.2, week: 0.53 });
+  cx.limits.engine = "codex";
+  const words = { ...RU, left: ru["web.limits.left"] };
+  const [five, week] = usageModel(cx, { now: NOW, words }).windows;
+  assert.equal(week.text, ru["web.limits.left"].replace("{pct}", "47"));
+  assert.equal(five.text, ru["web.limits.left"].replace("{pct}", "80"));
+  assert.ok(week.spoken.includes(ru["web.limits.left"].replace("{pct}", "47")));
+  assert.equal(week.tone, "ok", "the colour still follows the share used");
+  assert.equal(week.used, 0.53, "the bar is still the share used");
+  const claude = usageModel(snap({ five: 0.2, week: 0.53 }), { now: NOW, words }).windows[1];
+  assert.equal(claude.text, "53%");
+  // the old wiring wrote the bare share used into the caption and the old-reading row
+  assert.doesNotMatch(main, /`\$\{w\.pct\}%`/);
+  assert.match(main, /limpct", pctNum\(used, down\)/, "the line: the number only, the footer has room for both windows");
+  assert.match(main, /dataset\.full = `\$\{T\(\.\.\.FULL\[name\]\)\} \$\{pctText\(used, down, left\)\}`/, "the word in the tooltip");
+});
 
 test("colour: grey below 80%, orange 80–95%, red from 95% and when not working", () => {
   assert.deepEqual(tones(usageModel(snap({ five: 0.4, week: 0.79 }), { now: NOW, words })), ["ok", "ok"]);
@@ -102,17 +121,28 @@ test("a fresh reading stays fresh when the link drops or the hub is quiet, as in
 test("the text line: yellow only while the core says economy (budget.mode), grey otherwise", () => {
   // limitsLine run on stub nodes: the snapshot has no `economy` key, the core sends `budget` (None in normal mode)
   const code = main.slice(main.indexOf("const SHORT = "), main.indexOf("// The usage bars"));
-  const run = (s) => {
+  const run = (s, pick = (k) => k.dataset.tone) => {
     let line = null;
     const el = (tag, cls, text) => { const n = { cls, text, dataset: {}, kids: [], classList: { add() {} }, append(...k) { this.kids.push(...k); },
       querySelectorAll: () => [], addEventListener() {} }; if (cls === "clean-lim") line = n; return n; };
     const root = { replaceChildren() {} };
-    new Function("hub", "on", "T", "clock", `${code}; return limitsLine;`)({ el }, () => true, (k, fb) => fb, clock)(root, s);
-    return line.kids.filter((k) => k.cls === "limseg").map((k) => k.dataset.tone);
+    new Function("hub", "on", "T", "clock", "USAGE_WORDS", "countsDown", "pctNum", "pctText", `${code}; return limitsLine;`)(
+      { el }, () => true, (k, fb) => fb, clock, WORDS, countsDown, pctNum, pctText)(root, s);
+    return line.kids.filter((k) => k.cls === "limseg").map(pick);
   };
   assert.deepEqual(run(snap({ five: 0.4, week: 0.2, eco: true })), ["eco", "eco"], "economy — yellow");
   assert.deepEqual(run(snap({ five: 0.4, week: 0.2 })), ["ok", "ok"], "normal — grey");
   assert.deepEqual(run(snap({ five: 0.97, week: 0.85 })), ["high", "warn"], "normal — red and orange stay");
+  // the percent: a Claude reading — the share used; a Codex one — the share left, as Codex's /status says it
+  const pct = (k) => k.kids.find((x) => x.cls === "limpct").text;
+  assert.deepEqual(run(snap({ five: 0.2, week: 0.53 }), pct), ["20%", "53%"]);
+  const cx = snap({ five: 0.2, week: 0.53 });
+  cx.limits.engine = "codex";
+  // PR #783 review: "80% left" + "47% left" did not fit the 176 px footer, the week wrapped out of sight; the word is in the tooltip
+  assert.deepEqual(run(cx, pct), ["80%", "47%"]);
+  assert.deepEqual(run(cx, (k) => k.dataset.full), ["5 hours 80% left", "Week 47% left"]);
+  assert.equal(pctNum(120, true), "0%", "never below zero");
+  assert.deepEqual(run(cx), ["ok", "ok"], "the colour still follows the share used");
 });
 
 test("old reading: a clock hint with the time and the reason; the link to the hub goes first", () => {

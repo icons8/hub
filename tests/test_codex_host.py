@@ -387,6 +387,54 @@ class WholeHubOnCodexTest(CodexHostTest):
         self.assertEqual(dump["env"]["CODEX_HOME"], os.path.join(self.state, "codex-home"))
         self.assertEqual(os.listdir(personal), [])
 
+    def test_codex_compacts_at_the_hub_threshold(self):
+        # 2026-11-26: a Codex chat grew to 348k (the page's counter 132% of the hub's 200k): Codex compacts by itself
+        # only at 90% of its own window (475k → 450k), and the core's idle compaction waits for 30 quiet minutes. A
+        # Claude session compacts near 200k by itself (its window, compact_idle.mid_turn); a Codex one gets the hub's
+        # threshold as its own limit — mid-turn too. compact_idle.mid_turn: false turns it off, as for Claude
+        from unittest import mock
+        cfg = os.path.join(self.state, "hub.json")
+
+        def limits(name, ci):
+            with open(cfg, "w", encoding="utf-8") as f:
+                json.dump({"compact_idle": ci} if ci is not None else {}, f)
+            with mock.patch.dict(os.environ, {"HUB_CONFIG": cfg}):
+                self.hub.load_catalog()
+            self.cli("session.requested", name, cwd=self.state, session_id=f"sid-{name}")
+            self.until(lambda: self.sess(name).get("state") == "idle")
+            (dump,) = self.dumps(name)
+            argv = dump["argv"]
+            return [argv[i + 1] for i, a in enumerate(argv[:-1])
+                    if a == "-c" and argv[i + 1].startswith("model_auto_compact_token_limit=")]
+
+        self.assertEqual(limits("a", None), ["model_auto_compact_token_limit=200000"])   # on by default
+        self.assertEqual(limits("b", {"min_tokens": 300000}), ["model_auto_compact_token_limit=300000"])
+        self.assertEqual(limits("c", {"mid_turn": False}), [])
+
+    @unittest.skipUnless(os.name == "nt", "POSIX: the hub's start puts <state>/bin with its `hub` first (app/start.py)")
+    def test_a_second_hub_s_session_finds_its_own_hub_command_first(self):
+        # 2026-11-26: a second hub of this computer on Codex. Its session's `hub send` went to the main hub: the user's
+        # PATH had the main hub's bin\hub.cmd (it sets that hub's HUB_STATE_DIR), and the Codex host put nothing of its
+        # own before it, as streamjson.nested does for claude. The main hub took HUB_SESSION for its own session
+        main = tempfile.mkdtemp(prefix="hubcx-main-", dir=self.state)
+        for name in ("hub", "hub.cmd"):
+            with open(os.path.join(main, name), "w") as f:
+                f.write("@rem the main hub\n")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"PATH": main + os.pathsep + os.environ.get("PATH", "")}):
+            self.cli("session.requested", "a", cwd=self.state, session_id="sid-a")
+            self.until(lambda: self.sess("a").get("state") == "idle")
+        env = self.dumps("a")[0]["env"]
+        found = shutil.which("hub", path=env["PATH"])
+        self.assertTrue(found and os.path.dirname(found) != main, found)
+        # a folder of this hub's own: 2–4 hubs of one computer do not share it
+        self.assertEqual(os.path.commonpath([found, self.state]), self.state)
+        self.assertEqual(os.path.dirname(os.path.dirname(env["HUB_NESTED_HUB"])),
+                         os.path.dirname(os.path.dirname(os.path.abspath(platforms.__file__))))
+        self.assertEqual(env["HUB_STATE_DIR"], self.state)
+        # the claude wrapper stays Claude's: Codex has no set of claude's to give it (hosts/codex._env)
+        self.assertFalse(os.path.isfile(os.path.join(os.path.dirname(found), "claude.cmd")))
+
     def test_any_session_is_codex_with_the_hub_model_and_own_codex_home(self):
         self.cli("session.requested", "a", cwd=self.state, session_id="sid-a")
         self.until(lambda: self.sess("a").get("state") == "idle")
@@ -648,6 +696,45 @@ class ReviewFixes(unittest.TestCase):
                                                                           "turn": {"id": "c1", "status": "completed"}}})
         self.assertEqual([f[0] for f in facts], ["session.compacted"])
         self.assertEqual(proc.compacts, 0)
+
+    def test_a_finished_compaction_forgets_the_last_calls_length(self):
+        # the last model call measured the conversation before the compaction: a turn that ends without a model call
+        # (refused, interrupted) must not bring the old length back, nor the next compaction count from it
+        host, proc, _ = self.host()
+        proc.usage = {"last": {"inputTokens": 181838}}
+        host.compact("a")
+        host._line("a", {"method": "item/started", "params": {"threadId": "t", "turnId": "c1",
+                                                               "item": {"type": "contextCompaction"}}})
+        facts = host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
+                                                                         "turn": {"id": "c1", "status": "completed"}}})
+        self.assertEqual(facts[0], ("session.compacted", "a", {"ok": True, "before": 181838, "after": None}))
+        facts = host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
+                                                                         "turn": {"id": "u1", "status": "failed"}}})
+        result = next(data for kind, _, data in facts if kind == "turn.result")
+        self.assertNotIn("context", result)
+
+    def test_a_compaction_without_its_turn_forgets_the_last_calls_length(self):
+        host, proc, _ = self.host()
+        proc.usage = {"last": {"inputTokens": 181838}}
+        host.compact("a")
+        host._line("a", {"method": "thread/compacted", "params": {"threadId": "t"}})
+        facts = host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
+                                                                         "turn": {"id": "u1", "status": "interrupted"}}})
+        result = next(data for kind, _, data in facts if kind == "turn.result")
+        self.assertNotIn("context", result)
+
+    def test_a_failed_compaction_keeps_the_last_calls_length(self):
+        host, proc, _ = self.host()
+        proc.usage = {"last": {"inputTokens": 181838}}
+        host.compact("a")
+        host._line("a", {"method": "item/started", "params": {"threadId": "t", "turnId": "c1",
+                                                               "item": {"type": "contextCompaction"}}})
+        host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
+                                                                 "turn": {"id": "c1", "status": "failed"}}})
+        facts = host._line("a", {"method": "turn/completed", "params": {"threadId": "t",
+                                                                         "turn": {"id": "u1", "status": "failed"}}})
+        result = next(data for kind, _, data in facts if kind == "turn.result")
+        self.assertEqual(result["context"], 181838)
 
     def test_config_keeps_the_hook_trust_across_starts(self):
         # every hubd start rewrote config.toml and lost trusted_hash: two app-server runs to trust the hook again

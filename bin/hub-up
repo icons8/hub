@@ -144,6 +144,7 @@ def net_env():
     return out
 
 
+STEADY = 300   # s of work after which a part's exit is not one more in a crash loop (the pause starts from 2 s again)
 LOCK_WAIT = 10   # s: how long to wait for the hub-up.lock lock while the previous image releases it (restart)
 
 
@@ -224,10 +225,15 @@ def main(argv):
     procs, backoff, since, due, stopping = {}, {}, {}, {}, False
     handles = {}  # part -> its stop handle (platforms: spawn_part / stop_part)
     mods = {}     # part mod:<name> -> its want (core/modrun.py) while hubd says to keep it
+    # plugin part -> its exits by itself in a row {code, count, at}: hub-up.json, the plugins page shows a crash loop; it
+    # goes after STEADY seconds of work, a restart asked for (a fix installed) or the plugin's removal
+    exits = {}
     core_life = {}  # marker of this core life (modrun.CORE_ENV): the want files must come from it, not from a previous run
     setup = {}      # "run": the app's steps (modules/setup/auto.py) while they go on — they stop with this hub-up
 
     def start(name, asked=False):
+        if asked:
+            exits.pop(name, None)
         if name in handles:  # the part's previous life crashed on its own: its handle is no longer needed
             plat.stop_part(procs[name], handles.pop(name))
         # asked: a restart by `hub restart <part>`, not a hub start or a crash: the browser then stops its own Chrome too
@@ -369,6 +375,7 @@ def main(argv):
             procs.pop(n)
             since.pop(n, None); backoff.pop(n, None); due.pop(n, None)
             exts.pop(n, None)
+            exits.pop(n, None)
             say(f"{n} is off — not starting it")
         if gone:
             write_up()   # the record of live plugins (hub-up.json exts) no longer names them
@@ -424,7 +431,8 @@ def main(argv):
         with open(up_file + ".tmp", "w") as f:
             json.dump({"pid": os.getpid(), "started": born, "parent": plat.supervisor(), "service": svc,
                        "core": core.pid if core else None,
-                       "exts": {n: exts[n]["cwd"] for n in procs if n in exts}}, f)
+                       "exts": {n: exts[n]["cwd"] for n in procs if n in exts},
+                       "exits": {n: e for n, e in exits.items() if n in exts}}, f)
         plat.replace(up_file + ".tmp", up_file)
     born = plat.process_start(os.getpid())   # exec on new code keeps the process: the same pid and start time
     write_up()
@@ -497,14 +505,22 @@ def main(argv):
                     del due[name]
                     start(name)
                 continue
-            if p.poll() is not None:
-                if name in mods:   # the module exited by itself: record the failure, restart with a pause, as with parts
-                    modrun.exited(default_state_dir(), name[4:], p.returncode, now - since[name])
-                # the pause grows 2, 4, 8... up to a minute; after 5 minutes of work it starts again from 2 s
-                pause = 2 if now - since[name] > 300 else min(60, backoff.get(name, 1) * 2)
-                backoff[name] = pause
-                due[name] = now + pause
-                say(f"{name} exited with code {p.returncode}, again in {pause} s")
+            if p.poll() is None:
+                if name in exits and now - since[name] > STEADY:   # works again: the crash loop is over
+                    exits.pop(name)
+                    write_up()
+                continue
+            if name in mods:   # the module exited by itself: record the failure, restart with a pause, as with parts
+                modrun.exited(default_state_dir(), name[4:], p.returncode, now - since[name])
+            if name in exts:   # a plugin has no journal fact of its own: the page reads hub-up.json
+                last = exits.get(name) if now - since[name] <= STEADY else None
+                exits[name] = {"code": p.returncode, "count": (last or {}).get("count", 0) + 1, "at": round(now, 1)}
+                write_up()
+            # the pause grows 2, 4, 8... up to a minute; after STEADY seconds of work it starts again from 2 s
+            pause = 2 if now - since[name] > STEADY else min(60, backoff.get(name, 1) * 2)
+            backoff[name] = pause
+            due[name] = now + pause
+            say(f"{name} exited with code {p.returncode}, again in {pause} s")
 
 
 def boot_private():

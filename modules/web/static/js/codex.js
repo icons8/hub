@@ -8,8 +8,11 @@ import { clock } from "./clock.js";
 import { post } from "./api.js";
 import { S } from "./state.js";
 import { locale, t } from "./i18n.js";
+import { pctText } from "./limitpct.js";
 
 const WIN = { five_hour: () => t("web.codex.win_five_hour"), seven_day: () => t("web.codex.win_week") };
+// every reading here is Codex's: the share left, as its /status says ("47% left")
+const left = (pct) => pctText(pct, true, t("web.limits.left"));
 
 function when(ts) {
   return clock(ts, locale, { day: "numeric", month: "short" });
@@ -32,7 +35,7 @@ function windowsLine(windows, now) {
   for (const [name, w] of Object.entries(windows || {})) {
     if (typeof w?.used !== "number" || !WIN[name]) continue;
     const gone = w.resets && w.resets < now;
-    parts.push(`${WIN[name]()} ${gone ? 0 : Math.round(w.used * 100)}%`);
+    parts.push(`${WIN[name]()} ${left(gone ? 0 : Math.round(w.used * 100))}`);
   }
   return parts.join(" · ");
 }
@@ -123,7 +126,7 @@ export function codexSection() {
       if (typeof w.used !== "number" || !WIN[name]) continue;
       const gone = w.resets && w.resets < now;
       const pct = gone ? 0 : Math.round(w.used * 100);
-      wrap.append(el("p", "cx-lim", `${WIN[name]()}: ${pct}%` + (w.resets && !gone ? ` · ${t("web.codex.resets", { when: when(w.resets) })}` : "")));
+      wrap.append(el("p", "cx-lim", `${WIN[name]()}: ${left(pct)}` + (w.resets && !gone ? ` · ${t("web.codex.resets", { when: when(w.resets) })}` : "")));
     }
   }
   const page = cx.page;

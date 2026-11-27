@@ -520,24 +520,30 @@ class CodexSessionsDoNotFallBackToClaude(unittest.TestCase):
         return {"sessions": {"a": {"name": "a", "state": state, "info": info, "mcp_waits": {"docs": ""}}},
                 "mcp_waits": {"docs": {"": {"since": 1}}}}
 
-    def test_a_sleeping_codex_session_is_told_not_pty(self):
+    def test_a_sleeping_codex_session_is_woken_not_pty(self):
+        # it was a refusal ("wake the session and sign in again"): the owner pressed "Sign in" and nothing happened —
+        # every holder sleeps after a restart of the hub. The core wakes the holder and signs in through it once it is up
         from core import mcpwatch
         st, actions = self.st("asleep"), []
-        with self.assertRaisesRegex(ValueError, "a live session"):
-            mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True},
-                                     actions)
-        self.assertEqual(actions, [])
+        woke = mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True},
+                                        actions)
+        self.assertEqual(woke["name"], "a")
+        self.assertEqual(actions, [])   # the sign-in starts once the session is up (login_woke)
+        (a,) = st["mcp_logins"].values()
+        self.assertEqual((a["state"], a["session"], a.get("waking"), a.get("pty")), ("asked", "a", True, None))
         st, actions = self.st("asleep", host=None), []   # Claude — the old way, as before
-        mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True}, actions)
+        woke = mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True},
+                                        actions)
+        self.assertIsNone(woke)
         self.assertEqual(actions[0]["do"], "mcp_login_pty")
 
     def test_an_info_from_before_the_flag_still_has_no_old_way(self):
         from core import mcpwatch
         st, actions = self.st("asleep"), []
         del st["sessions"]["a"]["info"]["mcp_login_pty"]   # host: codex only, as an earlier experiment wrote it
-        with self.assertRaises(ValueError):
-            mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True},
-                                     actions)
+        woke = mcpwatch.login_requested(st, {"seq": 9, "ts": 10}, {"server": "docs", "channel": "web", "owner": True},
+                                        actions)
+        self.assertEqual((woke["name"], actions), ("a", []))
 
     def test_a_host_error_fails_the_attempt_instead_of_the_old_way(self):
         from core import mcpwatch
@@ -548,6 +554,158 @@ class CodexSessionsDoNotFallBackToClaude(unittest.TestCase):
                             {"do": "mcp_login", "attempt": a["id"], "error": "RuntimeError('no process')"}, actions)
         self.assertEqual((a["state"], a.get("pty")), ("failed", None))
         self.assertEqual([x["do"] for x in actions], ["mcp_login"])
+
+
+class SleepingCodexHolderIsWoken(unittest.TestCase):
+    """"Sign in" on a hub on Codex while the session that holds the wait sleeps (every one does after a restart of the
+    hub): the core wakes it and starts the sign-in through it once it is up — an event replay through the reducer."""
+
+    def setUp(self):
+        from core import reducer
+        self.reducer, self.st, self.seq, self.actions = reducer, reducer.empty(), 0, []
+
+    def ev(self, type, entity=None, src="cli", **data):
+        self.seq += 1
+        self.st, acts, why = self.reducer.reduce(self.st, {"seq": self.seq, "ts": 1000 + self.seq, "type": type,
+                                                           "entity": entity, "data": data, "src": src})
+        self.actions += acts
+        return why
+
+    def codex(self, name):
+        self.ev("session.requested", name, cwd="/w", session_id="s-" + name, channel="cli", owner=True)
+        self.ev("session.started", name, session_id="s-" + name, source="startup")
+        self.ev("session.info", name, src="host", mcp=["docs"], mcp_login_pty=False)
+        self.ev("session.mcp", name, src="host", servers={"docs": "needs-auth"})
+
+    def login(self):
+        self.actions = []
+        why = self.ev("mcp.login_requested", None, server="docs", channel="web", owner=True)
+        return why, (self.st.get("mcp_logins") or {}).get(f"l{self.seq}")
+
+    def did(self, do):
+        return [a for a in self.actions if a.get("do") == do]
+
+    def snap(self):
+        from core.views import Reader
+        r = Reader()
+        r.state = self.st
+        return r.snapshot()
+
+    def test_the_press_wakes_the_holder_and_the_sign_in_starts_when_it_is_up(self):
+        self.codex("a")
+        self.ev("session.ended", "a")   # asleep, as after a restart of the hub
+        self.assertEqual(self.st["sessions"]["a"]["state"], "asleep")
+        why, a = self.login()
+        self.assertIsNone(why)
+        self.assertEqual(self.st["sessions"]["a"]["state"], "starting")
+        self.assertEqual([x["session"] for x in self.did("spawn")], ["a"])
+        self.assertEqual(self.did("mcp_login") + self.did("mcp_login_pty"), [])
+        (row,) = self.snap()["mcp_logins"]
+        self.assertEqual((row["state"], row["session"], row.get("waking")), ("asked", "a", True))   # the page: "waking a…"
+        self.actions = []
+        self.ev("session.started", "a", session_id="s-a", source="resume")
+        self.assertEqual(self.did("mcp_login"), [{"do": "mcp_login", "session": "a", "server": "docs", "attempt": a["id"]}])
+        a = self.st["mcp_logins"][a["id"]]
+        self.assertEqual((a["state"], a.get("waking")), ("asked", None))
+        self.assertEqual(a["ts"], 1000 + self.seq)   # its life counts from the start, not from the press
+        # its servers are still starting: the core asks again, as on any fresh start
+        self.actions = []
+        self.ev("session.mcp_login", "a", src="host", attempt=a["id"], server="docs", step="auth", ok=False,
+                status="pending")
+        self.assertEqual([x["do"] for x in self.did("mcp_login")], ["mcp_login"])
+        self.ev("session.mcp_login", "a", src="host", attempt=a["id"], server="docs", step="auth", ok=True)
+        self.assertEqual(self.st["mcp_logins"][a["id"]]["state"], "open")
+
+    def test_a_second_press_while_it_wakes_does_not_wake_it_again(self):
+        self.codex("a")
+        self.ev("session.ended", "a")
+        self.login()
+        self.seq += 10   # past AGAIN: a new attempt replaces the first
+        why, b = self.login()
+        self.assertIsNone(why)
+        self.assertEqual(self.did("spawn"), [])
+        self.assertEqual((b["state"], b.get("waking")), ("asked", True))
+        self.assertEqual(list(self.st["mcp_logins"]), [b["id"]])
+        self.ev("session.started", "a", session_id="s-a", source="resume")
+        self.assertEqual([x["attempt"] for x in self.did("mcp_login")], [b["id"]])
+
+    def test_a_holder_that_did_not_come_up_fails_the_attempt_in_words(self):
+        self.codex("a")
+        self.ev("session.ended", "a")
+        _, a = self.login()
+        self.ev("session.ended", "a")   # went back to sleep before it started
+        a = self.st["mcp_logins"][a["id"]]
+        self.assertEqual(a["state"], "failed")
+        self.assertIn("did not come up", a["error"])
+        self.assertEqual(self.did("mcp_login"), [])
+
+    def test_a_stopped_executor_is_not_woken_by_a_sign_in(self):
+        # review: the sign-in raised a retired holder past the wake gates — its copy may be another executor's now, and
+        # the owner's "stopped" mark was erased; a message does not wake it, a sign-in does not either
+        self.codex("a")
+        self.st["sessions"]["a"].update(role="executor", raised_by="h")
+        self.assertIsNone(self.ev("session.stop_requested", "a", channel="web", owner=True))
+        self.ev("session.exited", "a", why="released")
+        self.ev("session.requested", "h", cwd="/h", session_id="s-h", channel="cli", owner=True)
+        self.ev("session.started", "h", session_id="s-h", source="startup")
+        self.actions = []
+        why = self.ev("mcp.login_requested", None, server="docs", channel="session", owner=False, sender="h")
+        self.assertIn("hub session wake a", str(why))
+        a = self.st["sessions"]["a"]
+        self.assertEqual((a["state"], (a.get("stopped") or {}).get("by")), ("retired", "owner"))
+        self.assertEqual(self.did("spawn") + self.did("mcp_login") + self.did("mcp_login_pty"), [])
+        self.assertFalse(self.st.get("mcp_logins"))
+        self.assertEqual(self.st.get("_wake") or [], [])
+
+    def test_a_sleeping_holder_goes_ahead_of_a_failed_one(self):
+        # review: [a: failed, b: asleep] was refused "only through a live session (a)" although b could be woken
+        for n in ("a", "b"):
+            self.codex(n)
+        self.ev("session.ended", "b")
+        for _ in range(self.reducer.MAX_RESTARTS + 1):   # crashed past its restarts
+            self.ev("session.exited", "a")
+        self.assertEqual(self.st["sessions"]["a"]["state"], "failed")
+        why, a = self.login()
+        self.assertIsNone(why)
+        self.assertEqual((a["session"], a.get("waking")), ("b", True))
+        self.assertEqual([x["session"] for x in self.did("spawn")], ["b"])
+
+    def test_the_named_sleeping_holder_is_the_one_woken(self):
+        # review: with no live holder the pick ignored the session named (`hub mcp login b docs`) and woke "a"
+        for n in ("a", "b"):
+            self.codex(n)
+            self.ev("session.ended", n)
+        self.actions = []
+        why = self.ev("mcp.login_requested", None, server="docs", session="b", channel="cli", owner=True)
+        self.assertIsNone(why)
+        a = self.st["mcp_logins"][f"l{self.seq}"]
+        self.assertEqual((a["session"], a.get("waking")), ("b", True))
+        self.assertEqual([x["session"] for x in self.did("spawn")], ["b"])
+        self.assertEqual(self.st["sessions"]["a"]["state"], "asleep")
+
+    def test_a_holder_already_starting_is_not_passed_over_for_the_named_one(self):
+        # review: the name only breaks a tie — "a" woken by an earlier press is not joined by a second spawn of "b"
+        for n in ("a", "b"):
+            self.codex(n)
+            self.ev("session.ended", n)
+        self.login()
+        self.assertEqual(self.st["sessions"]["a"]["state"], "starting")
+        self.seq += 10   # past AGAIN
+        self.actions = []
+        self.assertIsNone(self.ev("mcp.login_requested", None, server="docs", session="b", channel="cli", owner=True))
+        self.assertEqual(self.st["mcp_logins"][f"l{self.seq}"]["session"], "a")
+        self.assertEqual(self.did("spawn"), [])
+        self.assertEqual(self.st["sessions"]["b"]["state"], "asleep")
+
+    def test_claude_holders_keep_the_old_way(self):
+        self.ev("session.requested", "c", cwd="/w", session_id="s-c", channel="cli", owner=True)
+        self.ev("session.started", "c", session_id="s-c", source="startup")
+        self.ev("session.mcp", "c", src="host", servers={"docs": "needs-auth"})
+        self.ev("session.ended", "c")
+        why, a = self.login()
+        self.assertIsNone(why)
+        self.assertEqual((self.did("spawn"), [x["do"] for x in self.did("mcp_login_pty")]), ([], ["mcp_login_pty"]))
+        self.assertEqual(self.st["sessions"]["c"]["state"], "asleep")
 
 
 class HubMcpLoginOnCodex(unittest.TestCase):
@@ -571,6 +729,45 @@ class HubMcpLoginOnCodex(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("Codex", out.stderr)
         self.assertNotIn("claude", out.stderr.lower().replace("claude-", ""))
+
+
+class HubMcpLoginWaitsForAWokenHolder(unittest.TestCase):
+    """Review: `hub mcp login` waited 75 s for the link, while a woken holder first comes up and then its servers start
+    (WOKE_PENDING): the command said "no link" while the sign-in was still on its way."""
+
+    def test_the_link_after_a_long_wake_is_still_printed(self):
+        import contextlib
+        import importlib.machinery
+        import importlib.util
+        from unittest import mock
+        from core import mcpwatch
+        loader = importlib.machinery.SourceFileLoader("hub_cli_mcp", os.path.join(ROOT, "bin", "hub"))
+        hub = importlib.util.module_from_spec(importlib.util.spec_from_loader("hub_cli_mcp", loader))
+        loader.exec_module(hub)
+        hub.ME = None
+        # the core's timeline: the press is taken, the holder wakes for 100 s, its servers start, the link at 200 s
+        rec = {"id": "l5", "server": "docs", "session": "a", "state": "asked"}
+        timeline = [(0, {**rec, "waking": True}, None), (100, rec, None), (200, {**rec, "state": "open"}, "https://x/auth")]
+        clock = [0]
+
+        def wait(attempt, seconds, until, link=False):
+            end = clock[0] + seconds
+            for at, a, url in timeline:
+                if at < clock[0] or at > end:
+                    continue
+                if (link and url) or until(a):
+                    clock[0] = at
+                    return (None, url) if link and url else (a, None)
+            clock[0] = end
+            return None, None
+
+        st = {"mcp_waits": {"docs": {"": {"since": 1}}}, "sessions": {"a": {"mcp_waits": {"docs": ""}}}}
+        out = io.StringIO()
+        with mock.patch.object(hub, "mcp_decided", return_value=(5, None)), \
+                mock.patch.object(hub, "mcp_attempt_wait", side_effect=wait), contextlib.redirect_stdout(out):
+            self.assertTrue(hub.mcp_login_core(st, "a", "docs", None, True, False))
+        self.assertIn("https://x/auth", out.getvalue())
+        self.assertLess(clock[0], 100 + mcpwatch.WOKE_PENDING + 75 + 1)
 
 
 class ClaudeHubAsMain(unittest.TestCase):

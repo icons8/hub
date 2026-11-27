@@ -564,6 +564,46 @@ class Cli(Base):
         self.assertEqual(self.hub.cfg()["extensions"], {})
 
 
+    def test_an_installed_entry_is_named_by_its_short_name(self):
+        # the entry's short name of a catalog the hub added is its author's choice — but once installed, the owner chose
+        # it: "update the owl" names owl@shop for an update
+        j = journal.Journal(os.path.join(self.hub.state, "journal.jsonl"))
+        word = "m" + str(j.append("message.received", None, {"to": "hub", "text": "update the owl",
+                                                             "channel": "cli", "owner": True})["seq"])
+        r = self.run_hub("marketplace", "install", "owl@shop", "--for", word, me="hub")
+        self.assertIn("do not name", r.stdout + r.stderr)             # not installed yet: its full name
+        self.install()
+        self.release({"version": "1.1.0"})
+        r = self.run_hub("marketplace", "install", "owl@shop", "--for", word, me="hub")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.ext()["version"], "1.1.0")
+
+    def test_an_installed_skill_set_entry_is_named_by_entry_at_catalog(self):
+        # a skill set entry's record is named after its catalog: "check the shop catalog" named every entry from there
+        with open(self.hub.cfg_path) as f:
+            cfg = json.load(f)
+        cfg["sets"] = [{"name": "shop", "entry": "owl", "plugin": True, "source": "alice/x", "market": "shop",
+                        "path": "/p/owl", "commit": "c"}]
+        with open(self.hub.cfg_path, "w") as f:
+            json.dump(cfg, f)
+        j = journal.Journal(os.path.join(self.hub.state, "journal.jsonl"))
+        word = "m" + str(j.append("message.received", None, {"to": "hub", "text": "check the shop catalog",
+                                                             "channel": "cli", "owner": True})["seq"])
+        r = self.run_hub("marketplace", "install", "owl@shop", "--for", word, me="hub")
+        self.assertIn("do not name", r.stdout + r.stderr)
+        self.assertNotIn("extensions", self.hub.cfg())
+        # a plugin of skills only from a catalog is a `sets` record under its key <account>:<name>: named by it
+        cfg["sets"] = [{"name": "alice:owl", "entry": "owl", "source": "alice/x", "market": "shop", "path": "/p/owl",
+                        "commit": "c"}]
+        with open(self.hub.cfg_path, "w") as f:
+            json.dump(cfg, f)
+        word = "m" + str(j.append("message.received", None, {"to": "hub", "text": "update owl", "channel": "cli",
+                                                             "owner": True})["seq"])
+        r = self.run_hub("marketplace", "install", "owl@shop", "--for", word, me="hub")
+        self.assertNotIn("do not name", r.stdout + r.stderr)
+        self.assertIn("install owl@shop --accept", r.stdout + r.stderr)   # past the gate: its new rights are asked
+
+
 class RefreshPeriod(unittest.TestCase):
     """`marketplaces_refresh_hours` — how often catalogs refresh themselves; by default once a day."""
 

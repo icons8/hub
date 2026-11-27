@@ -3,17 +3,43 @@
 Thank you for wanting to help. The project is deliberately small at the center and open at the edges, so the most useful
 thing to know first is **what helps right now**.
 
-## Pull requests: not accepted for now
+## Pull requests are welcome
 
-Hub by Icons8 is at an early stage and maintained by a small team, so **we are not accepting external pull requests at the
-moment.** This is a deliberate decision, not a missing setting: pull requests from people outside the maintainers' group
-are closed without review. We will revisit it when the project is ready; the word "for now" is meant seriously.
+We read and review pull requests from everyone. The team is small, so a few habits keep it quick for both sides:
 
-Who is not "external": the maintainers, collaborators they invited, and anyone a maintainer asked for a specific change.
-The pull request template is for them. For everyone else, a pull request is not the way in; the issue forms are.
+- **Open an issue first for anything larger than a small fix.** A bug fix of a few lines, a typo or a missing test can
+  go straight to a pull request. A new feature, a change of behavior or a refactor starts with an
+  [issue](https://github.com/icons8/hub/issues/new/choose) (or a post in
+  [Discussions](https://github.com/icons8/hub/discussions)): we tell you whether the core is the place for it, so
+  nobody spends a day on something we would not take. Much of what people want is a module or a plugin, and those live
+  in your own repository ([EXTENDING.md](EXTENDING.md)).
+- **One change per pull request.** Unrelated fixes are separate pull requests.
+- **A bug fix comes with a test that fails without the change.** A replay of the events that broke is best.
+- **`tools/test.py` passes** (see [Tests](#tests)), and the new tests follow the
+  [portability rules](#portability-tests-run-on-other-machines).
+- **English, and neutral examples.** Code, comments, tests and texts in English; no names of people or companies, no
+  private paths, addresses or keys, in examples too. A change to the page comes with a picture of the changed place.
+- **Fill in the pull request template**: what a person saw before, what they see now, how you reproduced it, and who is
+  affected.
 
-Please do not open a pull request "just to see": it costs a maintainer's time and will be closed. Contributing is far from
-only code. What works today:
+Go through [Before you open a pull request](#before-you-open-a-pull-request) below first: most pull requests that came
+back failed one of its checks.
+
+**What happens next.** A maintainer reads the pull request and answers in it. The answer is one of: merged; changes
+asked for (we explain what, a rebase onto the current main may be needed); or closed with the reason, for example
+when the change belongs in a module or a plugin, or is already planned another way. Reviews are done by people, not on a
+schedule, so a pull request may wait: a short comment asking for news is fine. We may also port your change into our own
+tree and close the pull request with a thanks, when that is quicker than another round; the change still reaches
+everyone, and you are still credited. Merged or ported, a change goes out with the next release of the hub.
+
+**Credit.** Every release adds an item to [CHANGES.md](CHANGES.md) for each change it carries, and an item from outside
+the team ends with "thanks: @your-login (PR #N)". The list in [CONTRIBUTORS.md](CONTRIBUTORS.md) and the README's
+Contributors section are built from those thanks by `tools/contributors.py` at the release, and the release commit
+names the people thanked in it as co-authors. A bug report or an idea that led to a change is thanked the same way
+("issue #N"). The release commit of the public repository is made by the maintainers, so your own commits are not kept
+one by one in its history; the credit above is what stays.
+
+Contributing is far from only code. What works as well:
 
 - **Report a bug.** Open an [issue](https://github.com/icons8/hub/issues/new/choose) with the bug form: the
   version (the "About" page, or `git rev-parse HEAD`), your OS, what you did, what you expected, what happened, and the
@@ -35,7 +61,7 @@ only code. What works today:
 
 ## Where a change belongs
 
-The rest of this file is for maintainers, invited contributors and anyone reading the code.
+The rest of this file is for anyone who sends a change or reads the code.
 
 - **The core** (`core/`, `bin/hub*`, the session host, the base of the web page) is installed by every hub, so every change
   reaches everyone who updates. It takes only what every hub needs: bug fixes, reliability, security. Anything that suits
@@ -50,8 +76,8 @@ default too.
 
 ## Before you open a pull request
 
-For invited contributors. Most pull requests that came back, or were closed, failed one of these checks; each takes
-minutes before sending and saves a round of review.
+Most pull requests that came back, or were closed, failed one of these checks; each takes minutes before sending and
+saves a round of review.
 
 - **Is it for every hub?** A change for your own workflow, service or app belongs in a setting, your own `CLAUDE.md`,
   the `rules` list in `hub.json`, a module or a plugin, not in the core. A new API point needs a user in this

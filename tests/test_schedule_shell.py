@@ -32,12 +32,27 @@ class Setup(unittest.TestCase):
 
 
 class WindowsJobShell(Setup):
-    def test_without_the_setting_a_job_goes_to_cmd_as_before(self):
-        env = {"PATH": r"C:\Windows"}
+    def test_without_the_setting_a_job_goes_to_cmd_with_this_hubs_hub_first(self):
+        # the clock puts <repo>/bin first, but its `hub` has no .cmd: cmd.exe went on along PATH to the `hub.cmd` of the
+        # user's terminal, which sets its own hub's HUB_STATE_DIR — a second hub's job spoke to the main hub (2026-11-26)
+        env = {"PATH": r"C:\main-hub\bin;C:\Windows", "HUB_SCHEDULE_JOB": "m"}
         with mock.patch.object(windows, "_git_bash", return_value=BASH) as found:
             for setting in (None, "", "cmd", "sh", "BASH"):
-                self.assertEqual(windows.job_shell(LINE, env, self.state, setting), (LINE, True, env), setting)
-        found.assert_not_called()   # not even looked for: nothing changes for a hub without the setting
+                args, shell, got = windows.job_shell(LINE, env, self.state, setting)
+                self.assertEqual((args, shell), (LINE, True), setting)   # the line goes to cmd.exe as before
+                first, rest = got["PATH"].split(os.pathsep, 1)
+                self.assertEqual(rest, env["PATH"])
+                self.assertEqual(os.path.commonpath([first, self.state]), self.state)   # this hub's own folder
+                with open(os.path.join(first, "hub.cmd")) as f:
+                    self.assertIn("HUB_NESTED_HUB", f.read())
+                self.assertFalse(os.path.exists(os.path.join(first, "claude.cmd")))
+                self.assertEqual(got["HUB_SCHEDULE_JOB"], "m")
+        found.assert_not_called()   # Git Bash not even looked for without the setting
+
+    def test_a_folder_of_hub_that_cannot_be_written_leaves_a_cmd_job_as_it_was(self):
+        env = {"PATH": r"C:\Windows"}
+        with mock.patch.object(windows, "own_hub", side_effect=PermissionError("locked")):
+            self.assertEqual(windows.job_shell(LINE, env, self.state, None), (LINE, True, env))
 
     def test_bash_runs_the_command_whole_in_git_bash_with_hub_first_in_path(self):
         with mock.patch.object(windows, "_git_bash", return_value=BASH):
@@ -51,11 +66,21 @@ class WindowsJobShell(Setup):
                          os.path.normcase(os.path.join(os.path.dirname(os.path.dirname(windows.__file__)), "bin", "hub")))
         self.assertEqual(env["HUB_SCHEDULE_JOB"], "m")
 
-    def test_without_git_bash_it_stays_cmd_with_a_line_in_the_log(self):
-        env = {"PATH": r"C:\Windows"}
+    def assert_cmd_with_this_hubs_hub_first(self, got, env):
+        args, shell, got = got
+        self.assertEqual((args, shell), (LINE, True))
+        first, rest = got["PATH"].split(os.pathsep, 1)
+        self.assertEqual(rest, env["PATH"])
+        self.assertEqual(os.path.commonpath([first, self.state]), self.state)
+        self.assertTrue(os.path.isfile(os.path.join(first, "hub.cmd")))
+
+    def test_without_git_bash_it_stays_cmd_with_this_hubs_hub_first_and_a_line_in_the_log(self):
+        # a hub with only Codex sessions may have no Git Bash: its job went to cmd.exe with the env as it was, and found
+        # the `hub.cmd` of another hub of the computer in the user's PATH (review of 2026-11-26)
+        env = {"PATH": r"C:\other-hub\bin;C:\Windows"}
         with mock.patch.object(windows, "_git_bash", return_value=None), \
                 mock.patch("sys.stderr", new_callable=io.StringIO) as err:
-            self.assertEqual(windows.job_shell(LINE, env, self.state, "bash"), (LINE, True, env))
+            self.assert_cmd_with_this_hubs_hub_first(windows.job_shell(LINE, env, self.state, "bash"), env)
         self.assertIn("Git Bash", err.getvalue())
 
     def test_the_line_in_the_log_comes_once_not_with_every_launch(self):
@@ -70,7 +95,9 @@ class WindowsJobShell(Setup):
         with mock.patch.object(windows, "_git_bash", return_value=BASH), \
                 mock.patch.object(windows, "nested", side_effect=PermissionError("locked")), \
                 mock.patch("sys.stderr", new_callable=io.StringIO) as err:
-            self.assertEqual(windows.job_shell(LINE, env, self.state, "bash"), (LINE, True, env))
+            self.assert_cmd_with_this_hubs_hub_first(windows.job_shell(LINE, env, self.state, "bash"), env)
+            with mock.patch.object(windows, "own_hub", side_effect=PermissionError("locked")):
+                self.assertEqual(windows.job_shell(LINE, env, self.state, "bash"), (LINE, True, env))
         self.assertIn("locked", err.getvalue())
 
     def test_git_bash_is_the_one_next_to_git_not_the_wsl_launcher(self):

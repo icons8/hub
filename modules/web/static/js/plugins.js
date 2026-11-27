@@ -238,6 +238,8 @@ function installedRow(p) {
     main.append(m);
   }
   const warns = [p.warning, p.missing === true && t("web.plugins.missing_dir"), entry?.revoked && t("web.plugins.revoked", { why: entry.revoked }),
+    // its process keeps exiting: hub-up restarts it, the plugin only looks installed and fine
+    p.exits && t("web.plugins.process_exits", { code: p.exits.code, count: p.exits.count }),
     ...(problems.get(p.name) || [])].filter(Boolean);
   const note = noteFor(p.name);
   if (!p.bundled && p.web) main.append(fullAccess());

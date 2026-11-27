@@ -339,9 +339,11 @@ def job_shell(command, env, state_dir, shell):
     with hub.json `schedule.shell` "bash" through Git Bash: the sessions write these lines in Bash (a pipe, `$(...)`,
     single quotes), and cmd reads a pipe outside double quotes as its own. With the `hub` of the nested folder first in
     PATH: `bin/hub` has a python3 shebang, not found here. No Git Bash, or the folder cannot be written: cmd.exe and a
-    line in the log (once)."""
+    line in the log (once). In cmd.exe this hub's `hub.cmd` first in PATH (own_hub), on that fallback too: <repo>/bin/hub
+    has no .cmd, and cmd went on to the `hub.cmd` of the user's terminal — another hub's on a computer with two
+    (2026-11-26)."""
     if shell != "bash":
-        return command, True, env
+        return _cmd_job(command, env, state_dir)
     bash = _git_bash()
     why = None if bash else ("Git Bash is not found (CLAUDE_CODE_GIT_BASH_PATH, Git/bin/bash.exe next to git)")
     if bash:
@@ -354,8 +356,17 @@ def job_shell(command, env, state_dir, shell):
         if why not in _JOB_SHELL_TOLD:
             _JOB_SHELL_TOLD.add(why)
             print(f"schedule: schedule.shell is bash, but {why} - the jobs run in cmd.exe", file=sys.stderr, flush=True)
-        return command, True, env
+        return _cmd_job(command, env, state_dir)
     return [bash, "-c", command], False, {**env, **extra, "PATH": folder + os.pathsep + env.get("PATH", "")}
+
+
+def _cmd_job(command, env, state_dir):
+    """job_shell in cmd.exe: this hub's `hub.cmd` first in PATH; its folder cannot be written — the env as it is."""
+    try:
+        folder, extra = own_hub(state_dir)
+    except OSError:
+        return command, True, env
+    return command, True, {**env, **extra, "PATH": folder + os.pathsep + env.get("PATH", "")}
 
 
 def job_quote(args, shell):
@@ -715,14 +726,30 @@ def nested(shim, state_dir):
     wrappers start with _ARGS. MSYS reads the exclusions from the environment of the program it starts, so they go on
     to it: HUB_NESTED_ARGS keeps the caller's value, and nested_args() puts it back first thing (else the nested
     claude's Bash would keep these texts unconverted in its programs' calls too)."""
-    d = os.path.join(state_dir, "nested")
-    os.makedirs(d, exist_ok=True)
     files = {"claude": ('#!/bin/sh\n# hosts/nested/claude (HUB_NESTED_FLAGS)\n' + _ARGS +
                         'exec "$HUB_NESTED_PYTHON" "$HUB_NESTED_SHIM" "$@"\n'),
              "claude.cmd": ('@rem hosts/nested/claude (HUB_NESTED_FLAGS)\r\n'
-                            '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_SHIM%" %*\r\n'),
-             "hub": '#!/bin/sh\n' + _ARGS + 'exec "$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" "$@"\n',
-             "hub.cmd": '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_HUB%" %*\r\n'}
+                            '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_SHIM%" %*\r\n'), **_HUB}
+    d, env = _wrappers(os.path.join(state_dir, "nested"), files)
+    return d, {**env, "HUB_NESTED_SHIM": os.path.abspath(shim)}
+
+
+def own_hub(state_dir):
+    """`hub` of this hub for a session whose host gives it no claude wrapper (hosts/codex) -> (a folder first in PATH,
+    the session's environment variables): the same `hub` and `hub.cmd` as nested, alone in a folder of their own. The
+    user's PATH holds the `hub` of one hub of the computer (its bin\\hub.cmd sets that hub's HUB_STATE_DIR): a session of
+    another hub on Codex found it, and its `hub send` went to that hub, which took HUB_SESSION for a session of its own
+    (2026-11-26). Without claude: Codex has no set of claude's to give it."""
+    return _wrappers(os.path.join(state_dir, "nested-hub"), _HUB)
+
+
+_HUB = {"hub": '#!/bin/sh\n' + _ARGS + 'exec "$HUB_NESTED_PYTHON" "$HUB_NESTED_HUB" "$@"\n',
+        "hub.cmd": '@"%HUB_NESTED_PYTHON%" "%HUB_NESTED_HUB%" %*\r\n'}
+
+
+def _wrappers(d, files):
+    """The wrappers into the folder d, a file rewritten only when its text changed -> (d, the variables they read)."""
+    os.makedirs(d, exist_ok=True)
     for name, text in files.items():
         path = os.path.join(d, name)
         try:
@@ -735,7 +762,7 @@ def nested(shim, state_dir):
             f.write(text)
         replace(path + ".tmp", path)
     hub = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "hub")
-    return d, {"HUB_NESTED_PYTHON": sys.executable, "HUB_NESTED_SHIM": os.path.abspath(shim), "HUB_NESTED_HUB": hub}
+    return d, {"HUB_NESTED_PYTHON": sys.executable, "HUB_NESTED_HUB": hub}
 
 
 def nested_args():

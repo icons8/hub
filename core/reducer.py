@@ -1498,10 +1498,13 @@ def _apply(st, ev, actions):
     if kind in ("mcp.login_requested", "mcp.callback_given"):
         # a sign-in from the page (core/mcpwatch): only the owner; the link and the address are not in the journal
         try:
-            return (mcpwatch.login_requested if kind == "mcp.login_requested" else mcpwatch.callback_given)(
+            woke = (mcpwatch.login_requested if kind == "mcp.login_requested" else mcpwatch.callback_given)(
                 st, ev, data, actions)
         except ValueError as e:
             raise Rejected(str(e)) from None
+        if woke:   # the holder sleeps and has no old way (Codex): woken as a message to it would; the sign-in on its start
+            _wake_up(st, woke, ev["ts"])
+        return
     if kind == "session.mcp_login":   # a step of a sign-in attempt from the host or hubd (core/mcpwatch)
         return mcpwatch.login_step(st, ev, data, actions)
     if kind == "catalog.loaded":
@@ -2015,7 +2018,7 @@ def _apply(st, ev, actions):
         sess.pop("compacting", None)   # compaction is over, the queue types again (_pump)
         if data.get("ok") and isinstance(data.get("after"), int):
             sess["context"] = data["after"]
-        elif "ok" not in data:   # Claude Code compacted by itself (hook): the new length is unknown until the next turn
+        elif data.get("ok", True):   # the hook of Claude Code's own, Codex (no length after it): unknown until the next turn
             sess.pop("context", None)
     if kind == "settings.changed" and data.get("what") == "reactions.enabled" and not data.get("new"):
         for sess in st["sessions"].values():   # the module was switched off: pending reactions to lines are not sent to sessions
@@ -2729,7 +2732,8 @@ def _session_event(st, ev, data, actions):
         # "awaiting login" is from the previous start; a fresh MCP status arrives at the start of the turn (05.10: it hung after a restart)
         (sess.get("info") or {}).pop("mcp_auth", None)
         if data.get("source") not in ("clear", "compact"):   # those come inside the same process
-            mcpwatch.login_gone(st, ev, name)   # a new process: a sign-in begun in the old one is gone with it
+            # a new process: a sign-in begun in the old one is gone with it; one that waited for it to come up starts now
+            mcpwatch.login_gone(st, ev, name, started=actions)
         if data.get("source") == "clear":   # a new conversation: the old one's length is not this one's (parking, /clear)
             sess.pop("context", None)
         cut = sess.pop("cut_turn", None)
@@ -6022,11 +6026,17 @@ def new_message(st, mid, name, text, ts, origin="", frm=None, **extra):
     elif extra.get("fyi"):
         _msg_move(msg, "_aside", ts)   # "for your information": neither wakes nor starts a turn, rides with the next message (_ride)
     elif sess["state"] in SLEEP:
-        sess["state"], sess["since"] = step(SESSION, sess["state"], "_wake")[0], ts  # delivered once it comes up
-        st.setdefault("_wake", []).append(sess["name"])   # the recipient: a message to a sleeping executor wakes whoever raised it
-        sess.pop("stopped", None)   # woken: the "stopped by you" mark is history now (as in _session_event)
-        _compact_on_wake(st, sess)
+        _wake_up(st, sess, ts)   # the recipient: a message to a sleeping executor wakes whoever raised it
     return msg
+
+
+def _wake_up(st, sess, ts):
+    """Raise a sleeping session with its conversation (a message to it, a sign-in through it): what waits for it is
+    delivered once it comes up."""
+    sess["state"], sess["since"] = step(SESSION, sess["state"], "_wake")[0], ts
+    st.setdefault("_wake", []).append(sess["name"])
+    sess.pop("stopped", None)   # woken: the "stopped by you" mark is history now (as in _session_event)
+    _compact_on_wake(st, sess)
 
 
 # the result of a turn cut by a limit: "You've hit your weekly limit · resets ...", "Claude AI usage limit reached|..."

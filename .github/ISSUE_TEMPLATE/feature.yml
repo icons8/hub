@@ -10,8 +10,8 @@ body:
         a plugin in your own repository (see EXTENDING.md). If the Plugin API lacks something you need, say so here: that
         gap is the best kind of core improvement.
 
-        Open-ended ideas and questions go to Discussions. Pull requests from outside the maintainers' group are not
-        accepted for now (see CONTRIBUTING.md); a clear proposal is the most useful contribution.
+        Open-ended ideas and questions go to Discussions. Pull requests are welcome (see CONTRIBUTING.md): for anything
+        larger than a small fix, a clear proposal here first saves you from building what we would not take.
   - type: textarea
     id: problem
     attributes:

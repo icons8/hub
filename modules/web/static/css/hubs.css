@@ -21,8 +21,10 @@
 .bus-step.ok .m { color: var(--success); } .bus-step.run .m { color: var(--primary); }
 .bus-step.fail { color: var(--destructive); } .bus-step.wait { color: var(--muted-foreground); padding-inline-start: 28px; }
 .bus-step .why { font-size: var(--text-xs); color: var(--muted-foreground); overflow-wrap: anywhere; }
+.bus-panel > h4 { margin: 0; font: inherit; font-weight: bolder; }   /* the title of a card: a heading, drawn as the bold line it was */
 .bus-fail { display: grid; gap: var(--space-2); }
 .bus-fail p { margin: 0; }
+.bus-fail[role="alert"] > p:first-child { color: var(--destructive); font-size: var(--text-sm); }   /* a refusal under its button: the red line it was at the end of the tab */
 .bus-cmd { display: block; font: var(--text-xs)/1.5 var(--font-mono); padding: var(--space-2) var(--space-3); border-radius: var(--radius);
   background: var(--code-bg, var(--muted)); overflow-wrap: anywhere; user-select: all; }
 .bus-err { color: var(--destructive); font-size: var(--text-sm); margin: 0; }
@@ -45,6 +47,8 @@
   background: color-mix(in oklab, var(--success) 14%, var(--card)); border: 1px solid color-mix(in oklab, var(--success) 40%, var(--border)); }
 .bus-consent { margin: 0; padding-inline-start: 1.2em; line-height: 1.65; font-size: var(--text-sm); }
 .bus-q { margin: 0; font-size: var(--text-base); }
+/* the accept preview: the question, the table, the field and the buttons are blocks of their own, not one pile */
+.bus-preview { display: grid; gap: var(--space-3); padding-top: var(--space-1); min-width: 0; }
 .bus-kv { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 4px var(--space-3); margin: 0; font-size: var(--text-sm); }
 .bus-kv dt { color: var(--muted-foreground); } .bus-kv dd { margin: 0; overflow-wrap: anywhere; }
 .bus-name { font-size: var(--text-base); font-weight: 650; overflow-wrap: anywhere; }
@@ -66,11 +70,19 @@
 .bus-person-new[hidden] { display: none; }
 .bus-personrow { display: grid; gap: var(--space-1); }
 .bus-personrow > .bus-row > span { font-size: var(--text-sm); color: var(--muted-foreground); }
+.bus-personrow > .bus-row > .bus-unlink { margin-inline-start: var(--space-2); }   /* «Unlink»: quiet text at the end of the contact line */
 .bus-person-name { color: var(--muted-foreground); }
 .bus-hubname-in, .bus-invite-name { font: inherit; font-size: var(--text-sm); box-sizing: border-box; min-width: 12em; max-width: 28em;
   padding: 5px 9px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--background); color: var(--foreground); }
 .bus-hubname-in { flex: 1 1 14em; }
 .bus-invite-name { width: 100%; }
+.bus-name-line { display: flex; align-items: center; gap: var(--space-1) var(--space-3); flex-wrap: wrap; min-width: 0; }
+.bus-name-now { font-size: var(--text-base); font-weight: 650; overflow-wrap: anywhere; min-width: 0; }
+.bus-ttl-field { display: grid; gap: var(--space-1); justify-items: start; }
+.bus-ttl-field > span, .bus-person-field > span:first-child, .bus-invite-field > span:first-child { font-size: inherit; }   /* not bigger than the card's title */
+.bus-sign > summary { padding: 2px 0; }
+.bus-more-what { font-weight: 400; margin-inline-start: var(--space-2); }
+.bus-mode { display: grid; gap: var(--space-1); padding: var(--space-2) 0; }
 .bus-hubname.unset { border-color: color-mix(in oklab, var(--warning) 70%, var(--border)); }
 .bus-invite-field { display: grid; gap: var(--space-1); }
 .bus-joinrow { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
@@ -84,6 +96,7 @@
 .bus-vhead .bus-hchips { display: inline-flex; gap: var(--space-2); flex-wrap: wrap; }
 .bus-vhead .bus-htools { margin-inline-start: auto; display: inline-flex; gap: var(--space-2); }
 .bus-vhead .bus-code { flex-basis: 100%; }
+.bus-code .btn { white-space: nowrap; }   /* «Codes match» is one line in any language */
 .bus-feed { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--space-4); }
 .bus-feed .day { text-align: center; font-size: var(--text-xs); color: var(--muted-foreground); margin: var(--space-4) 0 var(--space-1); }
 .bus-bub { display: flex; flex-direction: column; margin: 4px 0; }
@@ -112,6 +125,9 @@
 .bus-m .bus-when { margin-inline-start: auto; white-space: nowrap; }
 .bus-m .bus-t { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .bus-m .bus-foot { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+/* a long text of the foot (the core's «went into the thread «…»» names the thread by its head) wraps inside the message, it does not widen it */
+.bus-ex, .bus-m { grid-template-columns: minmax(0, 1fr); }
+.bus-m .bus-foot .hint { min-width: 0; overflow-wrap: anywhere; }
 .bus-chip.bad { background: color-mix(in oklab, var(--destructive) 16%, var(--card)); color: var(--destructive); }
 .bus-empty { text-align: center; margin: var(--space-6) auto; max-width: 460px; display: grid; gap: var(--space-2); }
 .bus-empty h3 { margin: 0; font-size: var(--text-base); }

@@ -238,6 +238,19 @@ class Core(unittest.TestCase):
         self.assertNotIn("compacting", self.st["sessions"]["a"])
         self.assertNotIn("compacting", self.row())
 
+    def test_a_compaction_without_the_new_length_drops_the_old_one(self):
+        # Codex reports a finished compaction with after=None: the page kept the old count (182k after a manual
+        # compaction that left about 70k) until the next turn, and a wake over the threshold compacted it again
+        self.ev("turn.result", "a", text="before", context=213447)
+        self.ev("session.compacted", "a", ok=False, before=213447, after=None)
+        self.assertEqual(self.row().get("context"), 213447)                     # failed: the old length still holds
+        self.ev("session.compacted", "a", ok=True, before=213447, after=None)
+        self.assertIsNone(self.row().get("context"))                            # unknown until the next model call
+        reducer._compact_on_wake(self.st, self.st["sessions"]["a"])
+        self.assertNotIn("compact", self.st["sessions"]["a"])                   # a wake does not compact it again
+        self.ev("turn.result", "a", text="after", context=69786)
+        self.assertEqual(self.row().get("context"), 69786)
+
     def test_a_process_that_died_in_the_middle_takes_the_mark_with_it(self):
         self.ev("session.compacting", "a", on=True)
         self.ev("session.exited", "a", crash=True)

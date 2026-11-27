@@ -433,6 +433,25 @@ class Market(unittest.TestCase):
         self.started, self.events = [], []
         return self.m(restart=self.started.append, events=lambda kind, data: self.events.append((kind, data)))
 
+    def test_the_review_of_an_installed_plugin_points_to_its_update(self):
+        # an installed plugin is updated by its key, and on the owner's word `update` needs no naming of the source;
+        # the answer of `hub market review` pointed to `install <link>`, which needs it
+        m = self.rights_m()
+        rec = m.stage("alice/hub-mascot", to="hub-dev")
+        self.assertIn("hub market install alice/hub-mascot --reviewed", m.staged(rec, "hub-dev"))
+        self.put(m, "alice/hub-mascot")
+        rec = m.stage("alice/hub-mascot", to="hub-dev")
+        said = m.staged(rec, "hub-dev")
+        self.assertIn("hub market update alice:mascot --reviewed", said)
+        self.assertNotIn("hub market install", said)
+
+    def test_the_review_of_installed_skills_points_to_their_update(self):
+        # a plugin of skills only is a `sets` record under its key, with no extension: its review pointed to `install`
+        m = self.rights_m()
+        self.put(m, "alice/seo-skills")
+        said = m.staged(m.stage("alice/seo-skills", to="hub-dev"), "hub-dev")
+        self.assertIn("hub market update alice:seo-skills --reviewed", said)
+
     def test_an_update_that_adds_a_process_waits_for_consent(self):
         # audit B9: a new run from the new manifest was written into hub.json and the process started — without asking the owner
         m = self.rights_m()

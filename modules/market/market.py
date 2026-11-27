@@ -319,6 +319,18 @@ class Market:
         self._save_review(rec)
         return rec
 
+    def staged(self, rec, dev):
+        """The answer of `hub market review`: how the reviewed one goes in. A plugin installed by this link is updated by
+        its key (`hub market update <key> --reviewed`: on the owner's word it needs no naming of the source)."""
+        cfg = self.load()
+        rows = list((cfg.get("extensions") or {}).items()) + [   # skills only: a set under its key, not a whole set
+            (x["name"], x) for x in cfg.get("sets") or [] if isinstance(x, dict) and ":" in str(x.get("name") or "")]
+        key = next((k for k, x in rows if isinstance(x, dict) and not x.get("subdir")
+                    and not catalog_record(cfg, k) and str(x.get("source") or "").lower() == rec["repo"].lower()), None)
+        args = {"repo": rec["repo"], "commit": rec["commit"][:7], "dev": dev}
+        return i18n.t("cli.market.review_staged_update", name=key, **args) if key else \
+            i18n.t("cli.market.review_staged", **args)
+
     def verdict(self, full, verdict, summary):
         import time
         if verdict not in ("ok", "risky", "bad"):

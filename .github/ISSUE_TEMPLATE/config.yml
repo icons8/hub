@@ -1,6 +1,5 @@
-# Pull requests from outside the maintainers' group are not accepted for now (CONTRIBUTING.md): an issue is the way
-# to contribute. The forms are a choice, not a requirement: a blank issue stays possible for the people who work in
-# this repository every day.
+# Pull requests are welcome (CONTRIBUTING.md); a change larger than a small fix starts with an issue. The forms are a
+# choice, not a requirement: a blank issue stays possible for the people who work in this repository every day.
 # GitHub accepts only absolute addresses in contact_links: they name the public repository, as README, CONTRIBUTING
 # and SECURITY do.
 blank_issues_enabled: true

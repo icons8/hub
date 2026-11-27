@@ -610,14 +610,14 @@ def verdict_gate(repo):
         sys.exit(i18n.t("cli.market.verdict_other", repo=repo, who=to))
 
 
-def owner_gate(what, ref, lift=False, name=None, bare=True):
+def owner_gate(what, ref, lift=False, name=None, bare=True, also=()):
     """New code in the hub (modules, marketplace catalogs and plugins) is the owner's word: a command outside a session,
     or the hub with --for mN (the owner's message to the hub) or qN (the owner's answer to a card of any session) not older
     than a day, by the same rule as risky tools (core/tools.owner_word); a plugin or module process never.
     lift — taking off (remove, uninstall): his message to any session of the hub counts, not only to the hub itself.
     name — what is installed or gets more rights (a source, a module, an entry): the hub's word must name it, as for a
     risky tool (18.11: "show me the status" installed a module and trusted it); bare — by its short name too
-    (core/tools.name_forms: not for a new source)."""
+    (core/tools.name_forms: not for a new source); also — more names of it (an installed plugin's key)."""
     from core import i18n, tools
     if OUTSIDER:
         sys.exit(i18n.t("cli.module.gate_outsider", what=what))
@@ -631,23 +631,53 @@ def owner_gate(what, ref, lift=False, name=None, bare=True):
             words = tools.owner_word(st, {"sender": ME, "for": ref}, time.time(), cards=True, lift=lift)
         except tools.Rejected as e:
             sys.exit(f"{what}: {e}")
-        if name is not None and not lift and not tools.names_any(st, words, tools.name_forms(name, bare)):
+        names = tools.name_forms(name, bare).union(*(tools.name_forms(a) for a in also))
+        if name is not None and not lift and not tools.names_any(st, words, names):
             sys.exit(i18n.t("cli.module.gate_not_named", what=what, ref=ref, name=name or what))
 
 
 def install_name(arg):
-    """What the hub's word must name to install a catalog entry or a plugin by link (owner_gate): (name, bare). An
+    """What the hub's word must name to install a catalog entry or a plugin by link (owner_gate): (name, bare, also). An
     entry of an official or built-in catalog — by its short name too; of a catalog the hub added itself (its author
-    names the entries) — <entry>@<catalog>; not an entry — the link in full."""
+    names the entries) — <entry>@<catalog>; not an entry — the link in full. Already installed (an update), the names of
+    the installed record count too: the owner chose them when he installed it (26.11: his "Check and install" on a card
+    about updating a plugin by its short name was refused for not naming its owner/repo). The link's own short name is
+    still the requester's choice, and a link installs the repo's root: a plugin from a folder of that repo is another
+    one; someone else's source with the same short name is new."""
     from core import catalog, marketplaces, mpinstall
+    try:
+        cfg = catalog.read_settings(catalog.config_path(STATE))
+    except (OSError, ValueError):
+        cfg = {}
     try:
         n, rec, _, e = mpinstall.find(STATE, catalog.config_path(STATE), arg)
     except (mpinstall.Error, RuntimeError, OSError, KeyError, TypeError, ValueError):
-        return arg, False
+        return arg, False, installed_names(cfg, lambda x: not x.get("subdir") and same_source(x.get("source"), arg))
     src = str(rec.get("source") or "")
     own = rec.get("official") and marketplaces.is_official(src) or \
         rec.get("builtin") and marketplaces.same(marketplaces.builtin_of(n) or "", src)
-    return f"{e['name']}@{n}", bool(own)
+    also = installed_names(cfg, lambda x: x.get("market") == n and x.get("entry") == e["name"])
+    return f"{e['name']}@{n}", bool(own), also
+
+
+def same_source(a, b):
+    """Two plugin sources are one (case aside): owner/repo, a GitHub link to it with or without .git, an address."""
+    from modules.market import market
+    a, b = (str(x or "").strip() for x in (a, b))
+    key = [(market.repo_of(x) or re.sub(r"\.git$", "", re.sub(r"^[a-z][\w+.-]*://", "", x.lower().rstrip("/")))).lower()
+           for x in (a, b)]
+    return bool(key[0]) and key[0] == key[1]
+
+
+def installed_names(cfg, mine):
+    """The names of the installed plugins that mine(record) picks: an extension's key (<account>:<name>), a skill set
+    entry's <entry>@<catalog> (its record's name is the catalog's: it names every entry from there), a plugin of skills
+    only — its key, the name of its `sets` record; a whole set is a catalog, not a plugin."""
+    from core import marketplaces
+    exts = [k for k, x in (cfg.get("extensions") or {}).items() if isinstance(x, dict) and mine(x)]
+    sets = [marketplaces.set_key(x) for x in cfg.get("sets") or [] if isinstance(x, dict) and x.get("name")
+            and (x.get("entry") if x.get("plugin") else ":" in str(x["name"])) and mine(x)]
+    return {str(k) for k in exts + sets}
 
 
 def skills_gate(what):
@@ -798,8 +828,8 @@ def marketplace_cmd(rest):
         if skills_only(sub, args, flags):
             skills_gate(what)
         else:
-            name, bare = install_name(args[0]) if sub == "install" and args and ME and word else (None, False)
-            owner_gate(what, word, lift=sub in ("remove", "uninstall"), name=name, bare=bare)
+            name, bare, also = install_name(args[0]) if sub == "install" and args and ME and word else (None, False, ())
+            owner_gate(what, word, lift=sub in ("remove", "uninstall"), name=name, bare=bare, also=also)
         accept_gate(what, "--accept" in flags or "--despite-revoked" in flags, word, args[0] if args else "")
     cfg_path, ok = catalog.config_path(STATE), True
     hooks = plugin_hooks()
@@ -998,7 +1028,17 @@ def mcp_login_core(st, name, server, redirect, no_browser, confirm):
     if why or seq is None:
         sys.exit(i18n.t("cli.mcp.not_started", server=server, why=coretext.human(why) or i18n.t("cli.mcp.core_silent")))
     attempt = f"l{seq}"
-    a, url = mcp_attempt_wait(attempt, 75, lambda a: a.get("state") in ("done", "failed", "sent"), link=True)
+
+    def moved(a):
+        return a.get("state") in ("done", "failed", "sent")
+
+    a, url = mcp_attempt_wait(attempt, 75, lambda a: moved(a) or a.get("waking"), link=True)
+    if a is not None and a.get("waking") and not moved(a):
+        # the holder sleeps and has no old way (Codex): the core wakes it, the sign-in starts once it is up, and its
+        # servers start with it (WOKE_PENDING) — the link comes later than from a live session
+        a, url = mcp_attempt_wait(attempt, mcpwatch.LIFE, lambda a: moved(a) or not a.get("waking"), link=True)
+        if not url and a is not None and not moved(a):
+            a, url = mcp_attempt_wait(attempt, 75 + mcpwatch.WOKE_PENDING, moved, link=True)
     if not url:
         if a is not None and a["state"] == "failed":
             sys.exit(i18n.t("cli.mcp.not_started", server=server, why=mcplogin.scrub(mcpwatch.error_text(a) or "")))
@@ -3023,8 +3063,8 @@ def main(argv):
         if rest[:1] in (["install"], ["update"], ["remove"]):
             word, rest = value_of(rest, "--for")
             what_of = next((x for x in rest[1:] if not x.startswith("--")), "")
-            name, bare = install_name(what_of) if rest[0] == "install" and ME and word else (None, False)
-            owner_gate(f"hub market {rest[0]}", word, lift=rest[0] == "remove", name=name, bare=bare)
+            name, bare, also = install_name(what_of) if rest[0] == "install" and ME and word else (None, False, ())
+            owner_gate(f"hub market {rest[0]}", word, lift=rest[0] == "remove", name=name, bare=bare, also=also)
             accept_gate(f"hub market {rest[0]}", "--accept" in rest, word, what_of)
         if rest[:1] == ["verdict"] and len(rest) >= 2:
             verdict_gate(rest[1])
@@ -3039,7 +3079,7 @@ def main(argv):
                 sys.exit(i18n.t("cli.market.review_failed", error=getattr(e, 'stderr', '') or e).strip())
             if put("message.received", None, {"to": dev, "text": market.review_task(rec)}) in REJECTED:
                 sys.exit(1)   # the reason is printed; the task did not reach the developer
-            sys.exit(print(i18n.t("cli.market.review_staged", repo=rec['repo'], commit=rec['commit'][:7], dev=dev)))
+            sys.exit(print(m.staged(rec, dev)))
         from modules.market.market import main as market_main
         hooks = plugin_hooks()
         sys.exit(market_main(rest, restart=hooks["restart"], events=hooks["events"]))

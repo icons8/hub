@@ -402,8 +402,9 @@ the hub does not change that. Read [SECURITY.md](SECURITY.md) and prefer a dispo
 
 ## Contributing, community, license
 
-- **Pull requests are not accepted for now**, a deliberate decision of a small team; see [CONTRIBUTING.md](CONTRIBUTING.md)
-  for what helps instead: bug reports, ideas in Discussions, and your own modules and plugins.
+- **Pull requests are welcome.** Open an issue first for anything larger than a small fix, send one change per pull
+  request with a test; see [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports, ideas in Discussions, and your own modules
+  and plugins help just as much.
 - Found a vulnerability? Report it privately through GitHub, not in a public issue ([SECURITY.md](SECURITY.md)).
 - Be kind: [Code of Conduct](CODE_OF_CONDUCT.md).
 - Licensed under the Apache License 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).
@@ -419,7 +420,7 @@ git clone https://github.com/icons8/hub.git agents-hub && cd agents-hub && sh de
 
 On macOS use `deploy/mac/install.sh`, on Windows `deploy\windows\install.ps1` (details
 [above](#installation-and-configuration)). Such a hub lives on `main` (nightly), and you make your edits and pull
-requests right in the clone. Pull requests from outside the team are not accepted for now (see the first point above).
+requests right in the clone (see the first point above for what a pull request needs).
 
 ## Contributors
 
@@ -429,8 +430,8 @@ With the pull requests, bug reports and ideas of (most first; the whole list wit
 [CONTRIBUTORS.md](CONTRIBUTORS.md)):
 
 - [@visualpharm](https://github.com/visualpharm): 184 pull requests, 1 report or idea
-- [@kalimullin](https://github.com/kalimullin): 83 pull requests, 4 reports and ideas
-- [@Eugenius-S](https://github.com/Eugenius-S): 63 pull requests
+- [@kalimullin](https://github.com/kalimullin): 87 pull requests, 4 reports and ideas
+- [@Eugenius-S](https://github.com/Eugenius-S): 72 pull requests
 - [@ManyLattice](https://github.com/ManyLattice): 58 pull requests, 5 reports and ideas
 - [@Serjiios](https://github.com/Serjiios): 45 pull requests, 3 reports and ideas
 - [@eniwito](https://github.com/eniwito): 34 pull requests, 1 report or idea

@@ -5,6 +5,117 @@ An item from someone else's PR ends with thanks: "— thanks: @login".
 The "### For sessions" subsection under a date is what changed for the sessions themselves (commands, rules): the core
 attaches to each session's next message only what it has not seen yet; the page does not show it.
 
+## 2026-11-27
+- Voice: when a recording ends, the field goes straight to "recognizing". Before, the idle microphone flashed for a moment
+  in between, and a press that landed in that moment started a new recording. And a voice message recorded in a field
+  that fails to fix its reply and cards at "send" (a plugin's field, for one) is no longer lost: it is sent, addressed
+  when it is transcribed, instead of the field staying on "recognizing". Reload the page (⌘R / Ctrl+R) after the update
+- Pull requests to the public repository are now accepted and reviewed. CONTRIBUTING.md says how to send one: an issue
+  first for anything larger than a small fix, one change per pull request, a test that fails without a bug fix,
+  `tools/test.py` green. Nothing to do on your hub
+
+## 2026-11-26
+- Clean: the Hub's own mark no longer has a blue plate under it (the mark is an opaque square, the plate belonged to the
+  old head). The notices file says the mark is the Hub's own work, not one of the generated characters, and the tool that
+  shoots the README's pictures shoots them in the same look and scans the text of the pages it shoots for private text.
+  Reload the page (⌘R / Ctrl+R) after the update — thanks: @kalimullin
+- Settings → External hubs has two cards that are always there, "Invite a hub" and "Accept an invitation" (the second of
+  four changes in #769). In the first the fields come before the button, "Valid for" has a visible label, and the name
+  for this one invitation is folded under "Sign with another name". The invitation you made stays in its card, where the
+  button was: a strip "Invitation ready", the link, "Copy" in view (on a phone too), how the other owner accepts it, and
+  "Make another"; the list "Open invitations" below keeps it for showing again and withdrawing. The hub's name is one
+  line, "Hub name · Change" (the full card stays while the name is empty), and the switch that lets linked hubs run
+  this hub moved into "Advanced" (while it is on, the name line says "Run by linked hubs"). Also: the contact hint says
+  what happens when you skip it, and the hub's code line says what it is for. Only the page changes: nothing in the
+  protocol, the journal or the settings. Nothing to do: the page gets it with the update — thanks: @kalimullin
+- A plugin whose process keeps exiting is now seen in "Settings → Plugins": its row says "its process keeps exiting
+  (code 1, 12 times in a row), the hub restarts it". Before, the hub restarted it every minute and only `logs/hub-up.log`
+  had a line about it, while the plugin looked installed and fine for days (a plugin that needs an add-on a clean hub
+  does not have). The count starts again on `hub restart ext:<name>`, after five minutes of work, or when the plugin is
+  removed; several hubs on one machine each keep their own. Nothing to do: it comes with the update and
+  `hub restart` — thanks: @Eugenius-S
+- A session on Codex now compacts its conversation at the hub's threshold (`compact_idle.min_tokens`, 200,000 tokens by
+  default), mid-turn too. Codex compacts by itself only at 90% of its own window (about 450,000 tokens on the GPT-5
+  models), and the hub compacts between turns only after 30 quiet minutes: a busy chat grew past 340,000 tokens and the
+  page's counter showed 132% of the threshold. The hub now gives each Codex session its threshold as Codex's own
+  `model_auto_compact_token_limit`, as a Claude session compacts near its window. `compact_idle.mid_turn: false` in
+  `hub.json` leaves Codex to its own limit. To update: a Codex session gets it at its next start (`hub restart` or the
+  next time it wakes) — thanks: @Eugenius-S
+- Windows, Codex: a hub that runs its own build (after `hub app apply`) starts Codex sessions again. Its build lives in
+  a folder with "+" in its name, and on a drive without short 8.3 names the core wrote the Codex hook empty: Codex did
+  not trust it and every Codex session stopped at the start with "the bans do not hold". Nothing to do: it applies with
+  the update — thanks: @Eugenius-S
+- Windows, Codex: Codex sessions start when the hub lives under a user folder named in another alphabet (Cyrillic,
+  Greek, Chinese…) or with "@" in it, on a drive without short 8.3 names. The core wrote the Codex hook empty there too,
+  and every Codex session stopped at the start. A folder whose name no hook line can carry as it is (a space, "(", "&"…)
+  and which has no 8.3 name still keeps Codex sessions from starting, but the session's start now names that folder and
+  its characters instead of "Codex does not trust the core's hook". Nothing to do: it applies with the update
+- Settings → External hubs says what went wrong under the button that was pressed, in plain words (the third of four
+  changes in #769). Before, a refused press was a red line at the very end of the tab, or a toast gone in seconds, in a
+  text written for a terminal. Now it stands under its button, a screen reader reads it at once, and the words are
+  chosen by the refusal's code: "No invitation in this text. Paste the whole invitation", "This invitation was already
+  used or revoked. If it wasn't you, tell the owner who sent it", "The connection server did not answer. Nothing was
+  lost. Try again in a minute". A code the page has no words for keeps the core's text, and a failed install keeps its
+  command. The steps and the waiting line are announced, the control that turns external hubs off and the mode switch
+  are switches for a screen reader, and the titles of the cards are headings. Also: "Show" in the list is gone for the
+  invitation the card above already shows (the link and "Copy" were drawn twice), the "Run by linked hubs" chip is
+  neutral and its tooltip says what the mode does, and the text for a bad hub name names the tab, not a "Hubs page".
+  Only the page changes: nothing in the protocol, the journal or the settings. Nothing to do: the page gets it with the
+  update — thanks: @kalimullin
+- A linked hub's card in Settings → External hubs is quieter, and two colours read better (the last of four changes in
+  #769). "Write" is the one button on the card; "Unlink" is quiet text at the end of the contact line, and still asks
+  before it unlinks. The accept preview has room between its question, the table, the contact field and the buttons.
+  In the Clean theme the "Code checked" chip in the light look is darker (it was 2.6:1 against its plate, now 4.9:1) and
+  "Unlink" in the dark look is 5:1 instead of 4.2:1. Also: editing the text in the accept field drops the refusal of
+  the text before it (it stood next to the new one), "Codes match" stays on one line on a phone, and the core's line
+  "Went into the thread «…»" under a message on a linked hub's page wraps inside the message when the thread's name is
+  long. Only the page changes: nothing in the protocol, the journal or the settings. Nothing to do: the page gets it
+  with the update — thanks: @kalimullin
+- A Codex session's context counter drops after a compaction. Codex does not report the new length, and the bottom line
+  kept the old one: a manual compaction from 182k to about 70k still said 182k until the next turn ended, and waking a
+  session parked right after a compaction over the threshold compacted it again. Now the counter hides until the next
+  model call measures the conversation. Nothing to do to update — thanks: @Eugenius-S
+- The owner's word names a tool also when the name is written without its hyphen: a voice message turns `gpt-image`
+  into "gpt image" or "gptimage", and the hub's `hub tools grant … --for mN` was refused with "the owner's words do not
+  name gpt-image", so the owner got a second card for a tool they had just named. A separator inside a name (`-`, `_`, a
+  dot, a space) now matches any of them, and none only between two parts of 3+ characters: "ai" does not name `a-i`,
+  and "gpt-41" does not name `gpt-4.1` (between two numbers the separator stays as written, and two digits are never
+  glued: "llama370b" does not name `llama3-70b`). A name written as it is still names itself (`foo__bar`, `_private`).
+  "gpt imagery" or "my-gpt-image-2" still do not name `gpt-image`, but
+  "gpt image 2" names both `gpt-image-2` and `gpt-image`. A source, a folder, an `<account>:<name>` key or a catalog
+  entry (`owner/repo`, `C:\x\my_mod`, `name@catalog`) is still said as written. Nothing to do to update
+  — thanks: @Eugenius-S
+- The hub updates a plugin you already have on your word that calls it by its short name. Before, "check and install"
+  on a card about an update of `notes` was refused unless the card said `alice/hub-plugin-notes` in full, and you got a
+  second card. Now a plugin installed by link (`hub market install`) or from a catalog the hub added (`hub marketplace
+  install`) is named by its short name and its key in `hub.json` too: you picked it when you installed it. A new source
+  still has to be named in full, also when it has the same short name as yours (`bob/notes` next to an installed
+  `alice/hub-plugin-notes`). A review of a plugin you have (`hub market review`) now points to `hub market update
+  <name> --reviewed`. Nothing to do to update
+  — thanks: @Eugenius-S
+- On a hub running on Codex, "Sign in" in the "MCP waits for a sign-in" band works when the session that noticed the
+  wait sleeps, as every session does after a restart of the hub. Before, the press was refused and the band only said
+  "did not work", with the reason in a tooltip. Now the core wakes that session with its conversation, the row says
+  "waking <session>…", and the sign-in link comes once the session is up; if it does not come up, the row says so and
+  how to look into it. An executor that handed in its task or that you stopped is not woken this way: the row says to
+  wake it with `hub session wake <name>`. `hub mcp login` waits for such a wake too. On any hub, why a press or a
+  sign-in failed is now a line under the row, readable on a phone too and read once by a screen reader. Nothing to do:
+  it comes with the update — thanks: @Eugenius-S
+- A hub on Codex now shows its limits the way Codex itself does: the share left ("week 47% left"), not the share used
+  ("week 53%"). Side by side with Codex's `/status` the two numbers looked like a hub that lagged or measured wrong. The
+  usage bars of Clean, "Settings → Codex" and `hub codex limits` say it with the word; the one-line limits row under the
+  input and in Clean's sidebar says just the number ("5 h 80% · week 47%", so both windows fit a phone and the sidebar),
+  the word is in its tooltip. The colour still turns orange and red as the window runs out. The "Usage" page and the
+  limit-saving notes ("window week 53%") keep the share used, as their thresholds do; Claude's limits stay as in Claude
+  Code, the share used. Reload the page (⌘R / Ctrl+R) after the update — thanks: @Eugenius-S
+- Two or more hubs on one Windows computer: the `hub` commands of a second hub's Codex sessions and of its schedule jobs
+  went to the main hub. The computer's PATH has the main hub's `hub.cmd`, nothing of the second hub came before it, and
+  the main hub took the other hub's session for one of its own: its `hub send` landed among the main hub's sessions. Now
+  every hub's Codex sessions and schedule jobs find that hub's own `hub` first, and the main hub's `hub` command
+  refuses, in words, a session of another hub of the computer, as a second hub's `hub-<name>` already did. Claude
+  sessions and macOS or Linux were not affected. Nothing to do: it comes with the update's restart; the main hub's
+  `hub` command gets its refusal when the install writes it again — thanks: @Eugenius-S
+
 ## 2026-11-25
 - A backup of the whole hub, and a move to another machine: `hub export` puts the hub into one archive — the agents with
   their profiles, directions with their boards, the schedule, tasks, deputies, contacts, the settings without keys, the

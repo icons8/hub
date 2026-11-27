@@ -15,7 +15,7 @@ import re
 
 from core import coretext, forms
 from core.coretext import T
-from core.machines import LIVE
+from core.machines import LIVE, SLEEP
 
 EVERY = 5 * 60      # how often to ask a live session for status
 RETRY = 10 * 60     # reconnect one server no more often than this
@@ -517,6 +517,11 @@ ACTIVE = ("asked", "open", "sent")
 # why an attempt failed: kept on the attempt (error), the page and `hub mcp login` show it
 GONE = T("core.mcpwatch.gone", "the session the sign-in went through restarted or stopped — the sign-in is broken off, "
          "start again")
+NOT_UP = T("core.mcpwatch.not_up", "{name} was woken for the sign-in but did not come up — start again; if it repeats, "
+           "wake it (hub session wake {name}) and see why it does not start")
+# a holder without the old way (Codex) that a sign-in may wake: one starting already, or asleep — not a retired one
+WAKEABLE = ("starting", *(s for s in SLEEP if s != "retired"))
+WOKE_PENDING = 120   # s: a woken session's servers start with it (npx, a cold machine): its "still connecting" waits longer
 
 
 def confirm_list(raw, mcp=None):
@@ -557,7 +562,9 @@ def _caller(data, what):
 def login_requested(st, ev, data, actions):
     """The owner pressed "Sign in" or a session ran `hub mcp login` (mcp.login_requested {server, fp?, session?,
     confirmed?}): pick the session (the named one first), start an attempt. A server from the confirm list — only with
-    the owner's confirmation (a session never has it). ValueError — why not."""
+    the owner's confirmation (a session never has it). ValueError — why not. No live session and no old way for the
+    holder (Codex: the servers are its thread's own) — the attempt waits for the holder to come up (waking): the session
+    to wake is returned (the reducer wakes it, as a message to it would); one already starting is not woken again."""
     owner = _caller(data, T("core.mcpwatch.caller_login", "an MCP sign-in is started by the owner or a hub session (hub "
                             "mcp login), not by a plugin or module process"))
     server = _server(data)
@@ -600,20 +607,35 @@ def login_requested(st, ev, data, actions):
     if not ready and not held:
         raise Refused(T("core.mcpwatch.no_waiter", "MCP {server} does not wait for a sign-in in any session").format(
             server=server))
-    who = ready[0] if ready else sorted(held, key=lambda x: (x["state"] not in LIVE, x["name"]))[0]
-    if not ready and not _pty_ok(who):
+    # one that can sign in first: the old way, or one starting or asleep (woken); then live ones, a retired one last;
+    # among equals the one named
+    who = ready[0] if ready else sorted(held, key=lambda x: (not (_pty_ok(x) or x["state"] in WAKEABLE),
+                                                             x["state"] not in LIVE, x["state"] == "retired",
+                                                             x["name"] != hint, x["name"]))[0]
+    waking = not ready and not _pty_ok(who) and who["state"] in WAKEABLE
+    if not ready and not _pty_ok(who) and who["state"] == "retired":
+        # handed in its task or stopped by the owner: a message does not wake it, a sign-in does not either (its copy
+        # may be another executor's now, the owner's "stopped" stays)
+        raise Refused(T("core.mcpwatch.retired", "MCP {server} waits for a sign-in only in {name}, and it is stopped "
+                        "(handed in its task or stopped by the owner): a sign-in does not wake it — wake it yourself "
+                        "(hub session wake {name}) and sign in again").format(server=server, name=who["name"]))
+    if not ready and not _pty_ok(who) and not waking:
         raise Refused(T("core.mcpwatch.live_only", "MCP {server} signs in only through a live session ({name}): its "
                         "host knows this server itself, `claude mcp login` will not sign it in — wake the session and sign "
                         "in again").format(server=server, name=who["name"]))
     a = {"id": f"l{ev['seq']}", "server": server, "fp": fp, "session": who["name"], "state": "asked", "ts": ev["ts"],
          "at": ev["ts"], "by": "owner" if owner else "session", **({"host": per[fp]["host"]} if (per.get(fp) or {}).get("host") else {})}
-    if not ready:
+    if waking:   # the sign-in starts once the holder is up (login_gone with its new process)
+        a["waking"] = True
+    elif not ready:
         a["pty"] = True
         # the old way keeps one waiting login per server name (core/mcplogin.work_dir): an earlier one is replaced
         for b in logins.values():
             if b.get("server") == server and b.get("pty") and b.get("state") in ACTIVE:
                 _fail(b, ev, T("core.mcpwatch.replaced", "replaced by a new sign-in to the same server"))
     logins[a["id"]] = a
+    if waking:
+        return who if who["state"] in SLEEP else None
     _start(a, actions)
 
 
@@ -671,7 +693,7 @@ def login_step(st, ev, data, actions):
             coretext.drop(a, "error")
         elif data.get("status") == "connected":
             _done(st, ev, a, actions)
-        elif data.get("status") == "pending" and ev["ts"] - a["ts"] < PENDING:
+        elif data.get("status") == "pending" and ev["ts"] - a["ts"] < (WOKE_PENDING if a.get("woke") else PENDING):
             # the server is still connecting (a session just started): ask again in a second
             actions.append({"do": "mcp_login", "session": a["session"], "server": a["server"], "attempt": a["id"],
                             "delay": 1})
@@ -744,11 +766,19 @@ def callback_given(st, ev, data, actions):
                     **({"pty": True} if a.get("pty") else {})})
 
 
-def login_gone(st, ev, name):
-    """The session's process changed or left: a control-request attempt through it is gone with it."""
+def login_gone(st, ev, name, started=None):
+    """The session's process changed or left: a control-request attempt through it is gone with it. An attempt that waits
+    for the session to come up (waking) starts now when its new process started (started — the actions to add to), and
+    fails when it left without coming up."""
     for a in (st.get("mcp_logins") or {}).values():
-        if a.get("session") == name and a.get("state") in ACTIVE and not a.get("pty"):
-            _fail(a, ev, GONE)
+        if a.get("session") != name or a.get("state") not in ACTIVE or a.get("pty"):
+            continue
+        if a.get("waking") and started is not None:
+            a.pop("waking")
+            a.update(woke=True, ts=ev["ts"], at=ev["ts"])   # its life (LIFE, PENDING) counts from the start
+            _start(a, started)
+        else:
+            _fail(a, ev, NOT_UP.format(name=name) if a.get("waking") else GONE)
 
 
 def polling(st, now):
@@ -761,7 +791,7 @@ def polling(st, now):
 def logins_view(st):
     """The snapshot: sign-in attempts, the latest first (the page shows the state of each server's sign-in); why one
     failed — in the reader's language (the process language: the page server's is the hub's)."""
-    keys = ("id", "server", "host", "fp", "session", "state", "ts", "at", "error", "pty")
+    keys = ("id", "server", "host", "fp", "session", "state", "ts", "at", "error", "pty", "waking")
     return sorted(({k: (error_text(a) if k == "error" else a[k]) for k in keys if k in a}
                    for a in (st.get("mcp_logins") or {}).values() if isinstance(a, dict)),
                   key=lambda a: -(a.get("ts") or 0))

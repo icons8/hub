@@ -3,6 +3,8 @@
 // session). The link opens in a new tab; the browser comes back to the hub by itself when it runs on the hub's machine,
 // otherwise (a phone, another computer) the address from its bar goes back through the field (POST /api/mcp/callback).
 // A server from hub.json mcp_login_confirm (money, production) — after a confirmation. Model and look — PR #325.
+// A holder that sleeps and has no old way (Codex) is woken by the core first: the row says "waking <session>…" until the
+// sign-in starts. Why a press or a sign-in failed is a line of its own under the row, not only a tooltip.
 import { el, icon } from "./dom.js";
 import { clock } from "./clock.js";
 import { post } from "./api.js";
@@ -40,6 +42,8 @@ function stateOf(row, now) {
   const live = now - a.ts < LIFE;
   if (a.state === "done") return { kind: "done" };
   if (a.state === "failed") return { kind: "idle", error: a.error || t("web.mcp.failed"), again: true };
+  // a holder being woken: the attempt's life counts from its start (the core fails it if it does not come up)
+  if (a.state === "asked" && a.waking) return { kind: "waking", name: a.session };
   if (!live) return { kind: "idle", error: t("web.mcp.expired"), again: true };
   if (a.state === "asked") return { kind: "opening" };
   if (a.state === "sent") return { kind: "checking" };
@@ -104,6 +108,15 @@ function rowNode(row, st) {
     r.append(e);
   }
   if (row.sessions) r.append(cross(row));   // a row "signed in" (no sessions any more) goes away by itself
+  // the reasons in words, each on a line of its own under the row (the short "did not work" keeps its place); the
+  // line is what a screen reader reads, once: the short mark keeps neither the reason in its label nor a tooltip
+  for (const e of r.querySelectorAll(".mcpwait-err")) {
+    if (!e.title || e.title === e.textContent) continue;
+    const why = el("div", "mcpwait-why", e.title);
+    if (e.getAttribute("role")) why.setAttribute("role", e.getAttribute("role"));
+    for (const k of ["title", "aria-label", "role"]) e.removeAttribute(k);
+    r.append(why);
+  }
   return r;
 }
 
@@ -131,9 +144,10 @@ function rowBody(row, st) {
   }
   tx.title = tx.textContent;
   r.append(ic, tx);
-  if (st.kind === "opening" || st.kind === "checking" || st.kind === "done") {
-    const w = el("span", st.kind === "done" ? "mcpwait-ok" : "mcpwait-wait",
-      t({ opening: "web.mcp.opening", checking: "web.mcp.checking", done: "web.mcp.done" }[st.kind]));
+  if (st.kind === "opening" || st.kind === "waking" || st.kind === "checking" || st.kind === "done") {
+    const w = el("span", st.kind === "done" ? "mcpwait-ok" : "mcpwait-wait", st.kind === "waking"
+      ? t("web.mcp.waking", { name: st.name || "" })
+      : t({ opening: "web.mcp.opening", checking: "web.mcp.checking", done: "web.mcp.done" }[st.kind]));
     w.setAttribute("role", "status");
     r.append(w);
     return r;

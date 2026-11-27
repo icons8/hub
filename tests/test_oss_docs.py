@@ -289,12 +289,28 @@ class Docs(unittest.TestCase):
         self.assertIn("it comes to your chat as a card", " ".join(sec.split()))
         self.assertIn("not from a pipe, a hub session or a schedule job", " ".join(sec.split()))
 
-    def test_contributing_says_no_external_pull_requests(self):
-        text = read("CONTRIBUTING.md")
-        self.assertRegex(text, r"(?i)not accepting (external )?pull requests")
+    def test_contributing_welcomes_pull_requests_and_says_how(self):
+        # outside pull requests are accepted (owner, 2026-11-27): the section says how to send one and what comes next
+        text = " ".join(read("CONTRIBUTING.md").split())
+        self.assertIn("## Pull requests are welcome", read("CONTRIBUTING.md"))
+        for need in ("Open an issue first for anything larger than a small fix", "One change per pull request",
+                     "A bug fix comes with a test that fails without the change", "`tools/test.py` passes",
+                     "English, and neutral examples", "Fill in the pull request template", "What happens next",
+                     "close the pull request with a thanks", "thanks: @your-login (PR #N)", "CONTRIBUTORS.md",
+                     "tools/contributors.py"):
+            self.assertIn(need, text)
         self.assertIn("SECURITY.md", text)
         self.assertIn("EXTENDING.md", text)
-        self.assertNotIn("Signed-off-by", text)   # DCO is not needed without external PRs — no overpromising
+        self.assertNotIn("Signed-off-by", text)   # no DCO: the licence is the repository's own (LICENSE)
+
+    def test_no_document_says_pull_requests_are_not_accepted(self):
+        # the old rule ("not accepted for now", "closed without review", "maintainers' group") must not survive in any
+        # text a stranger reads: the README, CONTRIBUTING, the PR template, the issue forms and their chooser
+        old = re.compile(r"(?i)not accepting|not accepted for now|closed without review|maintainers' group|"
+                         r"collaborators they invited|just to see")
+        for name in DOCS + FORM_FILES + [FORMS + "/config.yml", "EXTENDING.md"]:
+            for n, line in enumerate(read(name).splitlines(), 1):
+                self.assertIsNone(old.search(line), f"{name}:{n}: the old no-pull-requests rule: {line.strip()}")
 
     def test_contributing_portability_names_only_helpers_that_exist(self):
         # every hub runs the suite on its own machine when it updates (modules/update run_tests): a test red only on
@@ -341,27 +357,23 @@ class Docs(unittest.TestCase):
                 self.assertIn("standard account", line)
         self.assertNotRegex(text, r"(?i)signed[- ]off|git commit -s|\bDCO\b")   # as in CONTRIBUTING: no DCO
 
-    def test_pull_request_template_points_outsiders_to_issues_and_lets_invited_people_carry_on(self):
-        # the same .github reaches the repository that colleagues send pull requests to every day: the notice says
-        # "not accepted" to a stranger and "carry on" to someone invited, and it sits in comments, so a rendered
-        # pull request description stays clean
+    def test_pull_request_template_is_for_any_author_and_points_to_contributing(self):
+        # the notice above the first heading is for every author, a stranger included: it sends them to CONTRIBUTING
+        # (an issue first for a larger change) and sits in comments, so a rendered pull request description stays clean
         text = read(PR_TEMPLATE)
         above = re.split(r"(?m)^## ", text, maxsplit=1)[0]   # everything above the first heading
         notice = " ".join(" ".join(re.findall(r"<!--(.*?)-->", above, re.S)).split())
-        self.assertRegex(notice, r"(?i)not accepted for now")
-        self.assertRegex(notice, r"(?i)open an issue instead")
-        self.assertRegex(notice, r"(?i)invited")
-        self.assertRegex(notice, r"(?i)carry on")
+        self.assertIn("CONTRIBUTING.md", notice)
+        self.assertRegex(notice, r"(?i)larger than a small fix starts with an issue")
+        self.assertRegex(notice, r"(?i)one change per pull request")
         head = re.sub(r"<!--.*?-->", "", above, flags=re.S)
         self.assertEqual(head.strip(), "", "the notice is in comments: nothing visible above the first heading")
 
-    def test_contributing_names_the_forms_and_the_invited(self):
+    def test_contributing_names_the_forms(self):
         text = " ".join(read("CONTRIBUTING.md").split())
         self.assertIn("bug form", text)
         self.assertIn("feature form", text)
         self.assertIn("A blank issue is possible too", text)
-        self.assertIn("collaborators they invited", text)
-        self.assertIn("The pull request template is for them", text)
 
     def test_code_of_conduct_reports_privately(self):
         text = read("CODE_OF_CONDUCT.md")
@@ -562,9 +574,8 @@ class IssueForms(unittest.TestCase):
         self.assertIn("Report a vulnerability", security)   # the button the forms name
         for name in FORM_FILES:
             flat = " ".join(read(name).split())
-            self.assertIn("not accepted for now", flat, name)   # CONTRIBUTING: "not accepting external pull requests"
-            self.assertIn("CONTRIBUTING.md", flat, name)
-            self.assertNotRegex(flat, r"(?i)\b(send|open|submit) (us )?a (pull request|PR)\b|\bPRs? (are )?welcome", name)
+            self.assertRegex(flat, r"(?i)pull request\S* (are|is)? ?welcome|welcome as a pull request", name)
+            self.assertIn("CONTRIBUTING.md", flat, name)   # which says how to send one
         bug, feature = (" ".join(read(n).split()) for n in FORM_FILES)
         self.assertIn("SECURITY.md", bug)
         self.assertIn("Report a vulnerability", bug)

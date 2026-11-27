@@ -1364,6 +1364,9 @@ class Hub:
                 env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(want["compact_min"])
             else:
                 env.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
+        # Codex compacts by itself only at 90% of its own window (475k → 450k, past the hub threshold): a Codex session
+        # gets the hub threshold as its own limit (hosts/codex_set.compact_args), on unless compact_idle.mid_turn is false
+        self.host.compact_limit = None if ci.get("mid_turn") is False else want["compact_min"]
         self.tools = catalog.build(self.config)
         public = redact.public_catalog(self.tools)   # a change of the key alone — no event: the session picks it up
         if public != self.state["catalog"]:          # at the next spawn

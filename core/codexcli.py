@@ -197,7 +197,9 @@ def windows_line(res):
     snap = (res.get("rateLimitsByLimitId") or {}).get("codex") or res.get("rateLimits") or {}
     fact = codex_limits.limits_fact(snap, allowed=res.get("ordinaryUsageAllowed"))
     names = {"five_hour": i18n.t("cli.codex.window_five_hour"), "seven_day": i18n.t("cli.codex.window_seven_day")}
-    parts = [f"{names.get(n, n)} {round((w.get('used') or 0) * 100)}%"
+    # the share left, as Codex's own /status says it ("47% left"), never below 0 (a reading over the limit); the fact
+    # keeps the share used
+    parts = [f"{names.get(n, n)} " + i18n.t("cli.codex.window_left", pct=max(0, 100 - round((w.get('used') or 0) * 100)))
              + (", " + i18n.t("cli.codex.window_resets", when=time.strftime("%d.%m %H:%M", time.localtime(w["resets"])))
                 if w.get("resets") else "")
              for n, w in fact["windows"].items()]

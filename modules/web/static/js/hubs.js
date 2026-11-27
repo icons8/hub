@@ -1,10 +1,10 @@
-// The hub bus on the page (spec hubbus/ux §3.2–3.4, §3.6, §7, §8, §10): Settings → Hubs — «Make an invitation» (A: the
-// first time one consent to the keys, the library and the outside relay, then the invitation — the core's link — and its
-// steps), «Accept an invitation» (B: a preview, then «Accept»; the relay operator's invitation goes into the same
-// field, and right after it «Make an invitation» is offered), the linked hubs with their
-// pair code and «Matches», whose hub it is (a person of the contacts book), «Unlink»; the «Hubs» group of the session list
-// once a hub is linked; a contact's page — the owners' chat (no liaison, no card, no model turn: the press is the
-// owner's word) and the liaison's threads with that hub in the same feed.
+// The hub bus on the page (spec hubbus/ux §3.2–3.4, §3.6, §7, §8, §10): Settings → External hubs — two cards that are always
+// there: «Invite a hub» (A: the first time one consent to the keys, the library and the outside relay, then the invitation,
+// the core's link, and its steps; a made invitation stays in this card with «Copy» and «Make another») and «Accept an
+// invitation» (B: a preview, then «Accept»; the relay operator's invitation goes into the same field); the linked hubs with
+// their pair code and «Codes match», whose hub it is (a person of the contacts book), «Unlink»; the «Hubs» group of the
+// session list once a hub is linked; a contact's page — the owners' chat (no liaison, no card, no model turn: the press is
+// the owner's word) and the liaison's threads with that hub in the same feed.
 // The core decides everything (core/busflow.py in the page server, modules/web/busweb.py); the page only asks. Nothing
 // here depends on a new server: an older one has no /api/bus… and no "bus" in the snapshot's features — then the tab
 // says so and the list has no group.
@@ -25,8 +25,8 @@ const TOLD = "hub.busHeardTold";   // this browser's own marks were told to the 
 const HEARD = "hub.busHeard";   // {contact: the time of the hub's latest word (its owner's or its sessions') seen here}
 const DAY = 24 * 3600;   // seconds: a word a hub sent on its own is in "Now" this long, as a session's (sidebar.js ownNews)
 const V = { view: null, asked: 0, loading: false, job: null, jobAt: 0, texts: new Map(), open: new Set(), adopted: "", consent: false, paste: "",
-  preview: null, previewFor: "", personFor: null, err: "", pasteOpen: false, nameDraft: null, inviteName: null,
-  people: null, invitePerson: { pick: "", fresh: "" }, joinPerson: { pick: "", fresh: "" }, pickPerson: { pick: "", fresh: "" } };
+  preview: null, previewFor: "", goneJob: "", personFor: null, err: "", fails: new Map(), nameDraft: null, inviteName: null,
+  people: null, dismissed: "", seenIds: new Set(), n0: null, shown: "", nameEdit: false, made: null, invitePerson: { pick: "", fresh: "" }, joinPerson: { pick: "", fresh: "" }, pickPerson: { pick: "", fresh: "" } };
 const chats = new Map();      // contact -> {rows, at, loading, draft, confirm, sending, error}
 // 503 — the page server reads the hub's journal anew (a restart, a loaded machine): not a refusal, the same request
 // goes again in a moment and the tab says «Loading…», never a red line
@@ -43,7 +43,6 @@ export const busLinkIn = (text) => busOn() && /hub-link-1:|hub-relay-invite-1:/.
 // «Link this hub» from a session's field: the text goes into the paste field of Settings → Hubs, with its preview
 export function pasteIntoHubs(text) {
   V.paste = text;
-  V.pasteOpen = true;
   V.preview = null;
   localStorage.setItem("hub.settingsTab", "hubs");
   location.hash = "#/settings";
@@ -101,6 +100,7 @@ async function load(force = false) {
   }
   if (!r.error) {
     V.view = r.data; V.err = "";
+    if (V.n0 === null) V.n0 = r.data.job?.n ?? 0;   // the jobs this page did not start
     // the public relay's address is being read from the install's pages: asked again in a moment
     if (r.data.public_relay_reading && !loadLater && shown()) loadLater = setTimeout(() => { loadLater = 0; load(); }, AGAIN);
     if (r.data.job && (!V.job || r.data.job.n >= V.job.n)) V.job = { ...V.job, ...r.data.job };
@@ -111,13 +111,13 @@ async function load(force = false) {
   redraw(!force);   // after the owner's own action — at once; a snapshot's refresh waits for his field
 }
 
-// a made invitation joins the list of open ones, opened (its text comes with the job, once): the form above does not change
+// a made invitation joins the list of open ones, folded (its text comes with the job, once): the card it was made in shows it
 function adopt(j) {
+  noteMade(j);
   if (j?.what !== "link" || j.done?.code !== "ok" || !j.done.id || j.done.id === V.adopted) return;
   V.adopted = j.done.id;   // the job is looked at once, with or without its text (a later view does not ask again)
   if (!j.value) return;
   V.texts.set(j.done.id, j.value);
-  V.open.add(j.done.id);
 }
 
 let jobTimer = 0;
@@ -143,7 +143,8 @@ const pressed = new Map();
 async function start(body, tries = 0) {
   if (!tries) { const going = pressed.has(body.what); pressed.set(body.what, body); if (going) return; }
   body = pressed.get(body.what);
-  V.err = "";
+  const part = body.what === "link" ? "link" : "paste";   // the card of the button that was pressed
+  V.fails.delete(part);
   const r = await post("/api/bus/start", body);
   // the server refused before doing anything: the owner's press goes again by itself for up to a minute
   if (busy(r) && tries < 30 && shown()) {
@@ -155,7 +156,7 @@ async function start(body, tries = 0) {
   V.waiting = false;
   if (r.data?.job) { V.job = r.data.job; if (body.what === "link") V.inviteName = null; pollJob(); }
   else if (r.data?.consent) V.consent = true;
-  else V.err = r.error;
+  else V.fails.set(part, refusal(r));
   redraw();
 }
 
@@ -169,6 +170,7 @@ const STEP_NAMES = () => ({ ssh: t("web.bus.step.ssh"), lib: t("web.bus.step.lib
 
 function steps(job) {
   const ul = el("ul", "bus-steps");
+  ul.setAttribute("role", "status");   // a screen reader says the step that is under way
   const names = STEP_NAMES();
   for (const s of job.steps || []) {
     if (s.state === "skip") continue;
@@ -184,15 +186,39 @@ function steps(job) {
   return ul;
 }
 
-function failure(done) {
+// The page's words for a refusal by its code (the core's texts are written for a terminal: they stay for the codes this
+// table has no line for, and with them the command of a failed install, which is a real remedy). Literal keys: the catalog
+// checks find them by text.
+const REFUSAL = {
+  not_a_link: "web.bus.refuse.not_a_link",
+  bad_link: "web.bus.refuse.bad_invite", bad_invite: "web.bus.refuse.bad_invite", bad_signature: "web.bus.refuse.bad_invite",
+  used: "web.bus.refuse.used", revoked: "web.bus.refuse.used",
+  expired: "web.bus.refuse.expired", stale: "web.bus.refuse.expired",
+  network: "web.bus.refuse.network", unavailable: "web.bus.refuse.network",
+  relay_other: "web.bus.refuse.relay_other", other_relay: "web.bus.refuse.relay_other",
+  own_link: "web.bus.refuse.own_link", own_card: "web.bus.refuse.own_link",
+  card: "web.bus.refuse.card",
+  old_hub: "web.bus.refuse.old_hub",
+};
+
+// a refusal: under the button that caused it, announced at once (role alert); `live` false — a state of the tab, not an answer
+function failure(done, live = true) {
   const box = el("div", "bus-fail");
-  box.append(el("p", null, done.text || done.code));
-  if (done.command) {
+  if (live) box.setAttribute("role", "alert");
+  const page = REFUSAL[done.code];
+  box.append(el("p", null, page ? t(page) : done.text || done.code));
+  if (done.command && !page) {
     box.append(el("p", "hint", t("web.bus.command_hint")));
     box.append(el("code", "bus-cmd", done.command));
   }
   return box;
 }
+// the server's refusal of a press as `failure` takes it; V.fails keeps it by the card (or the card's part) that shows it
+const refusal = (r) => ({ code: r.data?.code, text: r.error, command: r.data?.command });
+const under = (part) => V.fails.has(part) ? [failure(V.fails.get(part))] : [];
+// a press the server refused: said under its button; the next press of that button starts from a clean place
+function refuse(part, r) { V.fails.set(part, refusal(r)); redraw(); }
+const waitLine = (text) => { const p = el("p", "bus-wait", text); p.setAttribute("role", "status"); return p; };
 
 function button(label, cls, onClick) {
   const b = el("button", "btn small " + (cls || ""), label);   // the size of the other Settings tabs' buttons; the fill marks the main one
@@ -255,35 +281,49 @@ function redraw(quiet = false) {
   if (was) [...root.querySelectorAll("button")].find((b) => (was.key ? b.dataset.focusKey === was.key : b.textContent === was.text && home(b) === was.home))?.focus({ preventScroll: true });
 }
 
+let cardShows = "";   // the invitation the card «Invite a hub» shows as ready in this drawing (linkPanel); the list below does not repeat it
 function tabNodes() {
+  cardShows = "";
   if (!busOn()) return [el("p", "lead", t("web.bus.lead")), el("p", "hint", t("web.bus.old_server"))];
   const v = V.view;
   const head = el("div", "bus-head");
   head.append(el("h3", "day", t("web.bus.title")));
   if (v?.enabled) {
     head.append(chip(t("web.bus.on"), "ok"));
-    head.append(button(t("web.bus.off"), "quiet", () => confirmDlg(t("web.bus.off_title"), t("web.bus.off_text"),
-      t("web.bus.off"), async () => { const r = await act("off"); if (r.error) banner(r.error); load(true); })));
+    const off = button(t("web.bus.off"), "quiet", () => confirmDlg(t("web.bus.off_title"), t("web.bus.off_text"),
+      t("web.bus.off"), async () => { const r = await act("off"); if (r.error) banner(r.error); load(true); }));
+    // Clean draws it as a switch, so it is one for a screen reader too: on while the bus runs, named for what it turns off
+    off.setAttribute("role", "switch");
+    off.setAttribute("aria-checked", "true");
+    off.setAttribute("aria-label", t("web.bus.off_label"));
+    head.append(off);
   }
   const out = [head];
   if (!v) { out.push(el("p", "hint", V.err || t("web.bus.loading"))); return out; }
   out.push(namePanel(v));
-  if (v.enabled && v.mode) out.push(modePanel(v));   // a server of the previous release has no mode: no switch
   if (!(v.contacts || []).length) out.push(el("p", "lead", t("web.bus.lead")));
-  if (v.enabled && !v.ready) out.push(failure({ text: t("web.bus.broken", { why: v.failed?.reason || v.failed?.code || "" }) }));
-  // the linked hubs come first; «Make» and «Accept» an invitation are one quiet line under them
+  if (v.enabled && !v.ready) out.push(failure({ text: t("web.bus.broken", { why: v.failed?.reason || v.failed?.code || "" }) }, false));
+  // the linked hubs come first; «Invite a hub» and «Accept an invitation» are two cards under them
   if ((v.contacts || []).length) out.push(el("h3", "day", t("web.bus.contacts")), ...v.contacts.map((c) => contactCard(c, v)));
   // this hub's own check code: what the other owner types when the pair code is not there (the old way)
-  if (v.me?.code && (v.contacts || []).length) out.push(el("p", "hint bus-mecode", t("web.bus.me_code", { code: v.me.code })));
-  out.push(linkPanel(v), ...[pastePanel(v)].filter(Boolean));
-  if (V.waiting) out.push(el("p", "hint", t("web.bus.loading")));
+  if (v.me?.code && (v.contacts || []).length) {
+    const mine = el("p", "hint bus-mecode", t("web.bus.me_code", { code: v.me.code }));
+    mine.append(document.createElement("br"), t("web.bus.me_code_for"));   // what the code is for: the other owner types it to check this hub
+    out.push(mine);
+  }
+  out.push(linkPanel(v), pastePanel(v));
+  if (V.waiting) { const wait = el("p", "hint", t("web.bus.loading")); wait.setAttribute("role", "status"); out.push(wait); }
   else if (V.err) out.push(el("p", "bus-err", V.err));
   const joins = (v.joins || []).filter((j) => j.state === "active" || j.state === "cancelling");
   if (joins.length) out.push(el("h3", "day", t("web.bus.joins")), ...joins.map(joinRow));
   if ((v.links || []).length) out.push(el("h3", "day", t("web.bus.open_links")), linksList(v));
   const more = el("details", "set-more");
   keepOpen(more, "hubs:more");   // the tab is redrawn with every snapshot
-  more.append(el("summary", null, t("web.bus.advanced")), el("p", "hint", t("web.bus.advanced_text")));
+  const sum = el("summary", null, t("web.bus.advanced") + " ");
+  sum.append(el("span", "hint bus-more-what", t("web.bus.advanced_what")));
+  more.append(sum);
+  if (v.enabled && v.mode) more.append(modeRow(v));   // a server of the previous release has no mode: no switch
+  more.append(el("p", "hint", t("web.bus.advanced_text")));
   if (v.me) more.append(el("p", "hint", t("web.bus.me", { label: v.me.label || "", fp: v.me.fp })));
   if (v.relay) more.append(el("p", "hint", t("web.bus.relay_is", { url: v.relay.url })));
   out.push(more);
@@ -291,11 +331,30 @@ function tabNodes() {
 }
 
 // this hub's own name for the other hubs: the one required setting. Until it is given, no invitation is made and none is
-// accepted; the field is above them all and says why. The text is kept in the field through the page's redraws.
+// accepted; the card is above them all and says why. Once it is given the name is one line, «Hub name · Change»; «Change»
+// opens the card again. The text is kept in the field through the page's redraws.
+// «Run by linked hubs»: the owner turned the mode on on purpose, so it is a plain chip (not a warning), and its tooltip says
+// what the mode does
+function modeChip() {
+  const c = chip(t("web.bus.mode_chip"), "mute");
+  c.title = t("web.bus.mode_remote_on");
+  return c;
+}
 function namePanel(v) {
+  if (v.name && !V.nameEdit) {
+    const line = el("div", "bus-name-line");
+    line.dataset.part = "name";
+    const change = button(t("web.bus.name_change"), "quiet", () => { V.nameEdit = true; redraw(); root?.querySelector(".bus-hubname-in")?.focus({ preventScroll: true }); });
+    change.dataset.focusKey = "name:change";
+    line.append(el("span", "hint", t("web.bus.name_label")), el("b", "bus-name-now", v.name), change);
+    // «Advanced» is folded and holds the switch: while linked hubs run this hub, it is said here
+    if (v.mode === "remote") line.append(modeChip());
+    return line;
+  }
   const box = el("section", "bus-panel bus-hubname" + (v.name ? "" : " unset"));
   box.dataset.part = "name";
-  box.append(el("b", null, t("web.bus.name_title")), el("p", "hint", v.name ? t("web.bus.name_hint") : t("web.bus.name_unset")));
+  box.append(el("h4", null, t("web.bus.name_title")), el("p", "hint", v.name ? t("web.bus.name_hint") : t("web.bus.name_unset")));
+  if (v.mode === "remote") box.append(modeChip());
   const f = el("input", "bus-hubname-in");
   f.type = "text";
   f.maxLength = 100;
@@ -303,50 +362,61 @@ function namePanel(v) {
   f.value = V.nameDraft ?? v.name ?? "";
   f.setAttribute("aria-label", t("web.bus.name_title"));
   f.dataset.keepFocus = "name";
+  const close = () => { V.nameDraft = null; V.nameEdit = false; };
   const save = async () => {
     const text = f.value.trim();
-    if (!text) return void banner(t("web.bus.name_empty"));
-    if (text === v.name) { V.nameDraft = null; return; }
+    V.fails.delete("name");
+    if (!text) return void refuse("name", { error: t("web.bus.name_empty") });
+    if (text === v.name) { close(); return redraw(); }
     const r = await act("name", { text });
-    if (r.error) return void banner(r.error);
-    V.nameDraft = V.inviteName = null;
+    if (r.error) return void refuse("name", r);
+    V.inviteName = null;
+    close();
     f.blur();   // the page redraws from the snapshot that carries the name: a field in use would make it wait
     banner(t("web.bus.name_saved"));
     load(true);
   };
   f.addEventListener("input", () => { V.nameDraft = f.value; });
-  f.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+  f.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    else if (e.key === "Escape" && v.name) { e.preventDefault(); close(); f.blur(); redraw(); }
+  });
   const row = el("div", "bus-row");
   row.append(f, button(t("web.bus.name_save"), v.name ? "quiet" : "primary", save));
-  box.append(row);
+  if (v.name) row.append(button(t("web.bus.cancel"), "quiet", () => { close(); V.fails.delete("name"); redraw(); }));
+  box.append(row, ...under("name"));
   return box;
 }
 
 // the liaison's mode: someone sits at this page (the liaison decides), or nobody does and the linked hubs run the hub —
-// their words go to the hub session as the owner's task, forms are refused with whom to ask (spec d2505378, part D, remote)
-function modePanel(v) {
+// their words go to the hub session as the owner's task, forms are refused with whom to ask (spec d2505378, part D, remote).
+// It sits in «Advanced»: most hubs never change it
+function modeRow(v) {
   const remote = v.mode === "remote";
-  const box = el("section", "bus-panel bus-mode");
+  const box = el("div", "bus-mode");
   box.dataset.part = "mode";
   const l = el("label", "opt");
   const sw = el("input");
   sw.type = "checkbox";
   sw.checked = remote;
   sw.dataset.act = "bus-mode";
+  sw.setAttribute("role", "switch");
   l.append(sw, " ", el("span", null, t("web.bus.mode_remote")));
-  box.append(l, el("p", "hint", t(remote ? "web.bus.mode_remote_on" : "web.bus.mode_remote_off")));
+  box.append(l, el("p", "hint", t(remote ? "web.bus.mode_remote_on" : "web.bus.mode_remote_off")), ...under("mode"));
   sw.addEventListener("change", async () => {
     const want = sw.checked;
     sw.disabled = true;
+    V.fails.delete("mode");
     const r = await act("mode", { mode: want ? "remote" : "secretary" });
     sw.disabled = false;
-    if (r.error) { sw.checked = !want; return void banner(r.error); }
+    if (r.error) { sw.checked = !want; return void refuse("mode", r); }
     load(true);
   });
   return box;
 }
 
-// the name in this invitation alone: the hub's own, changeable here without touching the setting
+// the name in this invitation alone: the hub's own, changeable here without touching the setting; folded under «Sign with
+// another name» (open while a name of its own is typed)
 function inviteName(v) {
   const f = el("input", "bus-invite-name");
   f.type = "text";
@@ -355,8 +425,13 @@ function inviteName(v) {
   f.setAttribute("aria-label", t("web.bus.invite_name"));
   f.dataset.keepFocus = "invite";
   f.addEventListener("input", () => { V.inviteName = f.value; });
-  const box = el("label", "bus-invite-field");
-  box.append(el("span", null, t("web.bus.invite_name")), f, el("span", "hint", t("web.bus.invite_name_hint")));
+  const field = el("label", "bus-invite-field");
+  field.append(el("span", null, t("web.bus.invite_name")), f, el("span", "hint", t("web.bus.invite_name_hint")));
+  const box = el("details", "set-more bus-sign");
+  keepOpen(box, "hubs:sign", !!inviteLabel(v));
+  // folded, the section no longer holds a name the owner cannot see: the invitation is signed with the hub's own
+  box.addEventListener("toggle", () => { if (!box.open && V.inviteName != null) { V.inviteName = null; f.value = v.name ?? ""; } });
+  box.append(el("summary", null, t("web.bus.sign_as")), field);
   return box;
 }
 const inviteLabel = (v) => {
@@ -406,23 +481,47 @@ const personSpec = (o) => o.pick === NEW ? (o.fresh.trim() ? { new: o.fresh.trim
 // a hub's name with its person beside it, wherever the page shows the hub
 const hubName = (c) => c.person ? c.label + " · " + c.person : c.label;
 
+// the invitation just made and still open: it stays in the card it was made in (the list below is for showing it again
+// and for withdrawing it). One made after this page was opened (a job newer than the one the first view carried) is shown
+// at once, before the view has listed it; once listed and gone (accepted, withdrawn, expired), or after a reload that
+// finds it not listed, the card is the form again
+const madeHere = () => (V.made?.n ?? 0) > (V.n0 ?? 0);
+// the last invitation made is kept in V.made: a job of another kind that comes after it (an invitation accepted before
+// this one is sent) does not take the card away
+function noteMade(j) {
+  if (j?.what === "link" && j.done?.code === "ok" && j.done.id && (!V.made || j.n >= V.made.n)) V.made = { id: j.done.id, n: j.n, exp: j.done.exp };
+}
+function readyId(v) {
+  noteMade(V.job);
+  const id = V.made?.id || "";
+  if (!id || !V.texts.has(id) || V.dismissed === id) return "";
+  if ((v.links || []).some((l) => l.id === id)) { V.seenIds.add(id); return id; }
+  return madeHere() && !V.seenIds.has(id) ? id : "";
+}
+
+// «Invite a hub»: the fields, then the button. A made invitation takes the place of the form in this card
 function linkPanel(v) {
-  const box = el("section", "bus-panel");
+  const box = el("section", "bus-panel bus-invite");
   box.dataset.part = "link";
   const job = V.job && V.job.what === "link" ? V.job : null;
   if (job && !job.done) {
-    box.append(el("b", null, t("web.bus.preparing")), steps(job), el("p", "hint", t("web.bus.preparing_hint")));
+    box.append(el("h4", null, t("web.bus.preparing")), steps(job), el("p", "hint", t("web.bus.preparing_hint")));
     return box;
   }
+  const made = readyId(v);
+  if (made) { cardShows = made; return invitationReady(box, v, made); }
+  box.append(el("h4", null, t("web.bus.invite_card")));
+  // the refusal of the press stands under the button (below), not above the fields
+  const failed = [];
   if (job?.done && job.done.code !== "ok") {
-    box.append(el("b", null, t("web.bus.link_failed")), steps(job));
+    failed.push(el("b", null, t("web.bus.link_failed")), steps(job));
     // a hub that is on no relay yet: the one way out, in the page's words (not the core's with a terminal command)
-    box.append(job.done.code === "no_relay" ? el("p", null, t("web.bus.need_invite")) : failure(job.done));
+    failed.push(job.done.code === "no_relay" ? el("p", null, t("web.bus.need_invite")) : failure(job.done));
   }
   const taken = V.job?.what === "join" && V.job.done?.code === "ok" && V.job.done.url ? V.job.done : null;
   if (V.consent && !v.enabled) {
     box.dataset.part = "consent";
-    box.append(el("b", null, t("web.bus.consent_title")));
+    box.append(el("h4", null, t("web.bus.consent_title")));
     const ul = el("ul", "bus-consent");
     for (const k of ["web.bus.consent_keys", "web.bus.consent_lib", "web.bus.consent_relay", "web.bus.consent_nothing"])
       ul.append(el("li", null, t(k)));
@@ -430,39 +529,64 @@ function linkPanel(v) {
     const row = el("div", "bus-row");
     row.append(button(t("web.bus.consent_go"), "primary", () => personBad(V.invitePerson) ? banner(t("web.bus.person_new_ph")) : start({ what: "link", consent: true, ttl: ttlChoice, label: inviteLabel(v), person: personSpec(V.invitePerson) })),
       button(t("web.bus.cancel"), "quiet", () => { V.consent = false; redraw(); }));
-    box.append(ul, row);
+    box.append(ul, row, ...failed, ...under("link"));
     return box;
   }
   // the first hub of a relay has just taken its invitation: the next step is the button right under this line
   if (taken) box.append(el("div", "bus-banner", t("web.bus.relay_joined", { url: taken.url })));
+  if (!(v.contacts || []).length) box.append(el("p", "hint", t("web.bus.link_hint")));
+  if (v.name) box.append(personField(V.invitePerson, { label: t("web.bus.person_invite"), hint: t("web.bus.person_hint") }), ttlField(), inviteName(v));
+  else box.append(el("p", "hint", t("web.bus.need_name")));
+  // no relay yet: «Make an invitation» takes the public one this hub was installed with — said here, with the way to one's own
+  if (v.enabled && v.public_relay) box.append(el("p", "hint", t("web.bus.public_relay", { url: v.public_relay })));
   const row = el("div", "bus-row");
   const make = button(t("web.bus.link"), "primary", () => (v.enabled ? personBad(V.invitePerson) ? banner(t("web.bus.person_new_ph")) : start({ what: "link", ttl: ttlChoice, label: inviteLabel(v), person: personSpec(V.invitePerson) })
     : (V.consent = true, redraw(), load(true))));
-  if (!v.name) make.disabled = true;   // nothing is made without the hub's name (the field above says so)
-  row.append(make, ttlSelect());
-  // «Accept an invitation» is always at hand: the field itself while no hub is linked, later a button of this row
-  if (pasteFolded(v)) row.append(button(t("web.bus.paste_title"), "quiet", () => { V.pasteOpen = true; redraw(); focusPaste(); }));
-  box.append(row);
-  box.append(v.name ? inviteName(v) : el("p", "hint", t("web.bus.need_name")));
-  if (v.name) box.append(personField(V.invitePerson, { label: t("web.bus.person_invite"), hint: t("web.bus.person_hint") }));
-  if (!(v.contacts || []).length) box.append(el("p", "hint", t("web.bus.link_hint")));
-  // no relay yet: «Link» takes the public one this hub was installed with — said here, with the way to one's own
-  if (v.enabled && v.public_relay) box.append(el("p", "hint", t("web.bus.public_relay", { url: v.public_relay })));
+  if (!v.name) make.disabled = true;   // nothing is made without the hub's name (the card above says so)
+  row.append(make);
+  box.append(row, ...failed, ...under("link"));
   return box;
 }
 
-// the field of «Accept an invitation» is shown at once while no hub is linked; later — by its button, or while it is in use
-function pasteFolded(v) {
-  if (!(v.contacts || []).length || V.pasteOpen || V.paste || V.preview) return false;
-  const j = V.job?.what === "join" ? V.job : null;
-  return !(j && (!j.done || j.done.code !== "ok"));
+// the made invitation in its card: what it is, the link, «Copy» in view, how the other owner accepts it, «Make another»
+function invitationReady(box, v, id) {
+  const text = V.texts.get(id), l = (v.links || []).find((x) => x.id === id);
+  const exp = l?.exp ?? V.made?.exp;
+  if (V.shown !== id) {   // just made here: the press that made it took the keyboard's place, «Copy» is the next step
+    V.shown = id;
+    const home = !document.activeElement || document.activeElement === document.body || root?.contains(document.activeElement);
+    if (madeHere()) queueMicrotask(() => { if (home) root?.querySelector(`[data-focus-key="copy:${id}"]`)?.focus(); });
+  }
+  box.append(el("h4", null, t("web.bus.invite_card")), el("div", "bus-banner", t("web.bus.ready")), linkBox(text));
+  const row = el("div", "bus-row");
+  if (canCopy()) {
+    const copy = button(t("web.bus.copy"), "primary", async () => {
+      try { await navigator.clipboard.writeText(text); banner(t("web.bus.copied")); } catch { banner(t("web.bus.copy_failed")); }
+    });
+    copy.dataset.focusKey = "copy:" + id;
+    row.append(copy);
+  } else row.append(el("span", "hint", t("web.bus.select_hint")));
+  if (exp) row.append(el("span", "hint bus-ttl", t("web.bus.link_term", { until: when(exp) })));
+  box.append(row, el("p", "hint", t("web.bus.ready_how")));
+  if (l && !l.posted && l.invite) box.append(el("p", "hint", t("web.bus.link_unposted")));
+  box.append(waitLine(t("web.bus.link_waiting")));
+  const again = button(t("web.bus.make_another"), "quiet", () => {
+    V.dismissed = id;
+    V.invitePerson = { pick: "", fresh: "" };
+    redraw();
+    root?.querySelector(".bus-invite .bus-person")?.focus({ preventScroll: true });
+  });
+  again.dataset.focusKey = "again";
+  const last = el("div", "bus-row");
+  last.append(again);
+  box.append(last);
+  return box;
 }
-function focusPaste() { root?.querySelector(".bus-paste")?.focus({ preventScroll: true }); }
 
 let ttlChoice = "24h";
-function ttlSelect() {
+// «Valid for»: the term has its own visible label (it had only an aria-label)
+function ttlField() {
   const s = el("select", "bus-ttl-pick");
-  s.setAttribute("aria-label", t("web.bus.ttl_label"));
   for (const [k, label] of [["1h", t("web.bus.ttl_1h")], ["24h", t("web.bus.ttl_24h")], ["7d", t("web.bus.ttl_7d")]]) {
     const o = el("option", null, label);
     o.value = k;
@@ -470,25 +594,29 @@ function ttlSelect() {
     s.append(o);
   }
   s.addEventListener("change", () => { ttlChoice = s.value; });
-  return s;
+  const box = el("label", "bus-ttl-field");
+  box.append(el("span", null, t("web.bus.ttl_label")), s);
+  return box;
 }
 
 let previewTimer = 0;
+const jobKey = (job) => job.n + ":" + job.ts;   // one job of the server (its counter starts again with the server)
 function pastePanel(v) {
-  if (pasteFolded(v)) return null;
-  const box = el("section", "bus-panel");
+  const box = el("section", "bus-panel bus-accept");
   box.dataset.part = "paste";
   const job = V.job && V.job.what === "join" ? V.job : null;
   if (job && !job.done) {
-    box.append(el("b", null, t("web.bus.joining", { label: job.steps.find((s) => s.step === "join:run")?.text || "" })),
+    box.append(el("h4", null, t("web.bus.joining", { label: job.steps.find((s) => s.step === "join:run")?.text || "" })),
       steps(job), el("p", "hint", t("web.bus.joining_hint")));
     return box;
   }
+  // a refusal of the accepted invitation stands under the field it was pasted into (the button that was pressed is gone)
+  const failed = [];
   if (job?.done) {
     const d = job.done;
     // «Linked: …» is a toast (busNews) and the contact's card right below: no banner of its own here
-    if (d.code === "waiting" || d.code === "queued") box.append(el("p", "bus-wait", d.text));
-    else if (d.code !== "ok") box.append(steps(job), failure(d));
+    if (d.code === "waiting" || d.code === "queued") box.append(waitLine(d.text));
+    else if (d.code !== "ok" && V.goneJob !== jobKey(job)) failed.push(steps(job), failure(d));
   }
   const area = el("textarea", "bus-paste");
   area.dataset.keep = "1";
@@ -498,15 +626,17 @@ function pastePanel(v) {
   area.value = V.paste;
   area.addEventListener("input", () => {
     V.paste = area.value;
-    if (area.value) V.pasteOpen = true;   // emptied by hand: the field stays
+    // the text is another one now: the refusal of the one before (a press the server refused, an invitation that failed) is not about it
+    V.fails.delete("paste");
+    if (job?.done) V.goneJob = jobKey(job);
     clearTimeout(previewTimer);
     previewTimer = setTimeout(() => look(area.value), 250);
   });
-  box.append(el("b", null, t("web.bus.paste_title")), area);
+  box.append(el("h4", null, t("web.bus.paste_title")), area);
   const p = V.preview && V.previewFor === V.paste ? V.preview : null;
   if (p) box.append(previewNode(p, v));
-  else if (!(v.contacts || []).length) box.append(el("p", "hint", t("web.bus.paste_hint")));
-  else box.append(button(t("web.bus.cancel"), "quiet", () => { V.pasteOpen = false; V.paste = ""; V.preview = null; redraw(); }));
+  else box.append(el("p", "hint", t("web.bus.paste_hint")));
+  box.append(...failed, ...under("paste"));
   return box;
 }
 
@@ -515,7 +645,7 @@ async function look(text) {
   const r = await act("preview", { text });
   if (text !== V.paste) return;
   if (unread(r)) setTimeout(() => { if (V.paste === text && shown()) look(text); }, AGAIN);   // the same text, in a moment
-  V.preview = unread(r) ? { wait: true } : r.error ? { error: r.error, command: r.data?.command } : r.data;
+  V.preview = unread(r) ? { wait: true } : r.error ? { error: r.error, code: r.data?.code, command: r.data?.command } : r.data;
   V.previewFor = text;
   const had = document.activeElement === root?.querySelector(".bus-paste");
   redraw();   // the preview shows while the field has focus; the field comes back focused
@@ -525,7 +655,7 @@ async function look(text) {
 function previewNode(p, v) {
   const box = el("div", "bus-preview");
   if (p.wait) { box.append(el("p", "hint", t("web.bus.loading"))); return box; }
-  if (p.error) { box.append(el("p", "bus-err", p.error)); if (p.command) box.append(el("code", "bus-cmd", p.command)); return box; }
+  if (p.error) { box.append(failure({ code: p.code, text: p.error, command: p.command })); return box; }
   // one field, one button: a hub's invitation and the first hub's one (a relay's) are accepted the same way
   const invite = p.kind === "invite";
   box.append(el("p", "bus-q", invite ? t("web.bus.invite_q", { url: p.relay }) : t("web.bus.link_q", { label: p.label })));
@@ -541,9 +671,9 @@ function previewNode(p, v) {
     kv(t("web.bus.kv_term"), when(p.exp));
   }
   const row = el("div", "bus-row");
-  const join = button(t("web.bus.join"), "primary", () => { if (personBad(V.joinPerson)) return void banner(t("web.bus.person_new_ph")); const text = V.paste, person = personSpec(V.joinPerson); V.paste = ""; V.pasteOpen = false; V.preview = null; V.joinPerson = { pick: "", fresh: "" }; return start({ what: "join", text, person }); });
+  const join = button(t("web.bus.join"), "primary", () => { if (personBad(V.joinPerson)) return void banner(t("web.bus.person_new_ph")); const text = V.paste, person = personSpec(V.joinPerson); V.paste = ""; V.preview = null; V.joinPerson = { pick: "", fresh: "" }; return start({ what: "join", text, person }); });
   if (!v.name) join.disabled = true;   // the pasted text stays while the hub gets its name
-  row.append(join, button(t("web.bus.cancel"), "quiet", () => { V.paste = ""; V.pasteOpen = false; V.preview = null; redraw(); }));
+  row.append(join, button(t("web.bus.cancel"), "quiet", () => { V.paste = ""; V.preview = null; redraw(); }));
   box.append(dl, ...(invite ? [] : [personField(V.joinPerson, { label: t("web.bus.person_from"), hint: t("web.bus.person_hint") })]), row);
   if (!v.name) box.append(el("p", "hint", t("web.bus.need_name")));
   if (invite) box.append(el("p", "hint", t("web.bus.invite_hint")));
@@ -585,6 +715,7 @@ function linksList(v) {
     row.dataset.link = l.id;
     const text = V.texts.get(l.id), opened = V.open.has(l.id) && !!text;
     row.append(inviteWho(l));
+    const inCard = l.id === cardShows;   // its text is in the card above: «Show» would draw the link and «Copy» twice
     const show = button(opened ? t("web.bus.hide") : t("web.bus.show"), "quiet", async () => {
       if (opened) V.open.delete(l.id);
       else {
@@ -599,10 +730,11 @@ function linksList(v) {
     });
     show.dataset.focusKey = "show:" + l.id;
     const acts = el("span", "bus-acts");   // the two buttons wrap together on a narrow screen
-    acts.append(show, revokeButton(l));
+    if (!inCard) acts.append(show);
+    acts.append(revokeButton(l));
     row.append(acts);
     item.append(row);
-    if (opened) item.append(inviteOpen(l, text));
+    if (opened && !inCard) item.append(inviteOpen(l, text));
     box.append(item);
   }
   return box;
@@ -635,13 +767,14 @@ function inviteOpen(l, text) {
   row.append(el("span", "hint bus-ttl", t("web.bus.link_term", { until: when(l.exp) })));
   body.append(row, el("p", "hint", t("web.bus.link_send_hint")));
   if (!l.posted && l.invite) body.append(el("p", "hint", t("web.bus.link_unposted")));
-  body.append(el("p", "bus-wait", t("web.bus.link_waiting")));
+  body.append(waitLine(t("web.bus.link_waiting")));
   return body;
 }
 
 // the pair code and «Matches» (spec §3.6, §5.2): the same line on both pages; no code — the old way, the code is typed.
 // Only until the code is compared: after it the code is a small line by the name (codeNote)
-function codeRow(c, after) {
+// `part` — where the refusal of «Codes match» stands (under the row, in the card of the tab); none — a toast (a hub's own page)
+function codeRow(c, after, part) {
   const row = el("div", "bus-row bus-code");
   if (c.code) row.append(el("span", "hint", t("web.bus.code")), el("span", "bus-code-line", c.code));
   // our introduction went, the other hub's answer carries the code: nothing to type or compare before it (an older
@@ -659,8 +792,11 @@ function codeRow(c, after) {
     row.append(typed);
   }
   row.append(button(t("web.bus.matches"), "primary", async () => {
+    if (part) V.fails.delete(part);
     const r = await act("verify", { name: c.name, ...(typed ? { code: typed.value } : {}) });
-    if (r.error) banner(r.error); else banner(t("web.bus.verified_now", { label: c.label }));
+    if (r.error && part) V.fails.set(part, refusal(r));
+    else if (r.error) banner(r.error);
+    else banner(t("web.bus.verified_now", { label: c.label }));
     load(true); after?.();
   }));
   return row;
@@ -749,15 +885,14 @@ function contactCard(c, v) {
   if (c.quarantine) top.append(chip(t("web.bus.quarantine"), "warn"));
   if (c.verified && c.code) top.append(el("span", "bus-code-line quiet", c.code));   // compared: small, for the record
   const acts = el("span", "bus-acts");
-  acts.append(button(t("web.bus.write"), "primary", () => { location.hash = "#/hub/" + encodeURIComponent(c.name); }),
-    button(t("web.bus.unlink"), "quiet danger", () => askUnlink(c)));
+  acts.append(button(t("web.bus.write"), "primary", () => { location.hash = "#/hub/" + encodeURIComponent(c.name); }));
   top.append(acts);
   box.append(top);
   if (!c.verified) {
-    box.append(codeRow(c));
+    box.append(codeRow(c, null, "code:" + c.name), ...under("code:" + c.name));
     if (!c.code_wait) box.append(el("p", "hint", t(c.code ? "web.bus.code_hint" : "web.bus.code_hint_typed")));
   }
-  box.append(personRow(c));
+  box.append(personRow(c, button(t("web.bus.unlink"), "quiet danger bus-unlink", () => askUnlink(c))));   // quiet text in the contact line
   // the person is the owner's deputy (core/deputies.py): their area in his words; set in the terminal or by the hub
   if (c.deputy) {
     const d = el("div", "hint bus-deputy", t("web.bus.deputy", { zone: c.deputy.zone })
@@ -777,7 +912,7 @@ export function askUnlink(c, after) {
 }
 
 // whose hub this is (a person of the contacts book): the line on the hub's card, «Link to a contact» opens the choice
-function personRow(c) {
+function personRow(c, unlink) {
   const box = el("div", "bus-personrow");
   box.dataset.person = c.name;
   const line = el("div", "bus-row");
@@ -788,22 +923,25 @@ function personRow(c) {
       V.pickPerson = { pick: c.person && (V.people || []).some((p) => p.name === c.person) ? c.person : "", fresh: "" };
       redraw();
     }));
+    if (unlink) line.append(unlink);
     box.append(line);
     return box;
   }
+  if (unlink) line.append(unlink);
   box.append(line, personField(V.pickPerson, { label: t("web.bus.person_title"), hint: t("web.bus.person_hint") }));
   const row = el("div", "bus-row");
   row.append(button(t("web.bus.save"), "primary", async () => {
     if (personBad(V.pickPerson)) return void banner(t("web.bus.person_new_ph"));
     const spec = personSpec(V.pickPerson);
+    V.fails.delete("person:" + c.name);
     const r = await act("person", { name: c.name, person: spec === undefined ? null : spec });
-    if (r.error) return void banner(r.error);
+    if (r.error) return void refuse("person:" + c.name, r);
     V.personFor = null;
     V.people = null;
     banner(t(spec === undefined ? "web.bus.person_cleared" : "web.bus.person_saved", { label: c.label }));
     load(true);
-  }), button(t("web.bus.cancel"), "quiet", () => { V.personFor = null; redraw(); }));
-  box.append(row);
+  }), button(t("web.bus.cancel"), "quiet", () => { V.personFor = null; V.fails.delete("person:" + c.name); redraw(); }));
+  box.append(row, ...under("person:" + c.name));
   return box;
 }
 

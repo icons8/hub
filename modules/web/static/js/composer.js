@@ -335,8 +335,13 @@ export function buildComposer(props) {
   // transcribed belongs to his next message.
   // Returns send(text, client_id) for those words, with .session (whose feed shows it meanwhile; none for a card's answer)
   // and .drop() (nothing was sent: cancelled, no speech, the transcription failed — the reply, the cards and the aim come
-  // back unless he has pointed the field elsewhere since). A field without aim() (a plugin's) sends the old way: null
+  // back unless he has pointed the field elsewhere since). A field without aim() (a plugin's) sends the old way: null.
+  // So does a field whose aim, body or before throws: the recording still goes, addressed when it is transcribed — else
+  // the voice message was lost and the field stayed on "recognizing" with nothing behind it
   function lock() {
+    try { return locked(); } catch (err) { console.error(err); return null; }
+  }
+  function locked() {
     if (!o.aim) return null;
     const at = { aim: o.aim(), body: o.body, send: o.send, holdLinks: o.holdLinks, failed: o.failed, restore: o.restore,
       files: new Set(S.pending[key] || []), draft: S.drafts[key] || "" };

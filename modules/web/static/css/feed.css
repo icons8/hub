@@ -386,7 +386,7 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
 .mcpwait { border-bottom: 1px solid color-mix(in oklab, var(--warning) 35%, var(--border));
   background: color-mix(in oklab, var(--warning) 9%, var(--card)); }
 .mcpwait[hidden] { display: none; }
-.mcpwait-row { display: flex; align-items: center; gap: var(--space-3); min-height: 40px; box-sizing: border-box;
+.mcpwait-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); min-height: 40px; box-sizing: border-box;
   padding: 6px var(--space-6); font-size: var(--text-sm); color: var(--foreground); }
 .mcpwait-row + .mcpwait-row { border-top: 1px solid color-mix(in oklab, var(--warning) 20%, var(--border)); }
 .mcpwait-ic { display: inline-flex; flex: none; color: color-mix(in oklab, var(--warning) 70%, var(--foreground)); }
@@ -395,6 +395,9 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
 .mcpwait-who { color: var(--muted-foreground); }
 .mcpwait-row .btn { flex: none; }
 .mcpwait-err { flex: none; font-size: var(--text-xs); color: var(--destructive); cursor: help; }
+/* why a press or a sign-in failed: a line of its own under the row, under the server name */
+.mcpwait-why { flex: 1 1 100%; min-width: 0; margin-top: calc(var(--space-3) * -1 + 2px); padding-inline-start: calc(16px + var(--space-3));
+  font-size: var(--text-xs); color: var(--destructive); overflow-wrap: anywhere; }
 .mcpwait-ok { flex: none; font-size: var(--text-xs); color: var(--success); white-space: nowrap; }
 .mcpwait-wait { display: inline-flex; flex: none; align-items: center; gap: 6px; font-size: var(--text-xs);
   color: var(--muted-foreground); white-space: nowrap; }
@@ -420,6 +423,7 @@ main > .btn.jumpnew .n { min-width: 1.64em; height: 1.64em; padding: 0 0.45em; b
   .mcpwait-err + .btn { margin-inline-start: 0; }
   .mcpwait-link { flex: 1 1 calc(100% - 28px); flex-wrap: wrap; }
   .mcpwait-link .mcpwait-wait, .mcpwait-link .mcpwait-err { margin-inline-start: 0; }
+  .mcpwait-why { margin-top: 0; padding-inline-start: 28px; }
   .mcpwait-link input { flex: 1 1 100%; height: 40px; font-size: var(--text-sm); }
   .mcpwait-row .btn { min-height: 40px; } }
 @media (prefers-reduced-motion: reduce) { .mcpwait-wait::before { animation: none; } }

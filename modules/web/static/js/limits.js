@@ -4,6 +4,7 @@ import { el, time } from "./dom.js";
 import { clock } from "./clock.js";
 import { S } from "./state.js";
 import { locale, t } from "./i18n.js";
+import { countsDown, pctNum, pctText } from "./limitpct.js";
 
 const NAMES = { five_hour: t("web.limits.name_five_hour"), seven_day: t("web.limits.name_week"),
   seven_day_opus: t("web.limits.name_week_opus"), seven_day_sonnet: t("web.limits.name_week_sonnet") };
@@ -28,7 +29,7 @@ function codexWin(name) {
 }
 
 // compact, no bars, in the status line under the input: just the 5-hour window and its percentage, then the week and
-// its percentage: "5 h 47% · week 68%"; the reset time goes in the tooltip
+// its percentage: "5 h 47% · week 68%"; the reset time goes in the tooltip (Codex: the share left, "left" in the tooltip)
 export function limitsLine() {
   const lim = S.snap?.limits;
   const wins = Object.entries(lim?.windows || {}).filter(([, w]) => typeof w.used === "number");
@@ -38,6 +39,7 @@ export function limitsLine() {
   // the limits of a Codex sign-in (the fact's engine) are not Claude's
   line.setAttribute("aria-label", t(lim.engine === "codex" ? "web.limits.cx_f_label" : "web.limits.label"));
   const now = Date.now() / 1000;
+  const down = countsDown(lim), left = t("web.limits.left");   // Codex: the share left, as its /status says; the word — in the tooltip
   if (S.snap?.accounts?.on) {
     // Claude accounts are on: show whose limit this is; a click opens the limits of all accounts
     const name = S.snap.account?.active;
@@ -62,9 +64,10 @@ export function limitsLine() {
     const used = gone ? 0 : Math.round(w.used * 100);
     const seg = el("span", "limseg");
     seg.dataset.level = used >= 80 ? "high" : used >= 60 ? "warn" : "ok";   // from 80% the number turns red
+    const pct = pctText(used, down, left);
     seg.title = `${NAMES[name] || codexWin(name) || name}: ` + (gone ? t("web.accounts.window_reset")
-      : `${used}%` + (w.resets ? t("web.limits.resets", { when: when(w.resets) }) : ""));
-    seg.append(el("span", "limname", SHORT[name] || codexWin(name) || name), el("span", "limpct", gone ? "—" : `${used}%`));
+      : pct + (w.resets ? t("web.limits.resets", { when: when(w.resets) }) : ""));
+    seg.append(el("span", "limname", SHORT[name] || codexWin(name) || name), el("span", "limpct", gone ? "—" : pctNum(used, down)));
     line.append(seg);
   }
   if (lim.status === "rejected") line.append(el("span", "limseg limstop", t("web.limits.exhausted")));
