@@ -114,12 +114,160 @@ def _a_project(path, state_dir):
     return "/.claude/worktrees/" not in p + "/" and p != state and not p.startswith(state + "/")
 
 
-def import_set(state_dir, name, env=None):
+def import_set(state_dir, name, env=None, risk=(), session=False):
+    """A plugin set Claude Code knows (known_marketplaces) into `sets`. risk — the words every plugin of the set carries
+    (hub.json sets[].risk, catalog.set_risk; the plugins' own keywords and what their files run stay on top): a new set
+    is written with them; one already in the hub takes them as the owner gives them, from a session they are only added
+    (as import mcp/skill). No words given — a set already in the hub is left as it is. Before this the words were
+    dropped: `import set <name> --risk code,prod` kept the catalog as it was and said "added"."""
     found = next((s for s in discover(state_dir, env)["sets"] if s["name"] == name), None)
     if not found:
         raise ValueError(i18n.t("core.mine.no_set", name=name))
-    if not found["in_hub"]:
-        _write_cfg(state_dir, env, lambda c: c.setdefault("sets", []).append({"name": name, "path": found["path"]}))
+    risk = _words(risk)
+
+    def put(c):
+        sets = c.setdefault("sets", [])
+        if not found["in_hub"]:
+            sets.append({"name": name, "path": found["path"], **({"risk": risk} if risk else {})})
+            return
+        mine_ = _set_record(c, name, found["path"])
+        if risk and mine_ is not None:
+            mine_["risk"] = sorted(set(risk) | set(catalog.set_risk(mine_))) if session else risk
+    if not found["in_hub"] or risk:
+        _write_cfg(state_dir, env, put)
+
+
+def _words(risk):
+    """Risk words as given on the command line: strings, no empties, each once, sorted."""
+    return sorted({r for r in risk or [] if isinstance(r, str) and r})
+
+
+def _set_record(cfg, name, path=None):
+    """The record of a set in hub.json by its name, or by its folder when a path is given (discover: in_hub by either)."""
+    for s in cfg.get("sets") or []:
+        if isinstance(s, dict) and (s.get("name") == name or path and isinstance(s.get("path"), str)
+                                    and os.path.realpath(s["path"]) == os.path.realpath(path)):
+            return s
+    return None
+
+
+def _own_entry(cfg, tool):
+    """What of the hub's own settings a catalog id names: ("mcp", name) — a server of hub.json `mcp`; ("skill", name) —
+    a personal skill <name>@my-skills; ("set", record) — a plugin set by its name; ("set_plugin", set name) — a plugin
+    of a set, which is not an entry of its own (the set carries it); None — nothing the settings hold."""
+    if tool in (cfg.get("mcp") or {}):
+        return "mcp", tool
+    name, at, set_name = tool.partition("@")
+    if at and set_name == MY_SKILLS and name:
+        return "skill", name
+    rec = _set_record(cfg, tool)
+    if rec is not None:
+        return "set", rec
+    if at and _set_record(cfg, set_name) is not None:
+        return "set_plugin", set_name
+    return None
+
+
+def _refuse(tool, kind):
+    if kind and kind[0] == "set_plugin":
+        return ValueError(i18n.t("core.mine.set_plugin", name=tool, set=kind[1]))
+    return ValueError(i18n.t("core.mine.not_own", name=tool))
+
+
+def set_risk(state_dir, tool, risk, env=None, session=False):
+    """`hub tools risk <id> r1,r2`: the risk words of an entry the hub's settings hold — an MCP server (hub.json mcp), a
+    personal skill (<skill>@my-skills: its keywords in the set's manifest) or a plugin set by its name (sets[].risk: every
+    plugin of the set). The owner writes them as given; a session only adds (as import). -> the words written. A plugin
+    of another set has no record of its own: refused with the set's name."""
+    cfg = catalog.read_settings(_cfg_path(state_dir, env))
+    kind = _own_entry(cfg, tool)
+    if not kind or kind[0] == "set_plugin":
+        raise _refuse(tool, kind)
+    risk, out = _words(risk), []
+    if kind[0] == "skill":
+        root = os.path.join(state_dir, MY_SKILLS)
+        market_path = os.path.join(root, ".claude-plugin", "marketplace.json")
+        market = catalog.read_settings(market_path)
+        p = next((p for p in market.get("plugins") or [] if isinstance(p, dict) and p.get("name") == kind[1]), None)
+        if p is None:
+            raise _refuse(tool, None)
+        had = catalog._risk([k for k in p.get("keywords") or [] if isinstance(k, str)])
+        out = sorted(set(risk) | set(had)) if session else risk
+        p["keywords"] = [k for k in p.get("keywords") or [] if not (isinstance(k, str) and k.startswith("risk:"))] + \
+            [f"risk:{r}" for r in out]
+        with open(market_path, "w", encoding="utf-8") as f:
+            json.dump(market, f, ensure_ascii=False, indent=2)
+        return out
+
+    def put(c):
+        nonlocal out
+        k = _own_entry(c, tool)
+        if not k or k[0] != kind[0]:   # changed under us (the page, another import)
+            raise _refuse(tool, k)
+        if k[0] == "mcp":
+            m = c["mcp"][tool] if isinstance(c["mcp"][tool], dict) else {}
+            out = _session_risk(risk, m.get("risk")) if session else risk
+            c["mcp"][tool] = {**m, "risk": out}
+        else:
+            out = sorted(set(risk) | set(catalog.set_risk(k[1]))) if session else risk
+            k[1]["risk"] = out
+    _write_cfg(state_dir, env, put, private=kind[0] == "mcp")
+    return out
+
+
+def remove(state_dir, tool, env=None):
+    """`hub tools remove <id>`: an entry out of the hub's catalog — an MCP server out of hub.json `mcp`, a personal skill
+    out of the my-skills set (its wrapper plugin: the link and the manifest, never the skill itself in ~/.claude/skills),
+    a plugin set out of `sets` (its folder stays). Sessions that hold the id keep it in their list: a tool not in the
+    catalog is skipped at their launch (catalog._set_of). A plugin of another set is refused: the set carries it."""
+    cfg = catalog.read_settings(_cfg_path(state_dir, env))
+    kind = _own_entry(cfg, tool)
+    if not kind or kind[0] == "set_plugin":
+        raise _refuse(tool, kind)
+    if kind[0] == "skill":
+        _remove_skill(state_dir, kind[1])
+        return
+
+    def put(c):
+        k = _own_entry(c, tool)
+        if not k or k[0] != kind[0]:
+            raise _refuse(tool, k)
+        if k[0] == "mcp":
+            del c["mcp"][tool]
+        else:
+            c["sets"] = [s for s in c["sets"] if s is not k[1]]
+    _write_cfg(state_dir, env, put)
+
+
+def _remove_skill(state_dir, name):
+    """The wrapper plugin of a personal skill (import_skill) out of my-skills: the entry of the manifest, then its folder
+    file by file — the link to the skill goes as a link (the skill behind it is the owner's), nothing else is deleted:
+    a file that is not the wrapper's stays and the folder with it."""
+    root = os.path.join(state_dir, MY_SKILLS)
+    market_path = os.path.join(root, ".claude-plugin", "marketplace.json")
+    market = catalog.read_settings(market_path)
+    plugins = [p for p in market.get("plugins") or [] if isinstance(p, dict)]
+    if not any(p.get("name") == name for p in plugins):
+        raise ValueError(i18n.t("core.mine.not_own", name=f"{name}@{MY_SKILLS}"))
+    market["plugins"] = [p for p in plugins if p.get("name") != name]
+    with open(market_path, "w", encoding="utf-8") as f:
+        json.dump(market, f, ensure_ascii=False, indent=2)
+    plugin = os.path.join(root, "plugins", name)
+    link = os.path.join(plugin, "skills", name)
+    if os.path.lexists(link):
+        try:
+            os.unlink(link)          # a symbolic link
+        except OSError:
+            os.rmdir(link)           # a junction or a directory link on Windows: rmdir takes the link, not the folder
+    for rel in ((".claude-plugin", "plugin.json"),):
+        path = os.path.join(plugin, *rel)
+        if os.path.isfile(path):
+            os.remove(path)
+    for folder in (os.path.join(plugin, "skills"), os.path.join(plugin, ".claude-plugin"), plugin):
+        try:
+            os.rmdir(folder)
+        except OSError:   # not empty (not ours) or already gone: it stays
+            pass
 
 
 def import_mcp(state_dir, name, about, risk, env=None, session=False):

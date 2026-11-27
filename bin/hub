@@ -1205,7 +1205,7 @@ def tools_cmd(rest):
         risk, about = risk.split(",") if risk else [], about or ""
         try:
             if what == "set":
-                mine.import_set(STATE, name)
+                mine.import_set(STATE, name, risk=risk, session=bool(ME))   # the set's risk: every plugin of it
             elif what == "skill":
                 mine.import_skill(STATE, name, risk, session=bool(ME))
             elif what == "mcp" and about:
@@ -1225,6 +1225,31 @@ def tools_cmd(rest):
             print(i18n.t("cli.tools.import_added", name=name))
         else:
             print(i18n.t("cli.tools.import_written", name=name))
+        return
+    if sub in ("remove", "risk") and len(rest) == (2 if sub == "remove" else 3):
+        # an entry the hub's settings hold (core/mine): out of the catalog, or its risk words; the same gate as import
+        from core import mine
+        if ME and (st["sessions"].get(ME) or {}).get("kind") != "hub":
+            sys.exit(i18n.t("cli.tools.import_not_hub"))
+        tool = rest[1]
+        try:
+            if sub == "risk":
+                got = mine.set_risk(STATE, tool, rest[2].split(","), session=bool(ME))
+                print(i18n.t("cli.tools.risk_set", name=tool, risk=", ".join(got) or "—"))
+                return
+            mine.remove(STATE, tool)
+        except ValueError as e:
+            sys.exit(str(e))
+        gone = lambda c: not any(t == tool or t.endswith("@" + tool) for t in c)   # noqa: E731 — a set: all of its plugins
+        end = time.time() + float(os.environ.get("HUB_CLI_WAIT", "5"))
+        while not gone(current().get("catalog") or {}) and time.time() < end:
+            time.sleep(0.3)
+        print(i18n.t("cli.tools.removed" if gone(current().get("catalog") or {}) else "cli.tools.remove_written",
+                     name=tool))
+        held = sorted(n for n, x in st["sessions"].items() if x.get("state") != "removed"
+                      and any(t == tool or t.endswith("@" + tool) for t in x.get("tools") or []))
+        if held:
+            print(i18n.t("cli.tools.remove_held", names=", ".join(held), name=tool))
         return
     if sub == "request" and len(rest) >= 3 and ME:
         from core.tools import resolve   # a name without @catalog goes to the journal as a full id if there is only one (the core checks again)

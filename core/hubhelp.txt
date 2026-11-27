@@ -706,7 +706,17 @@ hub tools import set|skill <name> [--risk r1,r2]
 hub tools import mcp <name> --about "…" [--risk r1,r2]
 : add to the hub's catalog
 --about "…"  what it can do (MCP)
---risk r1,r2  risks; from the hub a risk already set stays, and an MCP without one gets owner-data
+--risk r1,r2  risks (code, prod, money, external, owner-data); a set's go to every plugin of it; from the hub a risk already set stays, and an MCP without one gets owner-data
+@ hub, owner
+
+hub tools remove <id>
+: take an entry the settings hold out of the catalog
+  An MCP server (hub.json mcp), a personal skill (<skill>@my-skills: its wrapper, the skill itself stays) or a whole plugin set by its name. A plugin of another set is not an entry of its own: the set carries it. A session that holds the id gets nothing at its next start; now — hub tools revoke.
+@ hub, owner
+
+hub tools risk <id> <r1,r2>
+: the risk words of an entry the settings hold: an MCP, <skill>@my-skills, or a set's name (every plugin of the set)
+  Words: code, prod, money, external, owner-data. The owner writes them as given; from the hub a word already set stays.
 @ hub, owner
 
 hub mcp login <session> <server> [--no-browser] [--redirect '<address>'] [--confirm]
